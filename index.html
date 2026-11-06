@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Shell Phone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Between Shell and a terminal: Shell's warm paper and terracotta, mono for names and labels, sans for what people say.
+   The colours live in THEME below, so a room could pick its own later. */
+html, body { margin: 0; height: 100%; background: #f5f1e8; overflow: hidden; }
+body { position: fixed; inset: 0; }  /* iPhone: stop Safari sliding the whole page up under the keyboard */
+vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+#note { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 9; font: 12px "JetBrains Mono", monospace; background: #fffdf6; color: #c4531e; border: 1px solid #c4531e; padding: 6px 12px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 10px rgba(24,16,10,.12); }
+#bring { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 14px; z-index: 1000; font: 600 12px "JetBrains Mono", monospace; color: #c4531e; border: 1px solid #d6ccba; padding: 5px 10px; border-radius: 8px; text-decoration: none; background: #fffdf6; }
+#note::before { content: "> "; }
+#note:empty { display: none; }
+.seen { display: inline-flex; gap: 1px; vertical-align: middle; margin-left: 3px; }
+.seen img { width: 15px; height: 15px; image-rendering: pixelated; }
+#gnaw { position: fixed; left: 12px; bottom: calc(var(--kb, 0px) + 78px + env(safe-area-inset-bottom)); z-index: 9; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+#gnaw .w { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; background: #fffdf6ee; border: 1px solid #d6ccba; border-radius: 8px; font: 600 12px "JetBrains Mono", monospace; animation: glow 2.4s ease-in-out infinite; }
+#gnaw img { width: 26px; height: 26px; image-rendering: pixelated; animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
+#gnaw .lore { background: linear-gradient(90deg, #c4531e, #b8862b, #3a6644, #8a4f9e, #2f8a7a, #c4531e) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cook 2.4s linear infinite; }
+#gnaw .lore.new { animation: cook 2.4s linear infinite, step .25s ease-out; }
+@keyframes cook { to { background-position: -300% 0; } }
+@keyframes chew { 50% { transform: scaleY(.9) translateY(1px); } }
+@keyframes bob { 50% { translate: 0 -2px; } }
+@keyframes glow { 50% { box-shadow: 0 0 0 1px #c4531e44, 0 2px 12px #c4531e22; } }
+@keyframes step { from { transform: translateY(6px); opacity: 0; } }
+</style>
+<script src="vendor/vue-advanced-chat-2.1.2.umd.js"></script>
+</head>
+<body>
+<vue-advanced-chat id="chat"></vue-advanced-chat>
+<a id="bring" href="join">+ wolt</a>
+<div id="note"></div>
+<div id="gnaw"></div>
+<script>
+// Shell Phone on vue-advanced-chat (MIT). The room server is unchanged: this page only maps its log to the component and back.
+const SPRITES = {
+  raccoon: { map: ["...BB........BBB.........","...BFGG.....GFFB.........","...BABB.....BAAB.........","...BCAABBBBBACCB.........","...BAAAAAAAAAAAB.........","...BCCCCAAACCCCB.........","...BCBCCAAACCCCB.........",".BBCCBBCBCCCBCBCB........",".BBACBBCAAACBCCAB........",".BBCAAADHHHDAAACB...BBB..",".BBCAAADHHHDAAACB...BBB..","...BCAADDDDDAEEB...BCCCB.","....BCCCCEEECBB....BAAACB","...BAAAAAAAAAAAB...BCCCBB","...BAAAAAAAAAAAB...BCCCCB",".BBAAAAAAAAAAAAAB..BAAAAB",".BBAABBAAAAABAAAB..BCCCCB",".BBAAAABAAABAAAABBBAACCCB",".GGFAAABAAABAAAAGBBAABBCG","BAABAAABAAABAAABABBCAAAB.","BAAABBBBAAABBBBAABBCCBB..","BCCAAAAAAAAAAAAACBBBB....",".BBBBGGAAAAAGBBBB........",".BBCCBBAAAAABCCCB........","...BBBBBBBBBBBBB........."],
+    colors: { A: "#7f8894", B: "#282c33", C: "#40454b", D: "#f0ecf0", E: "#545c65", F: "#a0abbd", G: "#050029", H: "#efa09f" } },
+  beaver: { map: ["..AAA........AAA.....",".ABBBA......ABBBA....",".ABAAAAAAAAAAAABA....",".ABABBBBBBBBBAABA....","..ABBBBBBBBBBBAA.....","..ABABBBBAEBBBAA.....","..ABABBBBAEBBBAA.....",".ABBAAAABAEBBBBA.....",".ABACAACCCFABBBA.....",".ABACCACCCFABBBA.AAA.",".ABBAAAAAAEBBBAAADDDA","..ABBCAFABBBBAA.AADDA","...ABAAAABBBBBBAADADA","..ABBBBBBBBBBBBAADDAA",".ABBABCCCAEBBBBBAADDA",".ABBACCCABBBBABBADADA",".AGGACCCAGGGGABBADADA","..AAACCCAAAAABBBADDA.","..ABCCCCCCFABBBBAAAA.",".AAABCCCCAAAABBBAA...","ABBBACCCABBBBBBAA....","AAAAAAAAAAAAAAAA....."],
+    colors: { A: "#3f190e", B: "#af6127", C: "#fce6b0", D: "#773c1f", E: "#050003", F: "#fffee7", G: "#dd7a2d" } },
+};
+// While a wolt works, its sprite chews above the box with a line of lore, like the Becky app.
+const LORE = {
+  beaver: ["Gnawing on it…", "Hauling some logs…", "Patching the dam…", "Packing the mud…", "Stacking branches…", "Slapping the tail…"],
+  raccoon: ["Gnawing on it…", "Rummaging through the bins…", "Washing it in the creek…", "Sniffing out the bug…", "Stashing the shiny bits…", "Peeking under the lid…"],
+};
+const $ = (id) => document.getElementById(id);
+const chat = $("chat");
+const dark = false;  // light paper, like Shell
+const THEME = { bg: "#f5f1e8", panel: "#fffdf6", line: "#d6ccba", text: "#18100a", dim: "#8a7a68", accent: "#c4531e" };
+const q = new URLSearchParams(location.search);
+if (q.get("as")) document.cookie = "as=" + encodeURIComponent(q.get("as")) + "; path=/; SameSite=Strict";
+window["vue-advanced-chat"].register();
+
+const svgUri = (svg) => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+function spriteRects(creature) {
+  const { map, colors } = SPRITES[creature] || SPRITES.raccoon;
+  let rects = "";
+  map.forEach((row, y) => [...row].forEach((c, x) => { if (colors[c]) rects += `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="${colors[c]}"/>`; }));
+  return { rects, side: Math.max(map.length, ...map.map((r) => r.length)) };
+}
+// Avatars carry the person's colour: a filled circle for a person, their colour as a ring behind each of their wolts.
+function personAvatar(name, color) {
+  const ch = (name || "?").trim()[0].toUpperCase().replace(/[<&]/g, "");
+  return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="${color}"/><text x="20" y="26" text-anchor="middle" font-family="monospace" font-weight="700" font-size="18" fill="#fff">${ch}</text></svg>`);
+}
+function woltAvatar(creature, color) {
+  const { rects, side } = spriteRects(creature);
+  const pad = side * 0.25, box = side + pad * 2;
+  return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${box} ${box}" shape-rendering="crispEdges"><circle cx="${side / 2}" cy="${side / 2}" r="${box / 2 - 1}" fill="${color}33" stroke="${color}" stroke-width="1.6"/>${rects}</svg>`);
+}
+
+let state = { me: "", title: "shell", members: { people: [], wolts: [] }, working: {} };
+let after = 0, msgs = [], byId = {}, heard = new Set(), first = true, queue = [], player = null, shown = {};
+const person = (email) => state.members.people.find((p) => p.email === email) || { name: email, color: "#8a6a52" };
+const woltId = (w) => "wolt:" + w;
+
+function users() {
+  return [
+    ...state.members.people.map((p) => ({ _id: p.email, username: p.name, avatar: personAvatar(p.name, p.color) })),
+    ...state.members.wolts.map((w) => ({ _id: woltId(w.wolt), username: w.wolt, avatar: woltAvatar(w.creature, person(w.owner).color) })),
+  ];
+}
+// "@testie" in the log becomes a clickable tag; a tag picked in the box goes back to the log as "@testie".
+function toTags(text) {
+  const names = new Map(users().map((u) => [u.username.toLowerCase(), u._id]));
+  return text.replace(/(^|\s)@([\w-]+)/g, (all, sp, n) => names.has(n.toLowerCase()) ? `${sp}<usertag>${names.get(n.toLowerCase())}</usertag>` : all);
+}
+function fromTags(text) {
+  const byIdU = new Map(users().map((u) => [u._id, u.username]));
+  return text.replace(/<usertag>(.*?)<\/usertag>/g, (all, id) => "@" + (byIdU.get(id) || id));
+}
+
+function toMessage(m) {
+  const d = new Date(m.at * 1000);
+  const human = m.kind === "human";
+  const owner = human ? m.email : m.owner;
+  const files = m.file ? [{ name: m.file.name.replace(/\.[^.]*$/, ""), extension: m.file.type, type: m.file.type, url: m.file.url, size: m.file.size }] : undefined;
+  const base = {
+    _id: m.id, indexId: m.n, senderId: human ? m.email : woltId(m.wolt),
+    username: human ? person(m.email).name : `${m.wolt} · ${owner === state.me ? "yours" : person(owner).name + "'s"}`,
+    avatar: human ? personAvatar(person(m.email).name, person(m.email).color) : woltAvatar(m.creature, person(owner).color),
+    content: toTags(m.text || ""), date: d.toLocaleDateString([], { day: "numeric", month: "long" }),
+    timestamp: d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    saved: true, distributed: true, disableReactions: true,
+  };
+  // The component shows a lone voice note without its words, so the words and the voice note are two bubbles, like a transcript.
+  const out = [{ ...base, content: base.content, files }];
+  if (m.audio) out.push({ ...base, _id: m.id + ":voice", indexId: m.n + 0.5, content: "", disableActions: true,
+                          files: [{ name: "voice", type: "mp3", audio: true, url: "voice/" + m.audio, size: 0 }] });
+  return out;
+}
+
+function slashCommands() {
+  const mine = state.members.wolts.filter((w) => w.owner === state.me).map((w) => "@" + w.wolt);
+  const all = state.members.wolts.map((w) => "@" + w.wolt).join(" ");
+  const others = state.members.wolts.filter((w) => w.owner !== state.me).map((w) => "@" + w.wolt);
+  return [
+    { tag: "status", text: `${all} what are you each working on right now?` },
+    { tag: "review", text: `${others[0] || all} please review ` },
+    { tag: "summary", text: `${mine[0] || all} sum up what this room decided so far` },
+    { tag: "handoff", text: `${mine[0] || all} write a handoff for ${others[0] || "the others"}: what's done, what's next, what's risky` },
+  ];
+}
+
+function set(prop, value) {  // the component re-renders on every set, so only set what changed
+  const v = typeof value === "string" ? value : JSON.stringify(value);
+  if (shown[prop] === v) return;
+  shown[prop] = v;
+  chat.setAttribute(prop, v);
+}
+
+function render() {
+  set("current-user-id", state.me);
+  set("styles", styles());
+  set("rooms", [{
+    roomId: "room", roomName: state.title || "shell",
+    avatar: personAvatar(state.title || "shell", "#1f7a45"), users: users(),
+    typingUsers: [],  // #gnaw shows who's working instead
+  }]);
+  set("templates-text", slashCommands());
+  set("messages", msgs.flatMap(toMessage));
+  set("messages-loaded", "true");
+  hackerCss();
+  gnaw();
+  receipts();
+}
+// Read receipts: each wolt that read your message leaves its sprite where the checkmark goes. Working ones also chew in #gnaw.
+function receipts() {
+  for (const m of msgs) {
+    if (m.kind !== "human" || m.email !== state.me) continue;
+    const who = (state.seen || {})[m.id] || [];
+    if (!who.length) continue;
+    const slot = "checkmark-icon_" + m.id, sig = who.join(",");
+    let el = chat.querySelector(`[slot="${slot}"]`);
+    if (el && el.dataset.sig === sig) continue;
+    if (!el) { el = document.createElement("span"); el.slot = slot; el.className = "seen"; chat.append(el); }
+    el.dataset.sig = sig; el.title = "Read by " + who.join(", "); el.replaceChildren();
+    for (const name of who) {
+      const w = state.members.wolts.find((x) => x.wolt === name);
+      const img = document.createElement("img"); img.alt = name;
+      img.src = woltAvatar(w ? w.creature : "raccoon", person(w ? w.owner : "").color); el.append(img);
+    }
+  }
+}
+let loreTick = 0;
+function gnaw() {
+  const on = state.members.wolts.filter((w) => (state.working || {})[w.wolt]);
+  const box = $("gnaw");
+  box.querySelectorAll(".w").forEach((n) => { if (!on.some((w) => w.wolt === n.dataset.wolt)) n.remove(); });
+  for (const w of on) {
+    if (box.querySelector(`[data-wolt="${w.wolt}"]`)) continue;
+    const row = document.createElement("div"); row.className = "w"; row.dataset.wolt = w.wolt;
+    const img = document.createElement("img"); img.src = woltAvatar(w.creature, person(w.owner).color); img.alt = "";
+    const line = document.createElement("span"); line.className = "lore";
+    row.append(img, line); box.append(row); setLore(row, w);
+  }
+}
+function setLore(row, w) {
+  const lines = LORE[w.creature] || LORE.beaver, line = row.querySelector(".lore");
+  line.textContent = `${w.wolt}: ${lines[(loreTick + w.wolt.length) % lines.length]}`;
+  line.classList.remove("new"); void line.offsetWidth; line.classList.add("new");
+}
+setInterval(() => { loreTick++; $("gnaw").querySelectorAll(".w").forEach((row) => {
+  const w = state.members.wolts.find((x) => x.wolt === row.dataset.wolt); if (w) setLore(row, w); }); }, 2400);
+
+// iPhone Safari doesn't shrink the page for the keyboard, so size the chat to the part of the screen that's still visible.
+function fit() {
+  const h = window.visualViewport ? Math.round(visualViewport.height) + "px" : "100dvh";
+  document.documentElement.style.setProperty("--vh", h);
+  if (window.visualViewport) document.documentElement.style.setProperty("--kb", Math.max(0, innerHeight - visualViewport.height) + "px");
+  chat.setAttribute("height", h);
+  window.scrollTo(0, 0);
+}
+fit();
+if (window.visualViewport) { visualViewport.addEventListener("resize", fit); visualViewport.addEventListener("scroll", () => window.scrollTo(0, 0)); }
+chat.setAttribute("single-room", "true");
+chat.setAttribute("room-id", "room");
+chat.setAttribute("show-add-room", "false");
+chat.setAttribute("show-search", "false");
+chat.setAttribute("show-reaction-emojis", "false");
+chat.setAttribute("theme", dark ? "dark" : "light");
+chat.setAttribute("message-actions", JSON.stringify([{ name: "replyMessage", title: "Reply" }]));
+chat.setAttribute("username-options", JSON.stringify({ minUsers: 0, currentUser: false }));
+chat.setAttribute("text-messages", JSON.stringify({ TYPE_MESSAGE: "$ message, @wolt, or /", MESSAGES_EMPTY: "Nobody has said anything yet. Tag a wolt with @ to bring it in.", IS_TYPING: "is compiling a reply…" }));
+function mix(hex, to, t) {  // blend a colour toward white or black, so text stays readable on it
+  const c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [a, b] = [c(hex), c(to)];
+  return "#" + a.map((v, i) => Math.round(v + (b[i] - v) * t).toString(16).padStart(2, "0")).join("");
+}
+function styles() {  // terminal colours; your bubbles still wear your colour
+  const mine = person(state.me).color, T = THEME;
+  return { general: { color: T.text, colorCaret: T.accent, backgroundColorButton: mine, colorButtonClear: T.accent,
+                      backgroundInput: T.bg, colorPlaceholder: T.dim, colorSpinner: T.accent, borderStyle: `1px solid ${T.line}` },
+           container: { borderRadius: "0", boxShadow: "none" },
+           header: { background: T.panel, colorRoomName: T.accent, colorRoomInfo: T.dim },
+           footer: { background: T.panel, borderStyleInput: `1px solid ${T.line}`, borderInputSelected: T.accent,
+                     backgroundReply: T.bg, backgroundTagActive: T.line, backgroundTag: T.panel },
+           content: { background: T.bg },
+           dropdown: { background: T.panel, backgroundHover: T.line },
+           message: { background: T.panel, backgroundMe: mix(mine, "#ffffff", 0.82), color: T.text,
+                      colorUsername: T.dim, colorTimestamp: T.dim, backgroundDate: T.panel, colorDate: T.dim,
+                      backgroundReply: "rgba(196,83,30,.07)", colorReplyUsername: T.accent, colorReply: T.dim,
+                      colorTag: T.accent, colorNewMessages: T.accent, backgroundScrollCounter: T.accent, colorScrollCounter: "#fff",
+                      backgroundAudioLine: T.line, backgroundAudioProgress: mine, backgroundAudioProgressSelector: T.accent },
+           markdown: { background: T.bg, border: T.line, color: T.accent, colorMulti: T.text },
+           icons: { send: T.accent, sendDisabled: T.dim, paperclip: T.accent, file: T.accent, microphone: T.accent,
+                    document: T.accent, audioPlay: T.accent, audioPause: T.accent, close: T.dim, dropdownScroll: T.text } };
+}
+// Things the style props can't reach: mono everywhere, square corners, a blinking prompt, terminal-style names.
+function hackerCss() {
+  const root = chat.shadowRoot;
+  if (!root || root.getElementById("hacker")) return;
+  const st = document.createElement("style"); st.id = "hacker";
+  st.textContent = `
+    * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    .vac-room-name, .vac-room-info, .vac-text-username, .vac-text-timestamp, .vac-card-date, .vac-textarea::placeholder { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace !important; letter-spacing: -.01em; }
+    .vac-message-card { border-radius: 12px !important; box-shadow: none !important; border: 1px solid ${THEME.line}; }
+    .vac-message-current .vac-message-card { border-color: ${THEME.line}; }
+    .vac-room-header { border-bottom: 1px solid ${THEME.line}; }
+    .vac-room-name::before { content: "~/"; color: ${THEME.dim}; }
+    .vac-room-name::after { content: "_"; color: ${THEME.accent}; animation: blink 1s steps(1) infinite; }
+    .vac-text-username { text-transform: lowercase; }
+    .vac-text-username::before { content: "["; } .vac-text-username::after { content: "]"; }
+    .vac-box-footer { border-top: 1px solid ${THEME.line}; }
+    .vac-textarea { border-radius: 10px !important; font-size: 16px !important; }  /* under 16px, iPhone zooms in on focus */
+    .vac-textarea:focus { box-shadow: 0 0 0 1px ${THEME.accent}; }
+    .vac-avatar { image-rendering: pixelated; }
+    .vac-card-date { border-radius: 8px !important; text-transform: uppercase; font-size: 11px; }
+    @keyframes blink { 50% { opacity: 0; } }`;
+  root.appendChild(st);
+}
+
+function playNext() {
+  if (player || !queue.length) return;
+  const id = queue.shift(), m = byId[id];
+  if (!m || !m.audio) return playNext();
+  player = new Audio("voice/" + m.audio);
+  const done = () => { player = null; playNext(); };
+  player.onended = done; player.onerror = done;
+  player.play().catch(() => { player = null; queue.unshift(id); $("note").textContent = "Tap to hear new voice notes"; });
+}
+document.addEventListener("pointerdown", () => { $("note").textContent = ""; playNext(); });
+
+async function poll() {
+  try {
+    const r = await fetch("api/state?after=" + after, { cache: "no-store" });
+    if (r.status === 403) { $("note").textContent = "You're not on this room's list."; return; }
+    const s = await r.json();
+    state = s;
+    for (const m of s.messages) {
+      after = Math.max(after, m.n);
+      if (m.kind === "patch") {
+        if (byId[m.of]) Object.assign(byId[m.of], { audio: m.audio });
+        if (!first && m.audio && byId[m.of] && byId[m.of].kind === "wolt" && !heard.has(m.of)) { heard.add(m.of); queue.push(m.of); }
+        continue;
+      }
+      if (m.kind !== "human" && m.kind !== "wolt") continue;
+      byId[m.id] = m; msgs.push(m);
+    }
+    render();
+    first = false;
+    playNext();
+  } catch (e) { $("note").textContent = "Can't reach the room, trying again…"; }
+  setTimeout(poll, 2000);
+}
+
+async function say(url, init) {
+  const r = await fetch(url, init);
+  if (!r.ok) $("note").textContent = (await r.json().catch(() => ({}))).error || "That didn't send.";
+}
+chat.addEventListener("fetch-messages", () => set("messages-loaded", "true"));
+chat.addEventListener("send-message", async (e) => {
+  const { content, files, replyMessage } = e.detail[0];
+  let text = fromTags(content || "").trim();
+  if (replyMessage) text = `↩ ${(replyMessage.username || "").split(" · ")[0]}: "${fromTags(replyMessage.content || "").slice(0, 120)}"\n` + text;
+  const voice = (files || []).filter((f) => f.audio), other = (files || []).filter((f) => !f.audio);
+  for (const f of voice) {
+    $("note").textContent = "Writing down what you said…";
+    await say("api/voice", { method: "POST", headers: { "Content-Type": (f.blob.type || "audio/mp3").split(";")[0] }, body: f.blob });
+    if ($("note").textContent.startsWith("Writing")) $("note").textContent = "";
+  }
+  for (const [i, f] of other.entries()) {
+    const name = f.extension && !f.name.endsWith("." + f.extension) ? `${f.name}.${f.extension}` : f.name;
+    await say(`api/files?name=${encodeURIComponent(name)}&text=${encodeURIComponent(i === 0 ? text : "")}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f.blob });
+  }
+  if (text && !other.length) await say("api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+});
+chat.addEventListener("open-file", (e) => { const { file } = e.detail[0]; if (file && file.file && file.file.url) window.open(file.file.url, "_blank"); });
+poll();
+</script>
+</body>
+</html>

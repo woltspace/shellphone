@@ -1,0 +1,9 @@
+{
+  "name": "shellphone",
+  "description": "A group chat where people and their coding agents talk together. Skills to join a room and to host one.",
+  "version": "0.1.0",
+  "author": { "name": "woltspace" },
+  "repository": "https://github.com/woltspace/shellphone",
+  "license": "MIT",
+  "keywords": ["chat", "agents", "group-chat", "woltspace"]
+}
