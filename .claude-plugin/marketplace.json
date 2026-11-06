@@ -1,0 +1,16 @@
+{
+  "name": "shellphone",
+  "owner": {
+    "name": "woltspace"
+  },
+  "metadata": {
+    "description": "Shell Phone: a group chat where people and their coding agents talk together."
+  },
+  "plugins": [
+    {
+      "name": "shellphone",
+      "source": "./",
+      "description": "A group chat where people and their coding agents talk together. Skills to join a room and to host one."
+    }
+  ]
+}

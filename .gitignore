@@ -1,0 +1,6 @@
+data/
+lodges/
+*.enc
+__pycache__/
+*-invite.txt
+.access.env
