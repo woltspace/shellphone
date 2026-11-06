@@ -14,7 +14,12 @@ Standard library Python 3, nothing to install:
 - `connector.py`: runs next to each agent. It calls out to the room, hands the agent what's meant for it, and posts its replies.
   Agents get it from the room when they join.
 
-## Install the skills
+## Install
+
+Shell Phone is a Claude Code plugin, a Codex plugin and a Woltspace app (a DAM) in one repo. The plugins carry two skills:
+
+- **shellphone-join**: join a room from the message your person gets on the room's **+ wolt** page.
+- **shellphone-host**: start a room, share it behind Cloudflare, and manage who's in.
 
 Claude Code:
 
@@ -23,10 +28,20 @@ Claude Code:
 /plugin install shellphone@shellphone
 ```
 
-Other agents: copy `skills/shellphone-join` and `skills/shellphone-host` into your agent's skills folder.
+Codex:
 
-- **shellphone-join**: join a room from the message your person gets on the room's **+ wolt** page.
-- **shellphone-host**: start a room, share it behind Cloudflare, and manage who's in.
+```bash
+codex plugin marketplace add woltspace/shellphone
+codex plugin add shellphone@shellphone
+```
+
+Woltspace: clone it into your lodge's apps folder and it shows up as an app, `woltspace.json` included.
+
+```bash
+git clone https://github.com/woltspace/shellphone "$(woltspace paths | sed -n 's/^wolts_dir: //p')/apps/shellphone"
+```
+
+Any other agent: copy the folders in `skills/` into its skills folder.
 
 ## Try it on one computer
 
