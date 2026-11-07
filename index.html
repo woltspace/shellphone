@@ -184,8 +184,8 @@ function render() {
   receipts();
   requestAnimationFrame(voiceWords);
 }
-// A voice note's words sit in its own bubble, above the player: a spinner while the room writes them down, then the words.
-// A person's words show two lines (tap for all); a wolt's show in full, since that's its answer.
+// A voice note's words sit in its own bubble, under the player: a spinner while the room writes them down, then the words.
+// The words fold to one line behind ▸ (tap for all), for people and wolts alike.
 function voiceWords() {
   const root = chat.shadowRoot;
   if (!root) return;
@@ -195,15 +195,20 @@ function voiceWords() {
     const card = wrap && wrap.querySelector(".vac-message-card");
     const player = card && card.querySelector(".vac-audio-player");
     if (!player) continue;
-    let w = card.querySelector(".sp-words");
-    if (!w) { w = document.createElement("div"); w.className = "sp-words"; player.parentNode.insertBefore(w, player); }
-    const folded = m.kind === "human" && !unfolded.has(key(m));
+    let w = wrap.querySelector(".sp-words");
+    if (!w) {  // under the player and its length line
+      w = document.createElement("div"); w.className = "sp-words";
+      const box = player.parentNode, length = box.nextElementSibling;  // the player's box, then its "00:12" line
+      box.parentNode.insertBefore(w, length ? length.nextSibling : null);
+    }
+    const folded = !unfolded.has(key(m));
     const sig = (m.pending ? "…" : m.text) + folded;
     if (w.dataset.sig === sig) continue;
     w.dataset.sig = sig;
     w.classList.toggle("folded", folded);
+    w.classList.toggle("mine", !m.pending);
     w.classList.toggle("pending", !!m.pending);
-    w.innerHTML = m.pending ? '<i class="sp-spin"></i>writing it down' : "";
+    w.innerHTML = m.pending ? '<i class="sp-spin"></i><svg class="sp-mic" viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-2.1A7 7 0 0 0 19 12h-2Z"/></svg>transcribing' : "";
     if (!m.pending) w.textContent = m.text || "";
   }
 }
@@ -359,7 +364,7 @@ function takeMic() {
   root.addEventListener("click", (e) => {
     const wrap = e.composedPath().find((n) => n.classList && n.classList.contains("vac-message-wrapper"));
     const m = wrap && msgs.find((x) => key(x) === wrap.id);
-    if (m && m.audio && m.kind === "human" && !m.pending && e.composedPath().some((n) => n.classList && n.classList.contains("sp-words"))) {
+    if (m && m.audio && !m.pending && e.composedPath().some((n) => n.classList && n.classList.contains("sp-words"))) {
       unfolded.has(wrap.id) ? unfolded.delete(wrap.id) : unfolded.add(wrap.id);
       voiceWords();
     }
@@ -387,12 +392,26 @@ function hackerCss() {
     .vac-textarea { border-radius: 10px !important; font-size: 16px !important; }  /* under 16px, iPhone zooms in on focus */
     .vac-textarea:focus { box-shadow: 0 0 0 1px ${THEME.accent}; }
     .vac-avatar { image-rendering: pixelated; }
-    .sp-words { font-size: 14px; line-height: 1.4; margin: 2px 0 6px; white-space: pre-wrap; cursor: pointer; }
-    .sp-words.folded { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .sp-words.pending { color: ${THEME.dim}; font-size: 12px; cursor: default; display: flex; align-items: center; gap: 6px; }
+    div:has(> .sp-words) { flex-wrap: wrap !important; }
+    .sp-words { display: block; clear: both; flex: 0 0 100%; width: 100%; box-sizing: border-box; font-size: 14px; line-height: 1.4; margin: 6px 0 2px; white-space: pre-wrap; text-align: left; }
+    .sp-words.mine { cursor: pointer; }
+    .sp-words.mine::before { content: "▾ "; color: ${THEME.accent}; }
+    .sp-words.folded { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; color: ${THEME.dim}; }
+    .sp-words.folded::before { content: "▸ "; }
+    .sp-words.pending { color: ${THEME.dim}; font-size: 12px; cursor: default; display: flex; align-items: center; gap: 5px; animation: pulse 1.4s ease-in-out infinite; }
+    .sp-words.pending::before { content: none; }
+    .sp-mic { width: 13px; height: 13px; fill: ${THEME.accent}; }
+    @keyframes pulse { 50% { opacity: .45; } }
     .sp-spin { width: 11px; height: 11px; border: 2px solid ${THEME.line}; border-top-color: ${THEME.accent}; border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .vac-icon-microphone { width: 30px !important; height: 30px !important; fill: ${THEME.accent} !important; }
+    /* Shell's composer: a big round mic on the right while the box is empty, the send arrow once you type */
+    .vac-box-footer textarea { order: 1; } .vac-icon-textarea { order: 2; } .vac-icon-textarea-left { order: 3; margin: 0 0 0 8px !important; }
+    .vac-icon-textarea-left { display: flex; align-items: center; height: auto !important; }
+    .vac-icon-textarea-left .vac-svg-button { flex: none; width: 46px !important; height: 46px !important; max-height: none !important; border-radius: 50%; background: ${THEME.accent}; display: grid; place-items: center; }
+    .vac-icon-microphone { width: 24px !important; height: 24px !important; fill: #fff !important; }
+    .vac-send-disabled { display: none !important; }
+    .vac-box-footer:not(:has(.vac-send-disabled)) .vac-icon-textarea-left { display: none; }
+    .vac-box-footer { padding-bottom: max(10px, env(safe-area-inset-bottom)) !important; align-items: center; }
     .vac-card-date { border-radius: 8px !important; text-transform: uppercase; font-size: 11px; }
     @keyframes blink { 50% { opacity: 0; } }`;
   root.appendChild(st);
