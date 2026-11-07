@@ -181,7 +181,7 @@ function render() {
   set("styles", styles());
   set("rooms", [{
     roomId: "room", roomName: state.title || "shell",
-    avatar: personAvatar(state.title || "shell", "#1f7a45"), users: users(),
+    avatar: "room-icon.png", users: users(),  // the conch with its waves
     typingUsers: [],  // #gnaw shows who's working instead
   }]);
   set("templates-text", slashCommands());

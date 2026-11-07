@@ -411,7 +411,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(404, {"error": "not found"})
         email, p = self.person()
         app_files = {"/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript; charset=utf-8",
-                     "/icon-180.png": "image/png", "/icon-512.png": "image/png"}
+                     "/icon-180.png": "image/png", "/icon-512.png": "image/png", "/room-icon.png": "image/png"}
         if path in app_files and p:  # what makes the room a home-screen app
             return self.send(200, (HERE / path[1:]).read_bytes(), app_files[path])
         if path in ("/", "/index.html"):
