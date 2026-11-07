@@ -10,7 +10,7 @@
 /* Between Shell and a terminal: Shell's warm paper and terracotta, mono for names and labels, sans for what people say.
    The colours live in THEME below, so a room could pick its own later. */
 html, body { margin: 0; height: 100%; background: #f5f1e8; overflow: hidden; }
-body { position: fixed; inset: 0; }  /* iPhone: stop Safari sliding the whole page up under the keyboard */
+body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }  /* iPhone: stop Safari sliding the whole page up under the keyboard */
 vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
 #note { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 9; font: 12px "JetBrains Mono", monospace; background: #fffdf6; color: #c4531e; border: 1px solid #c4531e; padding: 6px 12px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 10px rgba(24,16,10,.12); }
 #bring { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 14px; z-index: 1000; font: 600 12px "JetBrains Mono", monospace; color: #c4531e; border: 1px solid #d6ccba; padding: 5px 10px; border-radius: 8px; text-decoration: none; background: #fffdf6; }
@@ -18,11 +18,6 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 #note:empty { display: none; }
 .seen { display: inline-flex; gap: 1px; vertical-align: middle; margin-left: 3px; }
 .seen img { width: 15px; height: 15px; image-rendering: pixelated; }
-#gnaw { position: fixed; left: 12px; bottom: calc(var(--kb, 0px) + 78px + env(safe-area-inset-bottom)); z-index: 9; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
-#gnaw .w { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; background: #fffdf6ee; border: 1px solid #d6ccba; border-radius: 8px; font: 600 12px "JetBrains Mono", monospace; animation: glow 2.4s ease-in-out infinite; }
-#gnaw img { width: 26px; height: 26px; image-rendering: pixelated; animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
-#gnaw .lore { background: linear-gradient(90deg, #c4531e, #b8862b, #3a6644, #8a4f9e, #2f8a7a, #c4531e) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cook 2.4s linear infinite; }
-#gnaw .lore.new { animation: cook 2.4s linear infinite, step .25s ease-out; }
 @keyframes cook { to { background-position: -300% 0; } }
 @keyframes chew { 50% { transform: scaleY(.9) translateY(1px); } }
 @keyframes bob { 50% { translate: 0 -2px; } }
@@ -58,7 +53,6 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 <vue-advanced-chat id="chat"></vue-advanced-chat>
 <a id="bring" href="join">+ agent</a>
 <div id="note"></div>
-<div id="gnaw"></div>
 <div id="listening" hidden><div class="sheet" role="dialog" aria-label="Listening">
   <div class="grab"></div>
   <div class="head"><img id="listen-sprite" alt=""><div><h2>Listening</h2><p>Talk, then tap send. It goes to the room as a voice note.</p></div></div>
@@ -138,7 +132,7 @@ function toMessage(m) {
   const owner = human ? m.email : m.owner;
   const files = m.file ? [{ name: m.file.name.replace(/\.[^.]*$/, ""), extension: m.file.type, type: m.file.type, url: m.file.url, size: m.file.size }] : undefined;
   const base = {
-    _id: key(m), indexId: m.n, senderId: human ? m.email : woltId(m.wolt),
+    _id: key(m), indexId: m.shownN || m.n, senderId: human ? m.email : woltId(m.wolt),
     username: human ? person(m.email).name : `${m.wolt} · ${owner === state.me ? "yours" : person(owner).name + "'s"}`,
     avatar: human ? personAvatar(person(m.email).name, person(m.email).color) : woltAvatar(m.creature, person(owner).color),
     content: toTags(m.text || ""), date: d.toLocaleDateString([], { day: "numeric", month: "long" }),
@@ -179,13 +173,17 @@ function render() {
     typingUsers: [],  // #gnaw shows who's working instead
   }]);
   set("templates-text", slashCommands());
-  const real = new Set(msgs.filter((m) => !m.pending && m.cid).map((m) => m.cid));
+  const real = new Map(msgs.filter((m) => !m.pending && m.cid).map((m) => [m.cid, m]));
+  for (const m of msgs) {  // the room's copy keeps playing the recording already on this page, so the player isn't rebuilt
+    if (m.pending && real.has(m.cid) && !real.get(m.cid).localUrl) Object.assign(real.get(m.cid), { localUrl: m.localUrl, shownN: m.n });
+  }
   msgs = msgs.filter((m) => !(m.pending && real.has(m.cid)));
   set("messages", msgs.flatMap(toMessage));
   set("messages-loaded", "true");
   hackerCss();
   takeMic();
   takeAudio();
+  watchBubbles();
   gnaw();
   receipts();
   requestAnimationFrame(voiceWords);
@@ -236,13 +234,24 @@ function receipts() {
     }
   }
 }
+// Who's working sits at the bottom of the chat itself, after the last message, so it scrolls with it and covers nothing.
+function gnawBox() {
+  const list = chat.shadowRoot && chat.shadowRoot.querySelector(".vac-messages-container");
+  if (!list) return document.createElement("div");
+  let box = list.querySelector("#gnaw");
+  if (!box) { box = document.createElement("div"); box.id = "gnaw"; }
+  if (list.lastElementChild !== box) list.append(box);
+  return box;
+}
 let loreTick = 0;
 function gnaw() {
   const on = state.members.wolts.filter((w) => (state.working || {})[w.wolt]);
-  const box = $("gnaw");
-  box.querySelectorAll(".w").forEach((n) => { if (!on.some((w) => w.wolt === n.dataset.wolt)) n.remove(); });
+  const box = gnawBox();
+  box.querySelectorAll(".w:not(.bye)").forEach((n) => {  // fold away, then leave, so the chat doesn't jump
+    if (!on.some((w) => w.wolt === n.dataset.wolt)) { n.classList.add("bye"); setTimeout(() => n.remove(), 260); }
+  });
   for (const w of on) {
-    if (box.querySelector(`[data-wolt="${w.wolt}"]`)) continue;
+    if (box.querySelector(`[data-wolt="${w.wolt}"]:not(.bye)`)) continue;
     const row = document.createElement("div"); row.className = "w"; row.dataset.wolt = w.wolt;
     const img = document.createElement("img"); img.src = woltAvatar(w.creature, person(w.owner).color); img.alt = "";
     const line = document.createElement("span"); line.className = "lore";
@@ -254,7 +263,7 @@ function setLore(row, w) {
   line.textContent = `${w.wolt}: ${lines[(loreTick + w.wolt.length) % lines.length]}`;
   line.classList.remove("new"); void line.offsetWidth; line.classList.add("new");
 }
-setInterval(() => { loreTick++; $("gnaw").querySelectorAll(".w").forEach((row) => {
+setInterval(() => { loreTick++; gnawBox().querySelectorAll(".w").forEach((row) => {
   const w = state.members.wolts.find((x) => x.wolt === row.dataset.wolt); if (w) setLore(row, w); }); }, 2400);
 
 // iPhone Safari doesn't shrink the page for the keyboard, so size the chat to the part of the screen that's still visible.
@@ -303,7 +312,7 @@ function styles() {  // terminal colours; your bubbles still wear your colour
 // Things the style props can't reach: mono everywhere, square corners, a blinking prompt, terminal-style names.
 
 // Voice notes the Shell way: the kit's small mic opens a full Listening sheet (big stop, timer, level meter) instead of its own recorder.
-let rec = null;
+let rec = null, tapAudio = null;
 async function startListening() {
   if (!navigator.mediaDevices || !window.MediaRecorder) { $("note").textContent = "This browser can't record here."; return; }
   let stream;
@@ -325,15 +334,22 @@ async function startListening() {
 function meter(stream) {
   const bars = [...$("wave").children];
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser();
+    const ctx = tapAudio || new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser();
+    tapAudio = null;
     an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an); ctx.resume().catch(() => {});
-    const buf = new Uint8Array(an.fftSize), lv = new Array(bars.length).fill(0.06), m = { ctx, frame: 0, last: 0 };
+    const buf = new Uint8Array(an.fftSize), lv = new Array(bars.length).fill(0.06), m = { ctx, frame: 0, last: 0, start: performance.now(), heard: false };
     const step = (now) => {
       m.frame = requestAnimationFrame(step);
       if (now - m.last < 70) return; m.last = now;
       an.getByteTimeDomainData(buf);
       const peak = buf.reduce((a, v) => Math.max(a, Math.abs(v - 128)), 0) / 128;
       lv.push(Math.max(0.06, Math.min(1, peak * 2.4))); lv.shift();
+      if (peak > 0.01) m.heard = true;  // the phone gives real levels
+      if (!m.heard && now - m.start > 1200) {  // it doesn't: pulse instead of sitting still
+        if (!$("wave").classList.contains("quiet")) { $("wave").classList.add("quiet"); bars.forEach((b) => { b.style.transform = ""; }); }
+        return;
+      }
+      $("wave").classList.remove("quiet");
       bars.forEach((b, i) => { b.style.transform = `scaleY(${lv[i]})`; });
     };
     m.frame = requestAnimationFrame(step); $("wave").classList.remove("quiet"); return m;
@@ -377,6 +393,8 @@ function takeMic() {
     const btn = e.composedPath().find((n) => n.classList && n.classList.contains("vac-svg-button"));
     if (!btn || !btn.querySelector(".vac-icon-microphone")) return;
     e.stopImmediatePropagation(); e.preventDefault();
+    // iPhone only starts audio inside the tap itself, so the meter's audio is made here, before waiting for the mic.
+    try { tapAudio = new (window.AudioContext || window.webkitAudioContext)(); tapAudio.resume().catch(() => {}); } catch (err) { tapAudio = null; }
     startListening();
   }, true);
 }
@@ -404,6 +422,9 @@ function hackerCss() {
     .sp-words.mine::before { content: "▾ "; color: ${THEME.accent}; }
     .sp-words.folded { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; color: ${THEME.dim}; }
     .sp-words.folded::before { content: "▸ "; }
+    /* A voice note's bubble has one size from the moment it lands: same width, and a one-line slot for "transcribing", then the words */
+    .vac-message-card:has(.vac-audio-player) { width: min(260px, 68vw); box-sizing: border-box; }
+    .sp-words.folded, .sp-words.pending { height: 20px; line-height: 20px; }
     .sp-words.pending { color: ${THEME.dim}; font-size: 12px; cursor: default; display: flex; align-items: center; gap: 5px; animation: pulse 1.4s ease-in-out infinite; }
     .sp-words.pending::before { content: none; }
     .sp-mic { width: 13px; height: 13px; fill: ${THEME.accent}; }
@@ -412,6 +433,23 @@ function hackerCss() {
     @keyframes spin { to { transform: rotate(360deg); } }
     /* Shell's composer: a big round mic on the right while the box is empty, the send arrow once you type */
     .vac-box-footer textarea { order: 1; } .vac-icon-textarea { order: 2; } .vac-icon-textarea-left { order: 3; margin: 0 0 0 8px !important; }
+    * { -webkit-tap-highlight-color: transparent; }
+    .vac-container-scroll { overscroll-behavior: contain; }
+    .vac-container-scroll, .vac-box-footer { touch-action: manipulation; }
+    /* Who's working: a fixed one-line slot at the bottom of the chat, wolts side by side, so it never pushes the chat */
+    #gnaw { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; height: 38px; padding: 0 12px 8px; overflow: hidden; }
+    #gnaw .w { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 3px 9px 3px 3px; background: #fffdf6ee; border: 1px solid #d6ccba; border-radius: 8px; font: 600 12px "JetBrains Mono", monospace; white-space: nowrap; animation: fadein .25s ease-out, glow 2.4s ease-in-out infinite; }
+    #gnaw .w.bye { animation: fadeout .25s ease-in forwards; }
+    @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
+    @keyframes fadeout { to { opacity: 0; } }
+    #gnaw img { flex: none; width: 24px; height: 24px; image-rendering: pixelated; animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
+    #gnaw .lore { overflow: hidden; text-overflow: ellipsis; background: linear-gradient(90deg, #c4531e, #b8862b, #3a6644, #8a4f9e, #2f8a7a, #c4531e) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cook 2.4s linear infinite; }
+    #gnaw .lore.new { animation: cook 2.4s linear infinite, step .25s ease-out; }
+    @keyframes cook { to { background-position: -300% 0; } }
+    @keyframes chew { 50% { transform: scaleY(.9) translateY(1px); } }
+    @keyframes bob { 50% { translate: 0 -2px; } }
+    @keyframes glow { 50% { box-shadow: 0 0 0 1px #c4531e44, 0 2px 12px #c4531e22; } }
+    @keyframes step { from { transform: translateY(6px); opacity: 0; } }
     .vac-icon-textarea-left { display: flex; align-items: center; height: auto !important; }
     .vac-icon-textarea-left .vac-svg-button { flex: none; width: 46px !important; height: 46px !important; max-height: none !important; border-radius: 50%; background: ${THEME.accent}; display: grid; place-items: center; }
     .vac-icon-microphone { width: 24px !important; height: 24px !important; fill: #fff !important; }
@@ -428,6 +466,13 @@ function hush(except) {
   for (const a of chat.shadowRoot ? chat.shadowRoot.querySelectorAll("audio") : []) {
     if (a !== except && !a.paused) { a.pause(); a.dispatchEvent(new Event("ended")); }  // "ended" resets the kit's play button
   }
+}
+// The chat redraws a bubble's insides when it changes; put the words back in that same tick, before the screen paints.
+function watchBubbles() {
+  const list = chat.shadowRoot && chat.shadowRoot.querySelector(".vac-messages-container");
+  if (!list || list.__watched) return;
+  list.__watched = true;
+  new MutationObserver(() => voiceWords()).observe(list, { childList: true, subtree: true });
 }
 function takeAudio() {
   const root = chat.shadowRoot;
@@ -457,7 +502,7 @@ async function poll() {
     if (r.status === 403) { $("note").textContent = "You're not on this room's list."; return; }
     const s = await r.json();
     // The room's code changed: reload, unless you're recording or have something typed.
-    if (state.version && s.version && s.version !== state.version && !rec && !(chat.shadowRoot && (chat.shadowRoot.getElementById("roomTextarea") || {}).value)) return location.reload();
+    if (state.version && s.version && s.version !== state.version && !rec && !player && !(chat.shadowRoot && [...chat.shadowRoot.querySelectorAll("audio")].some((x) => !x.paused)) && !(chat.shadowRoot && (chat.shadowRoot.getElementById("roomTextarea") || {}).value)) return location.reload();
     state = s;
     for (const m of s.messages) {
       after = Math.max(after, m.n);
