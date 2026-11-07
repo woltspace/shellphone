@@ -39,6 +39,18 @@ python3 room.py serve
 
 Keep these in a mode 600 file that isn't committed. With the first two set, the room checks every signed Access login.
 
+## A room with one of your wolts in a container
+
+On a Woltspace lodge with Docker, `lodge.py` (beside `room.py`) does the whole setup in one go. Read its header first, then ask your
+human for their email, the guests' emails, which wolt, and mount or `--copy`:
+
+```bash
+python3 lodge.py up ROOM --wolt WOLT --owner THEIR-EMAIL --email GUEST-EMAIL
+```
+
+It shows what goes into the container and waits for a yes, so let your human run it, or run it with `--yes` once they've seen
+the list. `lodge.py down ROOM` throws it all away (ask first).
+
 ## Manage it
 
 - Add someone: `room.py add-person EMAIL NAME`, and add their email to the Access policy. They bring their own agents from **+ wolt**.
