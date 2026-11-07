@@ -71,6 +71,7 @@ create table if not exists messages(n integer primary key autoincrement, id text
                                     kind text not null, data text not null);
 create table if not exists working(wolt text primary key, until real not null);
 create table if not exists seen(msg text not null, wolt text not null, at real not null, primary key(msg, wolt));
+create table if not exists push(endpoint text primary key, email text not null, sub text not null);
 """
 CON = None
 
@@ -142,6 +143,8 @@ def append(**fields):
     with tx() as c:
         n = c.execute("insert into messages (id, at, kind, data) values (?, ?, ?, ?)", (m["id"], m["at"], fields["kind"], json.dumps(rest))).lastrowid
     m = {"n": n, **m}
+    if fields.get("kind") in ("human", "wolt") and fields.get("text"):
+        threading.Thread(target=notify, args=(m,), daemon=True).start()
     if fields.get("text") and fields.get("kind") in ("human", "patch"):
         email = fields.get("email") or (message(fields.get("of")) or {}).get("email")
         if email:
@@ -200,6 +203,53 @@ def as_mp3(f):
         return f
     f.unlink()
     return out
+
+
+# Push notifications for the home-screen app (Web Push). Optional: they need pywebpush (`uv run --with pywebpush`).
+try:
+    import pywebpush
+except ImportError:
+    pywebpush = None
+ACTIVE = {}  # email -> when their open page last checked in; they see it there, so no notification
+
+
+def vapid():
+    """The room's own push keys, made once: a private key file and the public key pages subscribe with."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    pem = DATA / "vapid.pem"
+    if not pem.exists():
+        DATA.mkdir(parents=True, exist_ok=True)
+        key = ec.generate_private_key(ec.SECP256R1())
+        pem.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+        os.chmod(pem, 0o600)
+    key = serialization.load_pem_private_key(pem.read_bytes(), None)
+    raw = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    return str(pem), base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def notify(m):
+    """A new message goes to everyone who turned notifications on, except whoever sent it and anyone looking at the room."""
+    if not pywebpush:
+        return
+    try:
+        pem, _ = vapid()
+        people = {r["email"]: r["name"] for r in q("select email, name from people")}
+        who = m.get("wolt") or people.get(m.get("email"), "someone")
+        body = json.dumps({"title": who, "body": (m.get("text") or "")[:180], "tag": m["id"], "url": "./"})
+        for row in q("select * from push"):
+            if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
+                continue
+            try:
+                pywebpush.webpush(json.loads(row["sub"]), body, vapid_private_key=pem, vapid_claims={"sub": "mailto:" + row["email"]}, ttl=3600)
+            except pywebpush.WebPushException as exc:
+                if exc.response is not None and exc.response.status_code in (404, 410):  # that phone unsubscribed
+                    with tx() as c:
+                        c.execute("delete from push where endpoint = ?", (row["endpoint"],))
+                else:
+                    print(f"push failed: {exc}", flush=True)
+    except Exception as exc:
+        print(f"push failed: {exc}", flush=True)
 
 
 def page_version():
@@ -350,6 +400,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new})
             return self.send(404, {"error": "not found"})
         email, p = self.person()
+        app_files = {"/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript; charset=utf-8",
+                     "/icon-180.png": "image/png", "/icon-512.png": "image/png"}
+        if path in app_files and p:  # what makes the room a home-screen app
+            return self.send(200, (HERE / path[1:]).read_bytes(), app_files[path])
         if path in ("/", "/index.html"):
             if not p:
                 who = f" You're signed in as {self.seen}." if self.seen else ""
@@ -364,7 +418,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, (HERE / "vendor" / m.group(1)).read_bytes(), "text/javascript; charset=utf-8")
         if not p:
             return self.send(403, {"error": "not on this room's list"})
+        if path == "/api/push":  # the key a page subscribes with, if this room can send notifications
+            return self.send(200, {"key": vapid()[1]} if pywebpush else {"key": None})
         if path == "/api/state":
+            if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
+                ACTIVE[email] = time.time()
             return self.send(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "seen": receipts(), "messages": messages(after)})
         m = re.fullmatch(r"/voice/([0-9a-f]{32}\.(mp3|webm|mp4|m4a|ogg))", path)
         if m and (VOICE / m.group(1)).is_file():
@@ -431,6 +489,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             email, p = self.person()
             if not p:
                 return self.send(403, {"error": "not on this room's list"})
+            if path == "/api/push":  # this phone wants notifications ({"subscription": ...}), or not anymore ({"off": endpoint})
+                data = json.loads(self.body() or b"{}")
+                with tx() as c:
+                    if data.get("off"):
+                        c.execute("delete from push where endpoint = ? and email = ?", (str(data["off"]), email))
+                    else:
+                        sub = data.get("subscription") or {}
+                        if not str(sub.get("endpoint", "")).startswith("https://"):
+                            return self.send(400, {"error": "not a push subscription"})
+                        c.execute("insert or replace into push values (?, ?, ?)", (sub["endpoint"], email, json.dumps(sub)))
+                return self.send(200, {"ok": True})
             if path == "/api/messages":
                 text = str(json.loads(self.body() or b"{}").get("text", "")).strip()[:8000]
                 if not text:

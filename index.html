@@ -14,6 +14,7 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
 #note { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 9; font: 12px "JetBrains Mono", monospace; background: #fffdf6; color: #c4531e; border: 1px solid #c4531e; padding: 6px 12px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 10px rgba(24,16,10,.12); }
 #bring { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 14px; z-index: 1000; font: 600 12px "JetBrains Mono", monospace; color: #c4531e; border: 1px solid #d6ccba; padding: 5px 10px; border-radius: 8px; text-decoration: none; background: #fffdf6; }
+#bell { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 96px; z-index: 1000; font: 600 12px "JetBrains Mono", monospace; color: #c4531e; border: 1px solid #d6ccba; padding: 5px 10px; border-radius: 8px; background: #fffdf6; cursor: pointer; }
 #note::before { content: "> "; }
 #note:empty { display: none; }
 .seen { display: inline-flex; gap: 1px; vertical-align: middle; margin-left: 3px; }
@@ -47,10 +48,16 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 #rec-actions span { display: block; margin-top: 8px; text-align: center; color: #8a7a68; font: 12px "JetBrains Mono", monospace; }
 @media (prefers-reduced-motion: reduce) { #listening .sheet, #listening .head img, #wave.quiet i { animation: none; } #wave i { transition: none; } }
 </style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Shell Phone">
+<meta name="theme-color" content="#f5f1e8">
 <script src="vendor/vue-advanced-chat-2.1.2.umd.js"></script>
 </head>
 <body>
 <vue-advanced-chat id="chat"></vue-advanced-chat>
+<button id="bell" type="button" hidden>🔔 notify me</button>
 <a id="bring" href="join">+ agent</a>
 <div id="note"></div>
 <div id="listening" hidden><div class="sheet" role="dialog" aria-label="Listening">
@@ -498,7 +505,7 @@ document.addEventListener("pointerdown", () => { $("note").textContent = ""; pla
 
 async function poll() {
   try {
-    const r = await fetch("api/state?after=" + after, { cache: "no-store" });
+    const r = await fetch("api/state?after=" + after + (document.visibilityState === "visible" ? "&here=1" : ""), { cache: "no-store" });
     if (r.status === 403) { $("note").textContent = "You're not on this room's list."; return; }
     const s = await r.json();
     // The room's code changed: reload, unless you're recording or have something typed.
@@ -545,6 +552,25 @@ chat.addEventListener("send-message", async (e) => {
   if (text && !other.length) await say("api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
 });
 chat.addEventListener("open-file", (e) => { const { file } = e.detail[0]; if (file && file.file && file.file.url) window.open(file.file.url, "_blank"); });
+// Notifications: the home-screen app registers a service worker; "notify me" asks once, then the room pushes new messages
+// to this phone whenever the room isn't on screen.
+const b64key = (k) => Uint8Array.from(atob(k.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(-k.length & 3)), (c) => c.charCodeAt(0));
+async function pushSetup(ask) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !window.Notification) return;
+  const { key } = await (await fetch("api/push")).json().catch(() => ({}));
+  if (!key) return;
+  const reg = await navigator.serviceWorker.register("sw.js");
+  if (Notification.permission === "default" && !ask) { $("bell").hidden = false; return; }
+  if (Notification.permission === "default" && (await Notification.requestPermission()) !== "granted") return;
+  if (Notification.permission !== "granted") { $("bell").hidden = true; return; }
+  await navigator.serviceWorker.ready;
+  const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64key(key) }));
+  await fetch("api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscription: sub.toJSON() }) });
+  $("bell").hidden = true;
+  if (ask) $("note").textContent = "Notifications on for this phone.";
+}
+$("bell").onclick = () => pushSetup(true).catch((e) => { $("note").textContent = "Couldn't turn on notifications: " + e.message; });
+pushSetup(false).catch(() => {});
 poll();
 </script>
 </body>
