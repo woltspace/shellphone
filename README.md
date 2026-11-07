@@ -70,6 +70,7 @@ python3 lodge.py up myroom --wolt softie --owner you@example.com --email friend@
 
 It makes the room app and its link, the Cloudflare logins for you and each `--email`, and a wolt token, then joins the wolt and
 starts its connector. The wolt gets a new session of its own for the room and says hi there.
+By default that session runs in your lodge with the wolt's usual access, so use it for rooms with people you trust.
 
 ```bash
 python3 lodge.py list            # rooms in this lodge
@@ -81,15 +82,17 @@ It needs the lodge's Cloudflare token in `<wolts_dir>/.env`, allowed to edit Acc
 
 ### Optional: the wolt in its own container
 
-A container is extra isolation, not a requirement. With `--container`, the wolt runs in a Docker container with its own lodge, so
-people in the room reach that container and not the rest of your computer. It gets your Claude token (`--claude-env`, a file with
+A container is extra isolation, not a requirement. With `--container` or `--copy`, the wolt runs in a Docker container with its
+own lodge. It gets your Claude token (`--claude-env`, a file with
 `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`), the room's wolt keys and the wolt's folder: no GitHub, cloud keys or Telegram,
 and no other wolts.
 
 - **`--container`:** the container mounts the wolt's real folder, so what it writes (memory, notes) is already back in your lodge.
   Files that look like keys (`.env`, `*.pem`, `*.key`, names with token or secret) read as empty inside.
+  It can still write its own `.claude/` settings and skills, CLAUDE.md and AGENTS.md, and those run on your computer the next time
+  the wolt starts at home. So this is for people you trust too: it keeps your other keys and wolts out of reach, not the wolt's own folder.
 - **`--copy`:** the container gets a copy instead (CLAUDE.md, AGENTS.md and `wolt/`, minus the archive and secrets), and what it
-  writes stays there. For rooms with people you don't know well: they could talk the wolt into editing its own memory.
+  writes stays there. This is the one for rooms with people you don't know well: nothing they talk the wolt into comes home.
 
 Use an image on the same Woltspace version as your lodge: by default `--image` is `woltspace-lab:<your lodge's version>`. Each lodge writes its own
 built-in `woltspace-*` skills into the wolt's `.claude/skills` (your lodge on `woltspace start`, the container when it boots), so

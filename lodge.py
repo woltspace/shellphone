@@ -12,16 +12,16 @@
   2. Cloudflare Access: an email login for you and each --email, and a service token on /lodge for wolts.
   3. The wolt joins and its connector starts. It gets a new session of its own for the room, and says hi to you there.
 
-By default the wolt joins from this lodge, like any other session of it. A container is optional, extra isolation:
+By default the wolt joins from this lodge, like any other session of it, with its usual access: people you trust.
+A container is optional, extra isolation:
   --container  a Docker container with its own lodge, logged in to Claude with --claude-env (a file with
                CLAUDE_CODE_OAUTH_TOKEN). It mounts the wolt's real folder, so what the wolt writes (memory, notes) is
-               already back home. Files that look like secrets (.env, keys, tokens) read as empty inside. People in the
-               room reach the wolt in the container, not the rest of your computer: no GitHub, no cloud keys, no Telegram,
-               no other wolts. Use an image on the same Woltspace version as this lodge: each lodge writes its own built-in
+               already back home. Files that look like secrets (.env, keys, tokens) read as empty inside, and it has no
+               GitHub, cloud keys, Telegram or other wolts. But it can write its own .claude/ settings and skills, CLAUDE.md
+               and AGENTS.md, which run at home next time: people you trust only. Use an image on the same Woltspace version as this lodge: each lodge writes its own built-in
                skills into the wolt's folder, and `up` warns you when they differ.
   --copy       a container with a copy of the wolt instead (CLAUDE.md, AGENTS.md and wolt/, minus wolt/memory/archive and
-               secrets). What it writes stays in the container: for rooms with people you don't know well, since they
-               could talk the wolt into editing its own memory.
+               secrets). What it writes stays in the container: the one for rooms with people you don't know well.
 You see what goes in and say yes first.
 
 Needs: the lodge running, Docker for --container or --copy, and in <wolts_dir>/.env a Cloudflare token (CLOUDFLARE_API_TOKEN,
