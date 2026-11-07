@@ -262,6 +262,24 @@ def save_upload(name, blob):
     return {"name": name, "url": f"files/{fid}.{ext}", "size": len(blob), "type": ext}
 
 
+def data_uri(name):
+    return "data:image/png;base64," + base64.b64encode((HERE / name).read_bytes()).decode()
+
+
+def page_html():
+    """The page with its icon inside it. Phones fetch home-screen icons without your login, and behind Cloudflare
+    that fetch gets the login page instead, so the icon travels in the page itself."""
+    return (HERE / "index.html").read_text().replace('href="icon-180.png?v=conch"', f'href="{data_uri("icon-180.png")}"').encode()
+
+
+def app_manifest():
+    """Same for the manifest's icons (the page asks for the manifest with its login)."""
+    m = json.loads((HERE / "manifest.webmanifest").read_text())
+    for icon in m.get("icons", []):
+        icon["src"] = data_uri(icon["src"].split("?")[0])
+    return json.dumps(m).encode()
+
+
 def page_version():
     """Changes when the page or the room's code does, so open pages (and home-screen apps) reload themselves."""
     return int(max((HERE / f).stat().st_mtime for f in ("index.html", "room.py")))
@@ -412,13 +430,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         email, p = self.person()
         app_files = {"/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript; charset=utf-8",
                      "/icon-180.png": "image/png", "/icon-512.png": "image/png", "/room-icon.png": "image/png"}
+        if path == "/manifest.webmanifest" and p:
+            return self.send(200, app_manifest(), "application/manifest+json")
         if path in app_files and p:  # what makes the room a home-screen app
             return self.send(200, (HERE / path[1:]).read_bytes(), app_files[path])
         if path in ("/", "/index.html"):
             if not p:
                 who = f" You're signed in as {self.seen}." if self.seen else ""
                 return self.send(403, f"You're not on this room's list.{who}".encode(), "text/plain; charset=utf-8")
-            return self.send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
+            return self.send(200, page_html(), "text/html; charset=utf-8")
         if path == "/join":  # a logged-in person gets one message to paste to their own wolt, wherever they talk to it
             if not p:
                 return self.send(403, b"You're not on this room's list.", "text/plain; charset=utf-8")
