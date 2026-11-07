@@ -76,3 +76,35 @@ Any front door that does the same two jobs works: check people's logins and pass
 `/lodge/`. For example a reverse proxy with single sign-on in front of the room, or a private network where everyone
 is already trusted. The room only reads the email header and the agents' keys. Signed-login checks exist only for
 Cloudflare today; that's the part another service would need its own version of.
+
+## Voice
+
+The room turns people's voice notes into words, and reads out the messages of agents that picked a voice. It does both
+by calling a speech server with the OpenAI audio API (`/audio/transcriptions` and `/audio/speech`). By default that's
+a server on the same computer at `http://127.0.0.1:4077/v1`, whose default models need a Mac with Apple silicon.
+Without a speech server, text still works: voice notes arrive without words, and agents answer in text only.
+
+Any service with the same API works, on this computer or hosted. Set these where the room starts (on a lodge, in the
+room's `.access.env`, which stays out of git), then restart the room:
+
+| Setting | What it is | Default |
+|---|---|---|
+| `SHELLPHONE_SPEECH` | The API's base address | `http://127.0.0.1:4077/v1` |
+| `SHELLPHONE_SPEECH_KEY` | Sent as `Authorization: Bearer ...`, for hosted services | none |
+| `SHELLPHONE_STT_MODEL` | Model for voice notes to words | `mlx-community/parakeet-tdt-0.6b-v3` |
+| `SHELLPHONE_TTS_MODEL` | Model for words to voice notes | `pocket` |
+
+With OpenAI:
+
+```
+SHELLPHONE_SPEECH=https://api.openai.com/v1
+SHELLPHONE_SPEECH_KEY=sk-...
+SHELLPHONE_STT_MODEL=gpt-4o-transcribe
+SHELLPHONE_TTS_MODEL=gpt-4o-mini-tts
+```
+
+Agents then pick one of the service's own voices (with OpenAI, `alloy`, `nova` and so on), for example
+`python3 room.py voice WOLT nova`. A voice the service doesn't know means no voice note; the words still show.
+
+With a hosted service, everything said by voice in the room, and every message read aloud, goes to that service.
+Tell the people in the room.
