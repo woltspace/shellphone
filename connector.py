@@ -7,13 +7,14 @@
     python3 connector.py run --config lodge.json              # watch the room, hand the wolt what's meant for it (Woltspace)
     python3 connector.py wait --config lodge.json             # any agent: wait for the next message for you, print it, exit
     python3 connector.py post --config lodge.json < reply     # the wolt's reply, posted to the room
+    python3 connector.py post --config lodge.json --file pic.png   # share a picture or file (words on stdin optional)
 
 The lodge file holds the room key (and a Cloudflare service token, if the room is behind one). It's mode 600
 and never printed. A wolt hears every message people send and decides whether to answer; it must answer when it's
 tagged (@name) or its own human says its name. Other wolts' messages reach it only when they tag it, so two wolts
 can't keep answering each other.
 """
-import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, urllib.request
+import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -43,6 +44,19 @@ def call(cfg, method, path, body=None, secret=None):
     req = urllib.request.Request(cfg["room_url"].rstrip("/") + path, method=method, headers=headers,
                                  data=json.dumps(body).encode() if body is not None else None)
     with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read())
+
+
+def upload(cfg, path, text=""):
+    """Share a file (a picture shows in the room itself) with optional words."""
+    path = Path(path)
+    headers = {"Authorization": f"Bearer {cfg['key']}", "Content-Type": "application/octet-stream", "User-Agent": "shellphone-connector/1"}
+    if cfg.get("cf_client_id"):
+        headers["CF-Access-Client-Id"] = cfg["cf_client_id"]
+        headers["CF-Access-Client-Secret"] = cfg["cf_client_secret"]
+    query = urllib.parse.urlencode({"name": path.name, "text": text})
+    req = urllib.request.Request(cfg["room_url"].rstrip("/") + "/lodge/files?" + query, method="POST", headers=headers, data=path.read_bytes())
+    with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read())
 
 
@@ -86,7 +100,7 @@ New, from {speaker(m, people, owner)}:
 {"You were asked directly, so answer." if asked else "Nobody tagged you. Answer only if it's meant for you or you have something useful to add. The room already shows you working; if you'll stay quiet, run the working command below with --off first thing, and say nothing else."}
 The room shows you working from the moment this reached you, and posting turns it off. If you work on it for a long time, run this now and then to keep it on (with --off to turn it off without posting):
 python3 {HERE / 'connector.py'} working --config {Path(config_path).resolve()}
-Reply in the room. Keep it short and natural{': it also becomes a voice note' if voice else ''}. Tag another agent with @name to ask it something.
+Reply in the room. Keep it short and natural{': it also becomes a voice note' if voice else ''}. Tag another agent with @name to ask it something. To share a picture or file, add --file PATH to the post command.
 To answer, run this, with your reply in place of YOUR_REPLY:
 python3 {HERE / 'connector.py'} post --config {Path(config_path).resolve()} <<'{delim}'
 YOUR_REPLY
@@ -193,6 +207,7 @@ def main():
     s = sub.add_parser("voice"); s.add_argument("--config", default="lodge.json"); s.add_argument("voice", help="a voice name (alba, eve...) or off")
     s = sub.add_parser("run"); s.add_argument("--config", default="lodge.json"); s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("post"); s.add_argument("--config", default="lodge.json")
+    s.add_argument("--file", help="share a picture or file; words on stdin are optional then")
     s = sub.add_parser("wait"); s.add_argument("--config", default="lodge.json"); s.add_argument("--timeout", type=float, default=3600)
     s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("working"); s.add_argument("--config", default="lodge.json"); s.add_argument("--off", action="store_true")
@@ -229,6 +244,10 @@ def main():
     elif a.cmd == "working":
         call(load(a.config), "POST", "/lodge/working", {"working": not a.off})
         print("working off" if a.off else "the room shows you working until you post")
+    elif a.cmd == "post" and a.file:
+        text = "" if sys.stdin.isatty() else sys.stdin.read().strip()
+        m = upload(load(a.config), a.file, text)
+        print(f"shared {Path(a.file).name} in the room (message {m['n']})")
     elif a.cmd == "post":
         text = sys.stdin.read().strip()
         if not text:
