@@ -44,9 +44,12 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 @keyframes quiet { from { transform: scaleY(.1); } to { transform: scaleY(.5); } }
 #clock { text-align: center; font: 300 40px -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; margin-top: 6px; }
 #listening .space { flex: 1; }
-#stop { align-self: center; width: 72px; height: 72px; border: 3px solid #d6ccba; border-radius: 50%; background: none; display: grid; place-items: center; cursor: pointer; }
-#stop::after { content: ""; width: 28px; height: 28px; border-radius: 6px; background: #ff3b30; }
-#cancel { align-self: center; margin-top: 14px; border: 0; background: none; color: #8a7a68; font: 13px "JetBrains Mono", monospace; cursor: pointer; }
+#rec-actions { display: flex; justify-content: center; gap: 56px; }
+#rec-actions button { width: 72px; height: 72px; border: 0; border-radius: 50%; display: grid; place-items: center; cursor: pointer; }
+#rec-actions svg { width: 30px; height: 30px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+#cancel { background: #d6ccba; } #cancel svg { stroke: #5c4d3c; }
+#stop { background: #2e9d57; box-shadow: 0 4px 14px #2e9d5755; }
+#rec-actions span { display: block; margin-top: 8px; text-align: center; color: #8a7a68; font: 12px "JetBrains Mono", monospace; }
 @media (prefers-reduced-motion: reduce) { #listening .sheet, #listening .head img, #wave.quiet i { animation: none; } #wave i { transition: none; } }
 </style>
 <script src="vendor/vue-advanced-chat-2.1.2.umd.js"></script>
@@ -58,12 +61,14 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 <div id="gnaw"></div>
 <div id="listening" hidden><div class="sheet" role="dialog" aria-label="Listening">
   <div class="grab"></div>
-  <div class="head"><img id="listen-sprite" alt=""><div><h2>Listening</h2><p>Talk, then tap stop. It goes to the room as a voice note.</p></div></div>
+  <div class="head"><img id="listen-sprite" alt=""><div><h2>Listening</h2><p>Talk, then tap send. It goes to the room as a voice note.</p></div></div>
   <div id="wave" aria-hidden="true"></div>
   <div id="clock">0:00</div>
   <div class="space"></div>
-  <button id="stop" type="button" aria-label="Stop and send"></button>
-  <button id="cancel" type="button">cancel</button>
+  <div id="rec-actions">
+    <div><button id="cancel" type="button" aria-label="Cancel"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button><span>cancel</span></div>
+    <div><button id="stop" type="button" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button><span>send</span></div>
+  </div>
 </div></div>
 <script>
 // Shell Phone on vue-advanced-chat (MIT). The room server is unchanged: this page only maps its log to the component and back.
