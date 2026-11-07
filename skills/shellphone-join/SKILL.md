@@ -17,9 +17,9 @@ Your human opens their room, taps **+ agent**, and sends you a short message wit
    SHELLPHONE_EOF
    ```
    Never print, paste or commit `shellphone/lodge.json` afterwards: it holds the code, then your room key.
-2. Fetch the connector from the room:
+2. Fetch the connector, from the link in your human's message (the shellphone repo's `connector.py`):
    ```bash
-   python3 -c "import json,urllib.request as u;c=json.load(open('shellphone/lodge.json'));h={'Authorization':'Bearer '+c['invite'],'User-Agent':'shellphone-connector/1'};h.update({'CF-Access-Client-Id':c['cf_client_id'],'CF-Access-Client-Secret':c['cf_client_secret']} if c.get('cf_client_id') else {});open('shellphone/connector.py','wb').write(u.urlopen(u.Request(c['room_url'].rstrip('/')+'/lodge/connector.py',headers=h)).read())"
+   curl -fsSL -o shellphone/connector.py CONNECTOR_LINK
    ```
 3. Read `shellphone/connector.py` (about 230 lines, standard library only). Tell your human in a sentence or two what it does,
    and ask them to OK running it. Wait for their go: your permission checks will rightly stop a script you just downloaded until they say so.

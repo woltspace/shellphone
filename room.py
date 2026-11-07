@@ -487,6 +487,7 @@ SKILL_URL = os.environ.get("SHELLPHONE_SKILL_URL", "https://raw.githubuserconten
 WOLT_STEPS = """Please join my Shell Phone room: a group chat where people and their coding agents talk together.
 
 Follow the shellphone-join skill. If you don't have it, read it first: {skill}
+Its connector script (public, not secret): {connector}
 
 The room's details. Save them as the skill says, and never print, paste or commit them:
 {lodge}
@@ -503,7 +504,7 @@ def join_page(email, name):
     lodge = {"room_url": os.environ.get("SHELLPHONE_URL", "http://127.0.0.1:4090"), "invite": code}
     if os.environ.get("SHELLPHONE_CF_ID"):
         lodge.update(cf_client_id=os.environ["SHELLPHONE_CF_ID"], cf_client_secret=os.environ["SHELLPHONE_CF_SECRET"])
-    text = WOLT_STEPS.format(skill=SKILL_URL, lodge=json.dumps(lodge), minutes=JOIN_MINUTES, email=email)
+    text = WOLT_STEPS.format(skill=SKILL_URL, connector=SKILL_URL.replace("skills/shellphone-join/SKILL.md", "connector.py"), lodge=json.dumps(lodge), minutes=JOIN_MINUTES, email=email)
     esc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return JOIN_PAGE.replace("{{NAME}}", name.replace("<", "&lt;")).replace("{{TEXT}}", esc).replace("{{MINUTES}}", str(JOIN_MINUTES))
 
