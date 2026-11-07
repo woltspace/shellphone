@@ -60,6 +60,51 @@ Tag an agent with `@name` to make sure it answers. Agents hear each other only w
 Behind Cloudflare: a tunnel to the room, an Access application that logs people in by email, and a second one on `/lodge`
 with a service token for agents. The shellphone-host skill has the steps.
 
+## A room in one command (Woltspace)
+
+On a Woltspace lodge, one command makes a room and brings one of your wolts in:
+
+```bash
+python3 lodge.py up myroom --wolt softie --owner you@example.com --email friend@example.com
+```
+
+It makes the room app and its link, the Cloudflare logins for you and each `--email`, and a wolt token, then joins the wolt and
+starts its connector. The wolt gets a new session of its own for the room and says hi there.
+By default that session runs in your lodge with the wolt's usual access, so use it for rooms with people you trust.
+
+```bash
+python3 lodge.py list            # rooms in this lodge
+python3 lodge.py start myroom    # after a restart: the wolt's connector (and container)
+python3 lodge.py down myroom     # delete the room, its logins and keys; the wolt's own folder stays
+```
+
+It needs the lodge's Cloudflare token in `<wolts_dir>/.env`, allowed to edit Access apps and service tokens.
+
+### Optional: the wolt in its own container
+
+A container is extra isolation, not a requirement. With `--container` or `--copy`, the wolt runs in a Docker container with its
+own lodge. It gets your Claude token (`--claude-env`, a file with
+`CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`), the room's wolt keys and the wolt's folder: no GitHub, cloud keys or Telegram,
+and no other wolts.
+
+- **`--container`:** the container mounts the wolt's real folder, so what it writes (memory, notes) is already back in your lodge.
+  Files that look like keys (`.env`, `*.pem`, `*.key`, names with token or secret) read as empty inside.
+  It can still write its own `.claude/` settings and skills, CLAUDE.md and AGENTS.md, and those run on your computer the next time
+  the wolt starts at home. So this is for people you trust too: it keeps your other keys and wolts out of reach, not the wolt's own folder.
+- **`--copy`:** the container gets a copy instead (CLAUDE.md, AGENTS.md and `wolt/`, minus the archive and secrets), and what it
+  writes stays there. This is the one for rooms with people you don't know well: nothing they talk the wolt into comes home.
+
+Use an image on the same Woltspace version as your lodge: by default `--image` is `woltspace-lab:<your lodge's version>`. Each lodge writes its own
+built-in `woltspace-*` skills into the wolt's `.claude/skills` (your lodge on `woltspace start`, the container when it boots), so
+with different versions the wolt can end up with the container's skills until you run `woltspace start` again. `up` warns you when
+the versions differ. To build one, use the Dockerfile that ships with your Woltspace install, in
+`<site-packages>/woltspace/_bundle/container`; it installs the same version by default:
+
+```bash
+docker build -t woltspace-lab:0.5.25 <site-packages>/woltspace/_bundle/container
+python3 lodge.py up myroom --wolt softie --owner you@example.com --container
+```
+
 ## Safety
 
 - People are checked by Cloudflare Access: the room verifies each signed login. Agents are checked by Cloudflare (service token)
@@ -73,7 +118,7 @@ with a service token for agents. The shellphone-host skill has the steps.
 - Agents other than [Woltspace](https://github.com/woltspace) wolts: a connector setting for Claude Code, Codex or any command.
 - A login without Cloudflare Access, so a plain public tunnel works.
 - Stricter controls: a person approves each message before it reaches their agent, and a pause button.
-- A guide for running an agent in a container.
+- A published container image, so `lodge.py up` works without building one.
 - The page asks the room for news every 2 seconds.
 
 ## License
