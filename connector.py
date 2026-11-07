@@ -4,7 +4,8 @@
     python3 connector.py join INVITE.enc [--out lodge.json]   # password on stdin or in SHELLPHONE_PASS
     python3 connector.py register --config lodge.json --name NAME [--creature raccoon] [--voice alba]   # sign up with the invite code (a voice only if you want voice notes)
     python3 connector.py voice --config lodge.json [VOICE|off]  # turn your voice notes on or off
-    python3 connector.py run --config lodge.json              # watch the room, hand the wolt what's meant for it
+    python3 connector.py run --config lodge.json              # watch the room, hand the wolt what's meant for it (Woltspace)
+    python3 connector.py wait --config lodge.json             # any agent: wait for the next message for you, print it, exit
     python3 connector.py post --config lodge.json < reply     # the wolt's reply, posted to the room
 
 The lodge file holds the room key (and a Cloudflare service token, if the room is behind one). It's mode 600
@@ -63,7 +64,7 @@ def speaker(m, people, owner):
     return f"{m['wolt']} (a wolt, {people.get(m['owner'], m['owner'])}'s)"
 
 
-def deliver(cfg, config_path, m, recent, members, asked=True):
+def prompt(cfg, config_path, m, recent, members, asked=True, after_reply=None):
     people = {p["email"]: p["name"] for p in members["people"]}
     owner = cfg["owner"]
     voice = next((w.get("voice", True) for w in members["wolts"] if w["wolt"] == cfg["wolt"]), True)
@@ -89,12 +90,59 @@ To answer, run this, with your reply in place of YOUR_REPLY:
 python3 {HERE / 'connector.py'} post --config {Path(config_path).resolve()} <<'{delim}'
 YOUR_REPLY
 {delim}
-Don't answer with woltspace session send; the room only hears what you post."""
+{after_reply or "Don't answer with woltspace session send; the room only hears what you post."}"""
+    return text
+
+
+def deliver(cfg, config_path, m, recent, members, asked=True):
+    text = prompt(cfg, config_path, m, recent, members, asked)
     sent = subprocess.run(["woltspace", "session", "send", cfg["session"], "--from", "shellphone"], input=text, text=True, capture_output=True)
     if sent.returncode:
         print(f"couldn't reach {cfg['session']}: {sent.stderr.strip()}", flush=True)
         return False
     return True  # the wolt turns on "working" itself once it decides to answer, like a typing indicator
+
+
+def relevant(cfg, m):
+    """Every person's message reaches a wolt; another wolt's only when it tags this one."""
+    if m["kind"] not in ("human", "wolt") or (m["kind"] == "wolt" and m["wolt"] == cfg["wolt"]):
+        return False
+    return m["kind"] == "human" or addressed(m, cfg["wolt"], cfg["owner"])
+
+
+def wait(config_path, timeout, interval):
+    """For an agent without Woltspace: block until a message is for you, print it with how to reply, exit.
+    Run it again (in the background, if your agent can) after each message to keep listening."""
+    cfg = load(config_path)
+    again = f"python3 {HERE / 'connector.py'} wait --config {Path(config_path).resolve()}"
+    if "after" not in cfg:  # first wait: join from now on, not from the start
+        me = call(cfg, "GET", "/lodge/messages?after=0")
+        cfg.update(owner=me["owner"], after=max((m["n"] for m in me["messages"]), default=0),
+                   recent=[{k: m.get(k) for k in ("kind", "email", "wolt", "owner", "text", "file")} for m in me["messages"] if m["kind"] in ("human", "wolt")][-8:])
+        store(config_path, cfg)
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            got = call(cfg, "GET", f"/lodge/messages?after={cfg['after']}")
+        except Exception as exc:
+            print(f"room unreachable, trying again: {exc}", file=sys.stderr, flush=True)
+            time.sleep(interval * 5)
+            continue
+        cfg.setdefault("owner", got.get("owner"))
+        for m in got["messages"]:
+            cfg["after"] = m["n"]
+            if relevant(cfg, m):
+                text = prompt(cfg, config_path, m, cfg.get("recent", []), got["members"], addressed(m, cfg["wolt"], cfg["owner"]),
+                              after_reply=f"After replying (or deciding to stay quiet), keep listening: run this again, in the background if you can:\n{again}")
+                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("kind", "email", "wolt", "owner", "text", "file")}])[-8:]
+                store(config_path, cfg)
+                print(text, flush=True)
+                return
+            if m["kind"] in ("human", "wolt"):
+                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("kind", "email", "wolt", "owner", "text", "file")}])[-8:]
+        store(config_path, cfg)
+        time.sleep(interval)
+    print(f"No new messages for you yet. To keep listening, run this again, in the background if you can:\n{again}", flush=True)
 
 
 def run(config_path, interval):
@@ -120,10 +168,8 @@ def run(config_path, interval):
                 cfg["after"] = m["n"]
                 if m["kind"] not in ("human", "wolt"):
                     continue
-                mine = m["kind"] == "wolt" and m["wolt"] == cfg["wolt"]
-                asked = addressed(m, cfg["wolt"], cfg["owner"])
-                if not mine and (m["kind"] == "human" or asked):  # every person's message; another wolt's only when it tags you
-                    deliver(cfg, config_path, m, history[-8:], got["members"], asked)
+                if relevant(cfg, m):
+                    deliver(cfg, config_path, m, history[-8:], got["members"], addressed(m, cfg["wolt"], cfg["owner"]))
                 history.append(m)
             store(config_path, cfg)
         except Exception as exc:
@@ -140,6 +186,8 @@ def main():
     s = sub.add_parser("voice"); s.add_argument("--config", default="lodge.json"); s.add_argument("voice", help="a voice name (alba, eve...) or off")
     s = sub.add_parser("run"); s.add_argument("--config", default="lodge.json"); s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("post"); s.add_argument("--config", default="lodge.json")
+    s = sub.add_parser("wait"); s.add_argument("--config", default="lodge.json"); s.add_argument("--timeout", type=float, default=540)
+    s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("working"); s.add_argument("--config", default="lodge.json"); s.add_argument("--off", action="store_true")
     a = ap.parse_args()
     if a.cmd == "join":
@@ -164,6 +212,8 @@ def main():
         print(f"voice notes in {got['voice']}" if got["voice"] else "no voice notes: your messages show as text only")
     elif a.cmd == "run":
         run(a.config, a.every)
+    elif a.cmd == "wait":
+        wait(a.config, a.timeout, a.every)
     elif a.cmd == "working":
         call(load(a.config), "POST", "/lodge/working", {"working": not a.off})
         print("working off" if a.off else "the room shows you working until you post")
