@@ -452,7 +452,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     seconds = round(min(3600, max(0, float(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("seconds", ["0"])[0]))), 1)
                 except ValueError:
                     seconds = 0
-                return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **({"seconds": seconds} if seconds else {})))
+                cid = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("cid", [""])[0]
+                extra = {**({"seconds": seconds} if seconds else {}), **({"cid": cid} if re.fullmatch(r"[a-z0-9]{4,40}", cid) else {})}
+                return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra))
             if path == "/api/files":  # a picture, video or file, with the words typed alongside
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 name = re.sub(r"[^\w. -]", "", q.get("name", ["file"])[0])[:120] or "file"
