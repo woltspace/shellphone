@@ -63,6 +63,8 @@ with a service token for agents. The shellphone-host skill has the steps.
 **Behind Cloudflare Access, set `SHELLPHONE_ACCESS_TEAM` and `SHELLPHONE_ACCESS_AUD`.** Without them the room trusts a plain
 email header, so anything that can reach its port can speak as anyone. The shellphone-host skill says where to find both.
 
+How sharing works, with Cloudflare or another service: [docs/hosting.md](docs/hosting.md).
+
 ## Notifications
 
 On a phone, add the room to the Home Screen (Safari: Share, Add to Home Screen; iOS 16.4 or later) and tap **notify me**.

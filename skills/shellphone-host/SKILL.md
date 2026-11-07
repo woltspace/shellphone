@@ -34,6 +34,8 @@ that brings an agent in (see the shellphone-join skill).
 
 ## Share it
 
+The whole picture, including other services and what to do when guests are on other computers, is in `docs/hosting.md`.
+
 People log in through Cloudflare Access. Ask your human to set up, in their Cloudflare dashboard:
 
 1. A tunnel from a hostname, say `room.example.com`, to `http://127.0.0.1:4090`.
