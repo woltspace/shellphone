@@ -198,7 +198,7 @@ function render() {
   watchBubbles();
   gnaw();
   receipts();
-  requestAnimationFrame(voiceWords);
+  requestAnimationFrame(() => { voiceWords(); drawCards(); });
 }
 // A voice note's words sit in its own bubble, under the player: a spinner while the room writes them down, then the words.
 // The words fold to one line behind ▸ (tap for all), for people and wolts alike.
@@ -430,6 +430,27 @@ function hackerCss() {
     .vac-textarea:focus { box-shadow: 0 0 0 1px ${THEME.accent}; }
     .vac-avatar { image-rendering: pixelated; }
     div:has(> .sp-words) { flex-wrap: wrap !important; }
+    .sp-card { clear: both; margin: 6px 0 2px; min-width: min(280px, 64vw); font-size: 14px; }
+    .c-card { display: flex; flex-direction: column; gap: 8px; }
+    .c-title { font: 600 14px "JetBrains Mono", monospace; color: ${THEME.accent}; }
+    .c-sub, .c-rsub, .c-meta, .c-ldesc, .c-stat span { color: ${THEME.dim}; font-size: 12px; }
+    .c-text { margin: 0; line-height: 1.4; }
+    .c-list { display: flex; flex-direction: column; border: 1px solid ${THEME.line}; border-radius: 10px; overflow: hidden; background: ${THEME.panel}; }
+    .c-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-top: 1px solid ${THEME.line}; }
+    .c-row:first-child { border-top: 0; }
+    .c-body { flex: 1; min-width: 0; } .c-rtitle { font-weight: 600; }
+    .c-side { display: flex; align-items: center; gap: 6px; flex: none; }
+    .c-badge { font: 600 10px "JetBrains Mono", monospace; color: #fff; background: ${THEME.accent}; border-radius: 6px; padding: 2px 6px; }
+    .c-btn, .c-choice { font: 600 12px "JetBrains Mono", monospace; color: ${THEME.accent} !important; border: 1px solid ${THEME.accent}; background: ${THEME.panel}; border-radius: 8px; padding: 5px 10px; text-decoration: none; cursor: pointer; }
+    .c-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+    .c-choice.picked { background: ${THEME.accent}; color: #fff !important; } .c-choice:disabled:not(.picked) { opacity: .45; }
+    .c-link { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid ${THEME.line}; border-radius: 10px; background: ${THEME.panel}; color: ${THEME.accent} !important; font-weight: 600; text-decoration: none; }
+    .c-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    .c-table th { text-align: left; font: 600 11px "JetBrains Mono", monospace; color: ${THEME.dim}; padding: 4px 6px; border-bottom: 1px solid ${THEME.line}; }
+    .c-table td { padding: 5px 6px; border-bottom: 1px solid ${THEME.line}; }
+    .c-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+    .c-stat { flex: 1; min-width: 70px; display: flex; flex-direction: column; padding: 8px 10px; border: 1px solid ${THEME.line}; border-radius: 10px; background: ${THEME.panel}; }
+    .c-stat b { font-size: 18px; }
     .sp-words { display: block; clear: both; flex: 0 0 100%; width: 100%; box-sizing: border-box; font-size: 14px; line-height: 1.4; margin: 6px 0 2px; white-space: pre-wrap; text-align: left; }
     .sp-words.mine { cursor: pointer; }
     .sp-words.mine::before { content: "▾ "; color: ${THEME.accent}; }
@@ -484,12 +505,76 @@ function hush(except) {
     if (a !== except && !a.paused) { a.pause(); a.dispatchEvent(new Event("ended")); }  // "ended" resets the kit's play button
   }
 }
+// Cards: a wolt's message can carry a card built from a few blocks (json-render's shape: type, props, children).
+// The page draws them itself with plain text and links only, so a card can't run anything on your phone.
+const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : null);
+function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = String(text); return n; }
+function linkEl(link, cls) {
+  const url = safeUrl(link && link.url); if (!url) return null;
+  const a = el("a", cls, link.label || "Open"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; return a;
+}
+function drawBlock(node, m) {
+  const p = node.props || {}, kids = () => (node.children || []).map((c) => drawBlock(c, m));
+  switch (node.type) {
+    case "Card": { const d = el("div", "c-card"); if (p.title) d.append(el("div", "c-title", p.title)); if (p.subtitle) d.append(el("div", "c-sub", p.subtitle)); d.append(...kids()); return d; }
+    case "Text": return el("p", "c-text", p.text);
+    case "List": {
+      const d = el("div", "c-list");
+      for (const it of (p.items || []).slice(0, 30)) {
+        const row = el("div", "c-row"), body = el("div", "c-body");
+        body.append(el("div", "c-rtitle", it.title || ""));
+        if (it.subtitle) body.append(el("div", "c-rsub", it.subtitle));
+        row.append(body);
+        const side = el("div", "c-side");
+        if (it.badge) side.append(el("span", "c-badge", it.badge));
+        if (it.meta) side.append(el("span", "c-meta", it.meta));
+        const a = linkEl(it.link, "c-btn"); if (a) side.append(a);
+        row.append(side); d.append(row);
+      }
+      return d;
+    }
+    case "Buttons": {
+      const d = el("div", "c-buttons");
+      for (const o of (p.options || []).slice(0, 8)) {
+        const label = typeof o === "string" ? o : o.label, value = typeof o === "string" ? o : (o.value || o.label);
+        const b = el("button", "c-choice", label); b.type = "button";
+        if (msgs.some((x) => x.kind === "human" && x.n > m.n && x.text === value)) { b.classList.add("picked"); setTimeout(() => d.querySelectorAll("button").forEach((x) => { x.disabled = true; })); }  // already answered
+        b.onclick = async () => {  // your choice goes to the room as a normal message, so the wolts hear it
+          d.querySelectorAll("button").forEach((x) => { x.disabled = true; }); b.classList.add("picked");
+          await say("api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: value }) });
+        };
+        d.append(b);
+      }
+      return d;
+    }
+    case "Link": { const a = linkEl({ label: p.label, url: p.url }, "c-link"); if (!a) return el("span"); if (p.description) a.append(el("span", "c-ldesc", p.description)); return a; }
+    case "Table": {
+      const t = el("table", "c-table"), head = el("tr");
+      (p.columns || []).forEach((c) => head.append(el("th", "", c))); t.append(head);
+      for (const r of (p.rows || []).slice(0, 40)) { const tr = el("tr"); r.forEach((v) => tr.append(el("td", "", v))); t.append(tr); }
+      return t;
+    }
+    case "Stats": { const d = el("div", "c-stats"); for (const it of (p.items || []).slice(0, 6)) { const s = el("div", "c-stat"); s.append(el("b", "", it.value), el("span", "", it.label)); d.append(s); } return d; }
+  }
+  return el("span");
+}
+function drawCards() {
+  const root = chat.shadowRoot; if (!root) return;
+  for (const m of msgs) {
+    if (!m.card) continue;
+    const wrap = root.getElementById(key(m)), card = wrap && wrap.querySelector(".vac-message-card");
+    if (!card || card.querySelector(".sp-card")) continue;
+    const box = el("div", "sp-card"); box.append(drawBlock(m.card, m));
+    const text = card.querySelector(".vac-format-message-wrapper");
+    text && text.parentNode ? text.parentNode.insertBefore(box, text.nextSibling) : card.prepend(box);
+  }
+}
 // The chat redraws a bubble's insides when it changes; put the words back in that same tick, before the screen paints.
 function watchBubbles() {
   const list = chat.shadowRoot && chat.shadowRoot.querySelector(".vac-messages-container");
   if (!list || list.__watched) return;
   list.__watched = true;
-  new MutationObserver(() => voiceWords()).observe(list, { childList: true, subtree: true });
+  new MutationObserver(() => { voiceWords(); drawCards(); }).observe(list, { childList: true, subtree: true });
 }
 function takeAudio() {
   const root = chat.shadowRoot;
