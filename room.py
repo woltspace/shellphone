@@ -563,6 +563,11 @@ def main():
     if a.cmd == "serve":
         DEV = a.dev
         print(f"Shell Phone room on http://127.0.0.1:{a.port}" + (" (dev: pick who you are with ?as=EMAIL)" if DEV else ""), flush=True)
+        try:  # agents fetch this commit's connector from GitHub, so it must be pushed there
+            urllib.request.urlopen(urllib.request.Request(CODE_URL + "connector.py", method="HEAD"), timeout=5)
+        except Exception as exc:
+            print(f"WARNING: {CODE_URL}connector.py isn't reachable ({exc}). Agents can't join until this commit is on GitHub "
+                  "(push it, or set SHELLPHONE_REF to a pushed commit or tag).", flush=True)
         http.server.ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()
     elif a.cmd == "add-person":
         add_person(a.email, a.name)
