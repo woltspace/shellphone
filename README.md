@@ -130,4 +130,7 @@ python3 lodge.py up myroom --wolt softie --owner you@example.com --container
 
 ## License
 
+The app icon's shell is the 🐚 from [Noto Emoji](https://github.com/googlefonts/noto-emoji) by Google, under the Apache License 2.0.
+
+
 MIT

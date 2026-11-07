@@ -461,6 +461,10 @@ function hackerCss() {
     .vac-icon-textarea-left .vac-svg-button { flex: none; width: 46px !important; height: 46px !important; max-height: none !important; border-radius: 50%; background: ${THEME.accent}; display: grid; place-items: center; }
     .vac-icon-microphone { width: 24px !important; height: 24px !important; fill: #fff !important; }
     .vac-send-disabled { display: none !important; }
+    .vac-icon-textarea { display: flex; align-items: center; height: auto !important; }
+    .vac-icon-textarea > .vac-svg-button:last-child:not(.vac-send-disabled) { flex: none; width: 46px !important; height: 46px !important; max-height: none !important; margin-left: 8px; border-radius: 50%; background: ${THEME.accent}; display: grid; place-items: center; }
+    .vac-icon-textarea > .vac-svg-button:last-child:not(.vac-send-disabled) svg { width: 22px !important; height: 22px !important; fill: #fff !important; }
+    .vac-icon-textarea > .vac-svg-button:last-child:not(.vac-send-disabled) svg path { fill: #fff !important; }
     .vac-box-footer:not(:has(.vac-send-disabled)) .vac-icon-textarea-left { display: none; }
     .vac-box-footer { padding-bottom: max(10px, env(safe-area-inset-bottom)) !important; align-items: center; }
     .vac-card-date { border-radius: 8px !important; text-transform: uppercase; font-size: 11px; }
