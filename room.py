@@ -15,7 +15,7 @@ A wolt's messages become voice notes from this computer's speech server only if 
         # Their wolts sign themselves up with the code (POST /lodge/join), picking their own name, creature and, if wanted, a voice.
         # (SHELLPHONE_CF_ID/SECRET add a Cloudflare service token; SHELLPHONE_PASS picks the password)
 """
-import argparse, base64, contextlib, getpass, hashlib, http.server, json, mimetypes, os, re, secrets, sqlite3, subprocess, sys, threading, time, urllib.parse, urllib.request, uuid
+import argparse, base64, contextlib, shutil, getpass, hashlib, http.server, json, mimetypes, os, re, secrets, sqlite3, subprocess, sys, threading, time, urllib.parse, urllib.request, uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -190,6 +190,23 @@ def receipts():
     return out
 
 
+def as_mp3(f):
+    """Phones record webm or mp4, which some browsers can't play or can't tell the length of. With ffmpeg here, keep an mp3."""
+    if f.suffix == ".mp3" or not shutil.which("ffmpeg"):
+        return f
+    out = f.with_suffix(".mp3")
+    done = subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(f), "-vn", "-ac", "1", "-b:a", "64k", str(out)], capture_output=True, timeout=120)
+    if done.returncode or not out.exists():
+        return f
+    f.unlink()
+    return out
+
+
+def page_version():
+    """Changes when the page or the room's code does, so open pages (and home-screen apps) reload themselves."""
+    return int(max((HERE / f).stat().st_mtime for f in ("index.html", "room.py")))
+
+
 def patch(message_id, **fields):
     """The log only grows; a voice note that arrives later is written as a small follow-up record."""
     append(kind="patch", of=message_id, **fields)
@@ -246,7 +263,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def send(self, code, body, kind="application/json", download=None):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        ranged = code == 200 and kind.split("/")[0] in ("audio", "video")
+        got = re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range") or "") if ranged else None
+        if got and data and (got.group(1) or got.group(2)):  # iPhone Safari only plays audio and video it can fetch in pieces
+            size = len(data)
+            start = int(got.group(1)) if got.group(1) else max(0, size - int(got.group(2)))
+            end = min(size - 1, int(got.group(2))) if got.group(1) and got.group(2) else size - 1
+            if start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            code, data = 206, data[start:end + 1]
         self.send_response(code)
+        if ranged:
+            self.send_header("Accept-Ranges", "bytes")
+        if code == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.send_header("Content-Type", kind)
         self.send_header("X-Content-Type-Options", "nosniff")
         if download:  # anything that isn't a picture, a video or audio is saved, never opened in the room's page
@@ -331,7 +365,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not p:
             return self.send(403, {"error": "not on this room's list"})
         if path == "/api/state":
-            return self.send(200, {"title": title(), "me": email, "members": members(), "working": working_now(), "seen": receipts(), "messages": messages(after)})
+            return self.send(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "seen": receipts(), "messages": messages(after)})
         m = re.fullmatch(r"/voice/([0-9a-f]{32}\.(mp3|webm|mp4|m4a|ogg))", path)
         if m and (VOICE / m.group(1)).is_file():
             kind = "audio/mpeg" if m.group(2) == "mp3" else f"audio/{m.group(2)}"
@@ -409,11 +443,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 VOICE.mkdir(parents=True, exist_ok=True)
                 f = VOICE / f"{vid}.{ext}"
                 f.write_bytes(audio)
+                f = as_mp3(f)
                 try:
                     text = transcribe(f)
                 except Exception as exc:
                     return self.send(502, {"error": f"couldn't transcribe: {exc}"})
-                return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name))
+                try:
+                    seconds = round(min(3600, max(0, float(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("seconds", ["0"])[0]))), 1)
+                except ValueError:
+                    seconds = 0
+                cid = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("cid", [""])[0]
+                extra = {**({"seconds": seconds} if seconds else {}), **({"cid": cid} if re.fullmatch(r"[a-z0-9]{4,40}", cid) else {})}
+                return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra))
             if path == "/api/files":  # a picture, video or file, with the words typed alongside
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 name = re.sub(r"[^\w. -]", "", q.get("name", ["file"])[0])[:120] or "file"

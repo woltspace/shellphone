@@ -28,6 +28,29 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 @keyframes bob { 50% { translate: 0 -2px; } }
 @keyframes glow { 50% { box-shadow: 0 0 0 1px #c4531e44, 0 2px 12px #c4531e22; } }
 @keyframes step { from { transform: translateY(6px); opacity: 0; } }
+/* Listening: Shell's sheet. Tap the mic, talk, tap Stop: it's sent as a voice note and written down. */
+#listening { position: fixed; inset: 0; z-index: 2000; background: #18100a55; }
+#listening[hidden] { display: none; }
+#listening .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: calc(env(safe-area-inset-top) + 48px); max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; padding: 8px 18px calc(24px + env(safe-area-inset-bottom)); background: #f5f1e8; border-radius: 14px 14px 0 0; animation: rise .22s ease-out; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; color: #18100a; }
+@keyframes rise { from { transform: translateY(40px); opacity: 0; } }
+#listening .grab { width: 36px; height: 5px; margin: 0 auto 16px; border-radius: 3px; background: #d6ccba; }
+#listening .head { display: flex; align-items: center; gap: 10px; }
+#listening .head img { width: 42px; height: 42px; image-rendering: pixelated; animation: bob 2.8s ease-in-out infinite; }
+#listening h2 { margin: 0; font: 600 17px "JetBrains Mono", monospace; color: #c4531e; }
+#listening p { margin: 0; color: #8a7a68; font-size: 13px; }
+#wave { display: flex; align-items: center; justify-content: center; gap: 3px; height: 72px; margin-top: 28px; color: #c4531e; }
+#wave i { display: block; width: 3px; height: 72px; border-radius: 2px; background: currentColor; transform: scaleY(.06); transition: transform .09s linear; }
+#wave.quiet i { animation: quiet 1.4s ease-in-out infinite alternate; }
+@keyframes quiet { from { transform: scaleY(.1); } to { transform: scaleY(.5); } }
+#clock { text-align: center; font: 300 40px -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; margin-top: 6px; }
+#listening .space { flex: 1; }
+#rec-actions { display: flex; justify-content: center; gap: 56px; }
+#rec-actions button { width: 72px; height: 72px; border: 0; border-radius: 50%; display: grid; place-items: center; cursor: pointer; }
+#rec-actions svg { width: 30px; height: 30px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+#cancel { background: #d6ccba; } #cancel svg { stroke: #5c4d3c; }
+#stop { background: #2e9d57; box-shadow: 0 4px 14px #2e9d5755; }
+#rec-actions span { display: block; margin-top: 8px; text-align: center; color: #8a7a68; font: 12px "JetBrains Mono", monospace; }
+@media (prefers-reduced-motion: reduce) { #listening .sheet, #listening .head img, #wave.quiet i { animation: none; } #wave i { transition: none; } }
 </style>
 <script src="vendor/vue-advanced-chat-2.1.2.umd.js"></script>
 </head>
@@ -36,6 +59,17 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 <a id="bring" href="join">+ agent</a>
 <div id="note"></div>
 <div id="gnaw"></div>
+<div id="listening" hidden><div class="sheet" role="dialog" aria-label="Listening">
+  <div class="grab"></div>
+  <div class="head"><img id="listen-sprite" alt=""><div><h2>Listening</h2><p>Talk, then tap send. It goes to the room as a voice note.</p></div></div>
+  <div id="wave" aria-hidden="true"></div>
+  <div id="clock">0:00</div>
+  <div class="space"></div>
+  <div id="rec-actions">
+    <div><button id="cancel" type="button" aria-label="Cancel"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button><span>cancel</span></div>
+    <div><button id="stop" type="button" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button><span>send</span></div>
+  </div>
+</div></div>
 <script>
 // Shell Phone on vue-advanced-chat (MIT). The room server is unchanged: this page only maps its log to the component and back.
 const SPRITES = {
@@ -75,6 +109,8 @@ function woltAvatar(creature, color) {
   return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${box} ${box}" shape-rendering="crispEdges"><circle cx="${side / 2}" cy="${side / 2}" r="${box / 2 - 1}" fill="${color}33" stroke="${color}" stroke-width="1.6"/>${rects}</svg>`);
 }
 
+const unfolded = new Set();  // voice notes whose words someone tapped open
+const key = (m) => m.cid || m.id;  // a voice note keeps the id its sender's page gave it, so the bubble never changes
 let state = { me: "", title: "shell", members: { people: [], wolts: [] }, working: {} };
 let after = 0, msgs = [], byId = {}, heard = new Set(), first = true, queue = [], player = null, shown = {};
 const person = (email) => state.members.people.find((p) => p.email === email) || { name: email, color: "#8a6a52" };
@@ -102,18 +138,17 @@ function toMessage(m) {
   const owner = human ? m.email : m.owner;
   const files = m.file ? [{ name: m.file.name.replace(/\.[^.]*$/, ""), extension: m.file.type, type: m.file.type, url: m.file.url, size: m.file.size }] : undefined;
   const base = {
-    _id: m.id, indexId: m.n, senderId: human ? m.email : woltId(m.wolt),
+    _id: key(m), indexId: m.n, senderId: human ? m.email : woltId(m.wolt),
     username: human ? person(m.email).name : `${m.wolt} · ${owner === state.me ? "yours" : person(owner).name + "'s"}`,
     avatar: human ? personAvatar(person(m.email).name, person(m.email).color) : woltAvatar(m.creature, person(owner).color),
     content: toTags(m.text || ""), date: d.toLocaleDateString([], { day: "numeric", month: "long" }),
     timestamp: d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
     saved: true, distributed: true, disableReactions: true,
   };
-  // The component shows a lone voice note without its words, so the words and the voice note are two bubbles, like a transcript.
-  const out = [{ ...base, content: base.content, files }];
-  if (m.audio) out.push({ ...base, _id: m.id + ":voice", indexId: m.n + 0.5, content: "", disableActions: true,
-                          files: [{ name: "voice", type: "mp3", audio: true, url: "voice/" + m.audio, size: 0 }] });
-  return out;
+  if (!m.audio) return [{ ...base, files }];
+  // One bubble per voice note, with the same id from the moment you tap stop to when its words arrive, so nothing flashes.
+  // The kit shows a voice note without words, so voiceWords() puts the words (or a spinner) into the bubble itself.
+  return [{ ...base, _id: key(m), content: "", files: [{ name: "voice", type: "mp3", audio: true, url: m.localUrl || "voice/" + m.audio, size: 0 }] }];
 }
 
 function slashCommands() {
@@ -144,11 +179,44 @@ function render() {
     typingUsers: [],  // #gnaw shows who's working instead
   }]);
   set("templates-text", slashCommands());
+  const real = new Set(msgs.filter((m) => !m.pending && m.cid).map((m) => m.cid));
+  msgs = msgs.filter((m) => !(m.pending && real.has(m.cid)));
   set("messages", msgs.flatMap(toMessage));
   set("messages-loaded", "true");
   hackerCss();
+  takeMic();
+  takeAudio();
   gnaw();
   receipts();
+  requestAnimationFrame(voiceWords);
+}
+// A voice note's words sit in its own bubble, under the player: a spinner while the room writes them down, then the words.
+// The words fold to one line behind ▸ (tap for all), for people and wolts alike.
+function voiceWords() {
+  const root = chat.shadowRoot;
+  if (!root) return;
+  for (const m of msgs) {
+    if (!m.audio) continue;
+    const wrap = root.getElementById(key(m));
+    const card = wrap && wrap.querySelector(".vac-message-card");
+    const player = card && card.querySelector(".vac-audio-player");
+    if (!player) continue;
+    let w = wrap.querySelector(".sp-words");
+    if (!w) {  // under the player and its length line
+      w = document.createElement("div"); w.className = "sp-words";
+      const box = player.parentNode, length = box.nextElementSibling;  // the player's box, then its "00:12" line
+      box.parentNode.insertBefore(w, length ? length.nextSibling : null);
+    }
+    const folded = !unfolded.has(key(m));
+    const sig = (m.pending ? "…" : m.text) + folded;
+    if (w.dataset.sig === sig) continue;
+    w.dataset.sig = sig;
+    w.classList.toggle("folded", folded);
+    w.classList.toggle("mine", !m.pending);
+    w.classList.toggle("pending", !!m.pending);
+    w.innerHTML = m.pending ? '<i class="sp-spin"></i><svg class="sp-mic" viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-2.1A7 7 0 0 0 19 12h-2Z"/></svg>transcribing' : "";
+    if (!m.pending) w.textContent = m.text || "";
+  }
 }
 // Read receipts: each wolt that read your message leaves its sprite where the checkmark goes. Working ones also chew in #gnaw.
 function receipts() {
@@ -233,6 +301,85 @@ function styles() {  // terminal colours; your bubbles still wear your colour
                     document: T.accent, audioPlay: T.accent, audioPause: T.accent, close: T.dim, dropdownScroll: T.text } };
 }
 // Things the style props can't reach: mono everywhere, square corners, a blinking prompt, terminal-style names.
+
+// Voice notes the Shell way: the kit's small mic opens a full Listening sheet (big stop, timer, level meter) instead of its own recorder.
+let rec = null;
+async function startListening() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) { $("note").textContent = "This browser can't record here."; return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { $("note").textContent = e.name === "NotAllowedError" ? "Shell Phone needs the microphone. Allow it in your settings." : "Couldn't start the microphone."; return; }
+  const recorder = new MediaRecorder(stream), parts = [];
+  rec = { recorder, stream, parts, start: Date.now(), keep: true, meter: null, lock: null };
+  recorder.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
+  recorder.onstop = () => finishListening(rec);
+  recorder.start(1000);
+  const me = state.members.wolts.find((w) => w.owner === state.me);
+  $("listen-sprite").src = woltAvatar(me ? me.creature : "raccoon", person(state.me).color);
+  $("wave").replaceChildren(...Array.from({ length: 40 }, (_, i) => { const b = document.createElement("i"); b.style.animationDelay = `${-(i * 0.13) % 1.4}s`; return b; }));
+  $("listening").hidden = false;
+  rec.meter = meter(stream);
+  rec.clock = setInterval(() => { const s = Math.floor((Date.now() - rec.start) / 1000); $("clock").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }, 250);
+  try { if (navigator.wakeLock) rec.lock = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+function meter(stream) {
+  const bars = [...$("wave").children];
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser();
+    an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an); ctx.resume().catch(() => {});
+    const buf = new Uint8Array(an.fftSize), lv = new Array(bars.length).fill(0.06), m = { ctx, frame: 0, last: 0 };
+    const step = (now) => {
+      m.frame = requestAnimationFrame(step);
+      if (now - m.last < 70) return; m.last = now;
+      an.getByteTimeDomainData(buf);
+      const peak = buf.reduce((a, v) => Math.max(a, Math.abs(v - 128)), 0) / 128;
+      lv.push(Math.max(0.06, Math.min(1, peak * 2.4))); lv.shift();
+      bars.forEach((b, i) => { b.style.transform = `scaleY(${lv[i]})`; });
+    };
+    m.frame = requestAnimationFrame(step); $("wave").classList.remove("quiet"); return m;
+  } catch (e) { $("wave").classList.add("quiet"); return null; }
+}
+function stopListening(keep) {
+  if (!rec || rec.recorder.state === "inactive") return;
+  rec.keep = keep; rec.recorder.stop();
+}
+async function finishListening(r) {
+  rec = null;
+  r.stream.getTracks().forEach((t) => t.stop());
+  clearInterval(r.clock);
+  if (r.meter) { cancelAnimationFrame(r.meter.frame); r.meter.ctx.close().catch(() => {}); }
+  if (r.lock) r.lock.release().catch(() => {});
+  $("listening").hidden = true; $("clock").textContent = "0:00";
+  if (!r.keep || !r.parts.length || Date.now() - r.start < 700) return;
+  const type = (r.parts[0].type || r.recorder.mimeType || "audio/mp4").split(";")[0];
+  const blob = new Blob(r.parts, { type }), seconds = Math.round((Date.now() - r.start) / 100) / 10;
+  // It shows as sent right away. The room's copy takes its place under the same id once the words are written down.
+  const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const local = { id: cid, cid, n: after + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: "",
+                  audio: "local", localUrl: URL.createObjectURL(blob), seconds, pending: true };
+  msgs.push(local); render();
+  const ok = await say(`api/voice?seconds=${seconds}&cid=${cid}`, { method: "POST", headers: { "Content-Type": type }, body: blob });
+  if (!ok) { local.pending = false; local.text = "didn't send: tap the mic to try again"; render(); }
+}
+$("stop").onclick = () => stopListening(true);
+$("cancel").onclick = () => stopListening(false);
+function takeMic() {
+  const root = chat.shadowRoot;
+  if (!root || root.__mic) return;
+  root.__mic = true;
+  root.addEventListener("click", (e) => {
+    const wrap = e.composedPath().find((n) => n.classList && n.classList.contains("vac-message-wrapper"));
+    const m = wrap && msgs.find((x) => key(x) === wrap.id);
+    if (m && m.audio && !m.pending && e.composedPath().some((n) => n.classList && n.classList.contains("sp-words"))) {
+      unfolded.has(wrap.id) ? unfolded.delete(wrap.id) : unfolded.add(wrap.id);
+      voiceWords();
+    }
+    const btn = e.composedPath().find((n) => n.classList && n.classList.contains("vac-svg-button"));
+    if (!btn || !btn.querySelector(".vac-icon-microphone")) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    startListening();
+  }, true);
+}
 function hackerCss() {
   const root = chat.shadowRoot;
   if (!root || root.getElementById("hacker")) return;
@@ -251,15 +398,52 @@ function hackerCss() {
     .vac-textarea { border-radius: 10px !important; font-size: 16px !important; }  /* under 16px, iPhone zooms in on focus */
     .vac-textarea:focus { box-shadow: 0 0 0 1px ${THEME.accent}; }
     .vac-avatar { image-rendering: pixelated; }
+    div:has(> .sp-words) { flex-wrap: wrap !important; }
+    .sp-words { display: block; clear: both; flex: 0 0 100%; width: 100%; box-sizing: border-box; font-size: 14px; line-height: 1.4; margin: 6px 0 2px; white-space: pre-wrap; text-align: left; }
+    .sp-words.mine { cursor: pointer; }
+    .sp-words.mine::before { content: "▾ "; color: ${THEME.accent}; }
+    .sp-words.folded { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; color: ${THEME.dim}; }
+    .sp-words.folded::before { content: "▸ "; }
+    .sp-words.pending { color: ${THEME.dim}; font-size: 12px; cursor: default; display: flex; align-items: center; gap: 5px; animation: pulse 1.4s ease-in-out infinite; }
+    .sp-words.pending::before { content: none; }
+    .sp-mic { width: 13px; height: 13px; fill: ${THEME.accent}; }
+    @keyframes pulse { 50% { opacity: .45; } }
+    .sp-spin { width: 11px; height: 11px; border: 2px solid ${THEME.line}; border-top-color: ${THEME.accent}; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* Shell's composer: a big round mic on the right while the box is empty, the send arrow once you type */
+    .vac-box-footer textarea { order: 1; } .vac-icon-textarea { order: 2; } .vac-icon-textarea-left { order: 3; margin: 0 0 0 8px !important; }
+    .vac-icon-textarea-left { display: flex; align-items: center; height: auto !important; }
+    .vac-icon-textarea-left .vac-svg-button { flex: none; width: 46px !important; height: 46px !important; max-height: none !important; border-radius: 50%; background: ${THEME.accent}; display: grid; place-items: center; }
+    .vac-icon-microphone { width: 24px !important; height: 24px !important; fill: #fff !important; }
+    .vac-send-disabled { display: none !important; }
+    .vac-box-footer:not(:has(.vac-send-disabled)) .vac-icon-textarea-left { display: none; }
+    .vac-box-footer { padding-bottom: max(10px, env(safe-area-inset-bottom)) !important; align-items: center; }
     .vac-card-date { border-radius: 8px !important; text-transform: uppercase; font-size: 11px; }
     @keyframes blink { 50% { opacity: 0; } }`;
   root.appendChild(st);
 }
 
+// Only one sound at a time: starting a voice note stops any other, and new notes that play by themselves stop yours.
+function hush(except) {
+  for (const a of chat.shadowRoot ? chat.shadowRoot.querySelectorAll("audio") : []) {
+    if (a !== except && !a.paused) { a.pause(); a.dispatchEvent(new Event("ended")); }  // "ended" resets the kit's play button
+  }
+}
+function takeAudio() {
+  const root = chat.shadowRoot;
+  if (!root || root.__audio) return;
+  root.__audio = true;
+  root.addEventListener("play", (e) => {
+    hush(e.target);
+    if (player) { player.pause(); player = null; }
+    queue.length = 0;  // you chose what to hear: don't start the others after it
+  }, true);
+}
 function playNext() {
   if (player || !queue.length) return;
   const id = queue.shift(), m = byId[id];
   if (!m || !m.audio) return playNext();
+  hush();
   player = new Audio("voice/" + m.audio);
   const done = () => { player = null; playNext(); };
   player.onended = done; player.onerror = done;
@@ -272,6 +456,8 @@ async function poll() {
     const r = await fetch("api/state?after=" + after, { cache: "no-store" });
     if (r.status === 403) { $("note").textContent = "You're not on this room's list."; return; }
     const s = await r.json();
+    // The room's code changed: reload, unless you're recording or have something typed.
+    if (state.version && s.version && s.version !== state.version && !rec && !(chat.shadowRoot && (chat.shadowRoot.getElementById("roomTextarea") || {}).value)) return location.reload();
     state = s;
     for (const m of s.messages) {
       after = Math.max(after, m.n);
@@ -291,8 +477,10 @@ async function poll() {
 }
 
 async function say(url, init) {
-  const r = await fetch(url, init);
+  const r = await fetch(url, init).catch(() => ({ ok: false, json: async () => ({}) }));
   if (!r.ok) $("note").textContent = (await r.json().catch(() => ({}))).error || "That didn't send.";
+  else $("note").textContent = "";  // a later send worked: drop any old warning
+  return r.ok;
 }
 chat.addEventListener("fetch-messages", () => set("messages-loaded", "true"));
 chat.addEventListener("send-message", async (e) => {
