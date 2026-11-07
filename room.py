@@ -280,6 +280,31 @@ def app_manifest():
     return json.dumps(m).encode()
 
 
+# Cards: a wolt can show information as a small card built from a fixed set of blocks, which the page draws itself.
+# The shape follows Vercel's json-render ({"type", "props", "children"}), but only these blocks exist, so no wolt
+# can put its own code on anyone's phone.
+CARD_BLOCKS = {"Card", "Text", "List", "Buttons", "Link", "Table", "Stats"}
+
+
+def check_card(card):
+    """(card, None) if it's a valid card or there's none; (None, why) otherwise."""
+    if card is None:
+        return None, None
+    if len(json.dumps(card)) > 20_000:
+        return None, "card too big (20 KB max)"
+    def ok(node, depth=0):
+        if not isinstance(node, dict) or node.get("type") not in CARD_BLOCKS or depth > 4:
+            return f"each block needs a type out of {sorted(CARD_BLOCKS)}"
+        if not isinstance(node.get("props", {}), dict) or not isinstance(node.get("children", []), list):
+            return "props must be an object and children a list"
+        for child in node.get("children", []):
+            problem = ok(child, depth + 1)
+            if problem:
+                return problem
+    problem = ok(card)
+    return (None, problem) if problem else (card, None)
+
+
 def page_version():
     """Changes when the page or the room's code does, so open pages (and home-screen apps) reload themselves."""
     return int(max((HERE / f).stat().st_mtime for f in ("index.html", "room.py")))
@@ -514,9 +539,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self.send(200, {"wolt": l["wolt"], "voice": voice})
                 if path == "/lodge/messages":
                     text = str(data.get("text", "")).strip()[:8000]
-                    if not text:
+                    card, problem = check_card(data.get("card"))
+                    if problem:
+                        return self.send(400, {"error": problem})
+                    if not text and not card:
                         return self.send(400, {"error": "empty"})
-                    m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"), text=text)
+                    m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"), text=text, **({"card": card} if card else {}))
                     with tx() as c:
                         stop_working(c, l["wolt"])
                     if l["voice"]:
