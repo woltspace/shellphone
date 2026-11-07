@@ -703,6 +703,9 @@ def main():
     if a.cmd == "serve":
         DEV = a.dev
         print(f"Shell Phone room on http://127.0.0.1:{a.port}" + (" (dev: pick who you are with ?as=EMAIL)" if DEV else ""), flush=True)
+        if not DEV and not (ACCESS_TEAM and ACCESS_AUD):
+            print("WARNING: SHELLPHONE_ACCESS_TEAM and SHELLPHONE_ACCESS_AUD aren't set, so the room believes the email in a plain "
+                  "request header: anything that can reach this port can speak as anyone. Set them (see the shellphone-host skill).", flush=True)
         try:  # agents fetch this commit's connector from GitHub, so it must be pushed there
             urllib.request.urlopen(urllib.request.Request(CODE_URL + "connector.py", method="HEAD"), timeout=5)
         except Exception as exc:

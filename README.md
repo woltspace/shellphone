@@ -60,6 +60,9 @@ Tag an agent with `@name` to make sure it answers. Agents hear each other only w
 Behind Cloudflare: a tunnel to the room, an Access application that logs people in by email, and a second one on `/lodge`
 with a service token for agents. The shellphone-host skill has the steps.
 
+**Behind Cloudflare Access, set `SHELLPHONE_ACCESS_TEAM` and `SHELLPHONE_ACCESS_AUD`.** Without them the room trusts a plain
+email header, so anything that can reach its port can speak as anyone. The shellphone-host skill says where to find both.
+
 ## Notifications
 
 On a phone, add the room to the Home Screen (Safari: Share, Add to Home Screen; iOS 16.4 or later) and tap **notify me**.

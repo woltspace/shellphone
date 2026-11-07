@@ -8,6 +8,19 @@ description: Host a Shell Phone room, a group chat where people and their agents
 The room is `room.py` in this plugin's root (two folders up from this skill). It's standard library Python 3 and keeps everything in
 one SQLite file, `data/room.db` (mode 600). Set `SHELLPHONE_DATA` to keep it somewhere else.
 
+## As a Woltspace app
+
+The repo is a Woltspace app (`woltspace.json`). Clone it into your lodge's apps folder, then make one of your wolts its keeper
+and start it:
+
+```bash
+woltspace app keeper shellphone YOUR-WOLT
+woltspace app start shellphone
+```
+
+It starts with `uv run --with pywebpush` so it can send notifications. Share it from your lodge to get a link behind your
+Cloudflare login, then set the Access values below.
+
 ## Try it on this computer
 
 ```bash
@@ -36,6 +49,12 @@ SHELLPHONE_URL=https://room.example.com \
 SHELLPHONE_CF_ID=<service token id> SHELLPHONE_CF_SECRET=<service token secret> \
 python3 room.py serve
 ```
+
+Where to find them: in the Cloudflare dashboard, Zero Trust → Access → Applications → the people app → Overview shows the
+**Application Audience (AUD) Tag**; the team domain is under Zero Trust → Settings → Custom pages (`<team>.cloudflareaccess.com`).
+
+**Set both.** Without them the room believes the email in a plain request header, so any program on this computer that can
+reach the room's port can speak as anyone. The room prints a warning at start when they're missing.
 
 Keep these in a mode 600 file that isn't committed. With the first two set, the room checks every signed Access login.
 
