@@ -10,7 +10,7 @@
 /* Between Shell and a terminal: Shell's warm paper and terracotta, mono for names and labels, sans for what people say.
    The colours live in THEME below, so a room could pick its own later. */
 html, body { margin: 0; height: 100%; background: #f5f1e8; overflow: hidden; }
-body { position: fixed; inset: 0; }  /* iPhone: stop Safari sliding the whole page up under the keyboard */
+body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }  /* iPhone: stop Safari sliding the whole page up under the keyboard */
 vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
 #note { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 9; font: 12px "JetBrains Mono", monospace; background: #fffdf6; color: #c4531e; border: 1px solid #c4531e; padding: 6px 12px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 10px rgba(24,16,10,.12); }
 #bring { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 14px; z-index: 1000; font: 600 12px "JetBrains Mono", monospace; color: #c4531e; border: 1px solid #d6ccba; padding: 5px 10px; border-radius: 8px; text-decoration: none; background: #fffdf6; }
@@ -243,15 +243,17 @@ let loreTick = 0;
 function gnaw() {
   const on = state.members.wolts.filter((w) => (state.working || {})[w.wolt]);
   const box = gnawBox();
-  box.querySelectorAll(".w").forEach((n) => { if (!on.some((w) => w.wolt === n.dataset.wolt)) n.remove(); });
+  box.querySelectorAll(".w:not(.bye)").forEach((n) => {  // fold away, then leave, so the chat doesn't jump
+    if (!on.some((w) => w.wolt === n.dataset.wolt)) { n.classList.add("bye"); setTimeout(() => n.remove(), 260); }
+  });
   for (const w of on) {
-    if (box.querySelector(`[data-wolt="${w.wolt}"]`)) continue;
+    if (box.querySelector(`[data-wolt="${w.wolt}"]:not(.bye)`)) continue;
     const row = document.createElement("div"); row.className = "w"; row.dataset.wolt = w.wolt;
     const img = document.createElement("img"); img.src = woltAvatar(w.creature, person(w.owner).color); img.alt = "";
     const line = document.createElement("span"); line.className = "lore";
     row.append(img, line); box.append(row); setLore(row, w);
     const sc = chat.shadowRoot.querySelector(".vac-container-scroll");  // keep it in view if you were reading the latest
-    if (sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160) sc.scrollTop = sc.scrollHeight;
+    if (sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160) requestAnimationFrame(() => sc.scrollTo({ top: sc.scrollHeight, behavior: "smooth" }));
   }
 }
 function setLore(row, w) {
@@ -409,6 +411,9 @@ function hackerCss() {
     .sp-words.mine::before { content: "▾ "; color: ${THEME.accent}; }
     .sp-words.folded { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; color: ${THEME.dim}; }
     .sp-words.folded::before { content: "▸ "; }
+    /* A voice note's bubble has one size from the moment it lands: same width, and a one-line slot for "transcribing", then the words */
+    .vac-message-card:has(.vac-audio-player) { width: min(260px, 68vw); box-sizing: border-box; }
+    .sp-words.folded, .sp-words.pending { height: 20px; line-height: 20px; }
     .sp-words.pending { color: ${THEME.dim}; font-size: 12px; cursor: default; display: flex; align-items: center; gap: 5px; animation: pulse 1.4s ease-in-out infinite; }
     .sp-words.pending::before { content: none; }
     .sp-mic { width: 13px; height: 13px; fill: ${THEME.accent}; }
@@ -417,9 +422,16 @@ function hackerCss() {
     @keyframes spin { to { transform: rotate(360deg); } }
     /* Shell's composer: a big round mic on the right while the box is empty, the send arrow once you type */
     .vac-box-footer textarea { order: 1; } .vac-icon-textarea { order: 2; } .vac-icon-textarea-left { order: 3; margin: 0 0 0 8px !important; }
+    #gnaw .w { animation: grow .22s ease-out, glow 2.4s ease-in-out infinite; overflow: hidden; }
+    #gnaw .w.bye { animation: shrink .25s ease-in forwards; }
+    @keyframes grow { from { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; } to { max-height: 40px; } }
+    @keyframes shrink { from { max-height: 40px; } to { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; border-width: 0; } }
+    * { -webkit-tap-highlight-color: transparent; }
+    .vac-container-scroll { overscroll-behavior: contain; }
+    .vac-container-scroll, .vac-box-footer { touch-action: manipulation; }
     #gnaw { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 4px 12px 10px; }
     #gnaw:empty { display: none; }
-    #gnaw .w { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; background: #fffdf6ee; border: 1px solid #d6ccba; border-radius: 8px; font: 600 12px "JetBrains Mono", monospace; animation: glow 2.4s ease-in-out infinite; }
+    #gnaw .w { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; background: #fffdf6ee; border: 1px solid #d6ccba; border-radius: 8px; font: 600 12px "JetBrains Mono", monospace; }
     #gnaw img { width: 26px; height: 26px; image-rendering: pixelated; animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
     #gnaw .lore { background: linear-gradient(90deg, #c4531e, #b8862b, #3a6644, #8a4f9e, #2f8a7a, #c4531e) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cook 2.4s linear infinite; }
     #gnaw .lore.new { animation: cook 2.4s linear infinite, step .25s ease-out; }
@@ -473,7 +485,7 @@ async function poll() {
     if (r.status === 403) { $("note").textContent = "You're not on this room's list."; return; }
     const s = await r.json();
     // The room's code changed: reload, unless you're recording or have something typed.
-    if (state.version && s.version && s.version !== state.version && !rec && !(chat.shadowRoot && (chat.shadowRoot.getElementById("roomTextarea") || {}).value)) return location.reload();
+    if (state.version && s.version && s.version !== state.version && !rec && !player && !(chat.shadowRoot && [...chat.shadowRoot.querySelectorAll("audio")].some((x) => !x.paused)) && !(chat.shadowRoot && (chat.shadowRoot.getElementById("roomTextarea") || {}).value)) return location.reload();
     state = s;
     for (const m of s.messages) {
       after = Math.max(after, m.n);
