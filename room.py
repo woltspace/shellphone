@@ -143,7 +143,7 @@ def append(**fields):
     with tx() as c:
         n = c.execute("insert into messages (id, at, kind, data) values (?, ?, ?, ?)", (m["id"], m["at"], fields["kind"], json.dumps(rest))).lastrowid
     m = {"n": n, **m}
-    if fields.get("kind") in ("human", "wolt") and fields.get("text"):
+    if fields.get("kind") in ("human", "wolt") and (fields.get("text") or fields.get("file")):
         threading.Thread(target=notify, args=(m,), daemon=True).start()
     if fields.get("text") and fields.get("kind") in ("human", "patch"):
         email = fields.get("email") or (message(fields.get("of")) or {}).get("email")
@@ -236,7 +236,7 @@ def notify(m):
         pem, _ = vapid()
         people = {r["email"]: r["name"] for r in q("select email, name from people")}
         who = m.get("wolt") or people.get(m.get("email"), "someone")
-        body = json.dumps({"title": who, "body": (m.get("text") or "")[:180], "tag": m["id"], "url": "./"})
+        body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['file']['name']}")[:180], "tag": m["id"], "url": "./"})
         for row in q("select * from push"):
             if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
                 continue
@@ -250,6 +250,16 @@ def notify(m):
                     print(f"push failed: {exc}", flush=True)
     except Exception as exc:
         print(f"push failed: {exc}", flush=True)
+
+
+def save_upload(name, blob):
+    """Keep an uploaded picture or file under a fresh name; the message carries its original name."""
+    name = re.sub(r"[^\w. -]", "", name)[:120] or "file"
+    ext = (re.sub(r"[^a-z0-9]", "", name.rsplit(".", 1)[-1].lower())[:8] if "." in name else "") or "bin"
+    fid = uuid.uuid4().hex
+    FILES.mkdir(parents=True, exist_ok=True)
+    (FILES / f"{fid}.{ext}").write_bytes(blob)
+    return {"name": name, "url": f"files/{fid}.{ext}", "size": len(blob), "type": ext}
 
 
 def page_version():
@@ -463,6 +473,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 l = self.lodge()
                 if not l:
                     return self.send(401, {"error": "unknown lodge key"})
+                if path == "/lodge/files":  # a wolt shares a picture or a file, with words alongside if it wants
+                    q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                    m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"),
+                               text=q.get("text", [""])[0].strip()[:8000], file=save_upload(q.get("name", ["file"])[0], self.body(limit=25_000_000)))
+                    with tx() as c:
+                        stop_working(c, l["wolt"])
+                    return self.send(200, m)
                 data = json.loads(self.body() or b"{}")
                 if path == "/lodge/working":
                     with tx() as c:
@@ -526,15 +543,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra))
             if path == "/api/files":  # a picture, video or file, with the words typed alongside
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-                name = re.sub(r"[^\w. -]", "", q.get("name", ["file"])[0])[:120] or "file"
-                ext = (re.sub(r"[^a-z0-9]", "", name.rsplit(".", 1)[-1].lower())[:8] if "." in name else "") or "bin"
-                blob = self.body(limit=25_000_000)
-                fid = uuid.uuid4().hex
-                FILES.mkdir(parents=True, exist_ok=True)
-                (FILES / f"{fid}.{ext}").write_bytes(blob)
-                text = q.get("text", [""])[0].strip()[:8000]
-                return self.send(200, append(kind="human", email=email, text=text,
-                                             file={"name": name, "url": f"files/{fid}.{ext}", "size": len(blob), "type": ext}))
+                return self.send(200, append(kind="human", email=email, text=q.get("text", [""])[0].strip()[:8000],
+                                             file=save_upload(q.get("name", ["file"])[0], self.body(limit=25_000_000))))
             self.send(404, {"error": "not found"})
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})
