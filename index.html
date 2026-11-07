@@ -28,6 +28,26 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 @keyframes bob { 50% { translate: 0 -2px; } }
 @keyframes glow { 50% { box-shadow: 0 0 0 1px #c4531e44, 0 2px 12px #c4531e22; } }
 @keyframes step { from { transform: translateY(6px); opacity: 0; } }
+/* Listening: Shell's sheet. Tap the mic, talk, tap Stop: it's sent as a voice note and written down. */
+#listening { position: fixed; inset: 0; z-index: 2000; background: #18100a55; }
+#listening[hidden] { display: none; }
+#listening .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: calc(env(safe-area-inset-top) + 48px); max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; padding: 8px 18px calc(24px + env(safe-area-inset-bottom)); background: #f5f1e8; border-radius: 14px 14px 0 0; animation: rise .22s ease-out; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; color: #18100a; }
+@keyframes rise { from { transform: translateY(40px); opacity: 0; } }
+#listening .grab { width: 36px; height: 5px; margin: 0 auto 16px; border-radius: 3px; background: #d6ccba; }
+#listening .head { display: flex; align-items: center; gap: 10px; }
+#listening .head img { width: 42px; height: 42px; image-rendering: pixelated; animation: bob 2.8s ease-in-out infinite; }
+#listening h2 { margin: 0; font: 600 17px "JetBrains Mono", monospace; color: #c4531e; }
+#listening p { margin: 0; color: #8a7a68; font-size: 13px; }
+#wave { display: flex; align-items: center; justify-content: center; gap: 3px; height: 72px; margin-top: 28px; color: #c4531e; }
+#wave i { display: block; width: 3px; height: 72px; border-radius: 2px; background: currentColor; transform: scaleY(.06); transition: transform .09s linear; }
+#wave.quiet i { animation: quiet 1.4s ease-in-out infinite alternate; }
+@keyframes quiet { from { transform: scaleY(.1); } to { transform: scaleY(.5); } }
+#clock { text-align: center; font: 300 40px -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; margin-top: 6px; }
+#listening .space { flex: 1; }
+#stop { align-self: center; width: 72px; height: 72px; border: 3px solid #d6ccba; border-radius: 50%; background: none; display: grid; place-items: center; cursor: pointer; }
+#stop::after { content: ""; width: 28px; height: 28px; border-radius: 6px; background: #ff3b30; }
+#cancel { align-self: center; margin-top: 14px; border: 0; background: none; color: #8a7a68; font: 13px "JetBrains Mono", monospace; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { #listening .sheet, #listening .head img, #wave.quiet i { animation: none; } #wave i { transition: none; } }
 </style>
 <script src="vendor/vue-advanced-chat-2.1.2.umd.js"></script>
 </head>
@@ -36,6 +56,15 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 <a id="bring" href="join">+ agent</a>
 <div id="note"></div>
 <div id="gnaw"></div>
+<div id="listening" hidden><div class="sheet" role="dialog" aria-label="Listening">
+  <div class="grab"></div>
+  <div class="head"><img id="listen-sprite" alt=""><div><h2>Listening</h2><p>Talk, then tap stop. It goes to the room as a voice note.</p></div></div>
+  <div id="wave" aria-hidden="true"></div>
+  <div id="clock">0:00</div>
+  <div class="space"></div>
+  <button id="stop" type="button" aria-label="Stop and send"></button>
+  <button id="cancel" type="button">cancel</button>
+</div></div>
 <script>
 // Shell Phone on vue-advanced-chat (MIT). The room server is unchanged: this page only maps its log to the component and back.
 const SPRITES = {
@@ -147,6 +176,7 @@ function render() {
   set("messages", msgs.flatMap(toMessage));
   set("messages-loaded", "true");
   hackerCss();
+  takeMic();
   gnaw();
   receipts();
 }
@@ -233,6 +263,74 @@ function styles() {  // terminal colours; your bubbles still wear your colour
                     document: T.accent, audioPlay: T.accent, audioPause: T.accent, close: T.dim, dropdownScroll: T.text } };
 }
 // Things the style props can't reach: mono everywhere, square corners, a blinking prompt, terminal-style names.
+
+// Voice notes the Shell way: the kit's small mic opens a full Listening sheet (big stop, timer, level meter) instead of its own recorder.
+let rec = null;
+async function startListening() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) { $("note").textContent = "This browser can't record here."; return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { $("note").textContent = e.name === "NotAllowedError" ? "Shell Phone needs the microphone. Allow it in your settings." : "Couldn't start the microphone."; return; }
+  const recorder = new MediaRecorder(stream), parts = [];
+  rec = { recorder, stream, parts, start: Date.now(), keep: true, meter: null, lock: null };
+  recorder.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
+  recorder.onstop = () => finishListening(rec);
+  recorder.start(1000);
+  const me = state.members.wolts.find((w) => w.owner === state.me);
+  $("listen-sprite").src = woltAvatar(me ? me.creature : "raccoon", person(state.me).color);
+  $("wave").replaceChildren(...Array.from({ length: 40 }, (_, i) => { const b = document.createElement("i"); b.style.animationDelay = `${-(i * 0.13) % 1.4}s`; return b; }));
+  $("listening").hidden = false;
+  rec.meter = meter(stream);
+  rec.clock = setInterval(() => { const s = Math.floor((Date.now() - rec.start) / 1000); $("clock").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }, 250);
+  try { if (navigator.wakeLock) rec.lock = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+function meter(stream) {
+  const bars = [...$("wave").children];
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser();
+    an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an); ctx.resume().catch(() => {});
+    const buf = new Uint8Array(an.fftSize), lv = new Array(bars.length).fill(0.06), m = { ctx, frame: 0, last: 0 };
+    const step = (now) => {
+      m.frame = requestAnimationFrame(step);
+      if (now - m.last < 70) return; m.last = now;
+      an.getByteTimeDomainData(buf);
+      const peak = buf.reduce((a, v) => Math.max(a, Math.abs(v - 128)), 0) / 128;
+      lv.push(Math.max(0.06, Math.min(1, peak * 2.4))); lv.shift();
+      bars.forEach((b, i) => { b.style.transform = `scaleY(${lv[i]})`; });
+    };
+    m.frame = requestAnimationFrame(step); $("wave").classList.remove("quiet"); return m;
+  } catch (e) { $("wave").classList.add("quiet"); return null; }
+}
+function stopListening(keep) {
+  if (!rec || rec.recorder.state === "inactive") return;
+  rec.keep = keep; rec.recorder.stop();
+}
+async function finishListening(r) {
+  rec = null;
+  r.stream.getTracks().forEach((t) => t.stop());
+  clearInterval(r.clock);
+  if (r.meter) { cancelAnimationFrame(r.meter.frame); r.meter.ctx.close().catch(() => {}); }
+  if (r.lock) r.lock.release().catch(() => {});
+  $("listening").hidden = true; $("clock").textContent = "0:00";
+  if (!r.keep || !r.parts.length || Date.now() - r.start < 700) return;
+  const type = (r.parts[0].type || r.recorder.mimeType || "audio/mp4").split(";")[0];
+  $("note").textContent = "Writing down what you said…";
+  await say("api/voice", { method: "POST", headers: { "Content-Type": type }, body: new Blob(r.parts, { type }) });
+  if ($("note").textContent.startsWith("Writing")) $("note").textContent = "";
+}
+$("stop").onclick = () => stopListening(true);
+$("cancel").onclick = () => stopListening(false);
+function takeMic() {
+  const root = chat.shadowRoot;
+  if (!root || root.__mic) return;
+  root.__mic = true;
+  root.addEventListener("click", (e) => {
+    const btn = e.composedPath().find((n) => n.classList && n.classList.contains("vac-svg-button"));
+    if (!btn || !btn.querySelector(".vac-icon-microphone")) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    startListening();
+  }, true);
+}
 function hackerCss() {
   const root = chat.shadowRoot;
   if (!root || root.getElementById("hacker")) return;
@@ -251,6 +349,7 @@ function hackerCss() {
     .vac-textarea { border-radius: 10px !important; font-size: 16px !important; }  /* under 16px, iPhone zooms in on focus */
     .vac-textarea:focus { box-shadow: 0 0 0 1px ${THEME.accent}; }
     .vac-avatar { image-rendering: pixelated; }
+    .vac-icon-microphone { width: 30px !important; height: 30px !important; fill: ${THEME.accent} !important; }
     .vac-card-date { border-radius: 8px !important; text-transform: uppercase; font-size: 11px; }
     @keyframes blink { 50% { opacity: 0; } }`;
   root.appendChild(st);
@@ -293,6 +392,7 @@ async function poll() {
 async function say(url, init) {
   const r = await fetch(url, init);
   if (!r.ok) $("note").textContent = (await r.json().catch(() => ({}))).error || "That didn't send.";
+  else if (!$("note").textContent.startsWith("Writing")) $("note").textContent = "";  // a later send worked: drop any old warning
 }
 chat.addEventListener("fetch-messages", () => set("messages-loaded", "true"));
 chat.addEventListener("send-message", async (e) => {
