@@ -236,7 +236,7 @@ def up(a):
         port = free_port(4090, {x.get("port") for x in apps})
         (app_dir / "woltspace.json").write_text(json.dumps({
             "name": n["app"], "description": f"Shell Phone room {room}", "stack": "python", "port": port,
-            "start": "set -a; [ -f .access.env ] && . ./.access.env; set +a; python3 room.py serve --port $PORT",
+            "start": "set -a; [ -f .access.env ] && . ./.access.env; set +a; uv run --with pywebpush python room.py serve --port $PORT",
             "keeper": a.wolt, "public": True}, indent=2) + "\n")
         subprocess.run(["git", "-C", str(app_dir), "update-index", "--skip-worktree", "woltspace.json"], check=True)
     else:
