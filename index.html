@@ -18,11 +18,6 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 #note:empty { display: none; }
 .seen { display: inline-flex; gap: 1px; vertical-align: middle; margin-left: 3px; }
 .seen img { width: 15px; height: 15px; image-rendering: pixelated; }
-#gnaw { position: fixed; left: 12px; bottom: calc(var(--kb, 0px) + 78px + env(safe-area-inset-bottom)); z-index: 9; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
-#gnaw .w { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; background: #fffdf6ee; border: 1px solid #d6ccba; border-radius: 8px; font: 600 12px "JetBrains Mono", monospace; animation: glow 2.4s ease-in-out infinite; }
-#gnaw img { width: 26px; height: 26px; image-rendering: pixelated; animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
-#gnaw .lore { background: linear-gradient(90deg, #c4531e, #b8862b, #3a6644, #8a4f9e, #2f8a7a, #c4531e) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cook 2.4s linear infinite; }
-#gnaw .lore.new { animation: cook 2.4s linear infinite, step .25s ease-out; }
 @keyframes cook { to { background-position: -300% 0; } }
 @keyframes chew { 50% { transform: scaleY(.9) translateY(1px); } }
 @keyframes bob { 50% { translate: 0 -2px; } }
@@ -58,7 +53,6 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 <vue-advanced-chat id="chat"></vue-advanced-chat>
 <a id="bring" href="join">+ agent</a>
 <div id="note"></div>
-<div id="gnaw"></div>
 <div id="listening" hidden><div class="sheet" role="dialog" aria-label="Listening">
   <div class="grab"></div>
   <div class="head"><img id="listen-sprite" alt=""><div><h2>Listening</h2><p>Talk, then tap send. It goes to the room as a voice note.</p></div></div>
@@ -236,10 +230,19 @@ function receipts() {
     }
   }
 }
+// Who's working sits at the bottom of the chat itself, after the last message, so it scrolls with it and covers nothing.
+function gnawBox() {
+  const list = chat.shadowRoot && chat.shadowRoot.querySelector(".vac-messages-container");
+  if (!list) return document.createElement("div");
+  let box = list.querySelector("#gnaw");
+  if (!box) { box = document.createElement("div"); box.id = "gnaw"; }
+  if (list.lastElementChild !== box) list.append(box);
+  return box;
+}
 let loreTick = 0;
 function gnaw() {
   const on = state.members.wolts.filter((w) => (state.working || {})[w.wolt]);
-  const box = $("gnaw");
+  const box = gnawBox();
   box.querySelectorAll(".w").forEach((n) => { if (!on.some((w) => w.wolt === n.dataset.wolt)) n.remove(); });
   for (const w of on) {
     if (box.querySelector(`[data-wolt="${w.wolt}"]`)) continue;
@@ -247,6 +250,8 @@ function gnaw() {
     const img = document.createElement("img"); img.src = woltAvatar(w.creature, person(w.owner).color); img.alt = "";
     const line = document.createElement("span"); line.className = "lore";
     row.append(img, line); box.append(row); setLore(row, w);
+    const sc = chat.shadowRoot.querySelector(".vac-container-scroll");  // keep it in view if you were reading the latest
+    if (sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160) sc.scrollTop = sc.scrollHeight;
   }
 }
 function setLore(row, w) {
@@ -254,7 +259,7 @@ function setLore(row, w) {
   line.textContent = `${w.wolt}: ${lines[(loreTick + w.wolt.length) % lines.length]}`;
   line.classList.remove("new"); void line.offsetWidth; line.classList.add("new");
 }
-setInterval(() => { loreTick++; $("gnaw").querySelectorAll(".w").forEach((row) => {
+setInterval(() => { loreTick++; gnawBox().querySelectorAll(".w").forEach((row) => {
   const w = state.members.wolts.find((x) => x.wolt === row.dataset.wolt); if (w) setLore(row, w); }); }, 2400);
 
 // iPhone Safari doesn't shrink the page for the keyboard, so size the chat to the part of the screen that's still visible.
@@ -412,6 +417,17 @@ function hackerCss() {
     @keyframes spin { to { transform: rotate(360deg); } }
     /* Shell's composer: a big round mic on the right while the box is empty, the send arrow once you type */
     .vac-box-footer textarea { order: 1; } .vac-icon-textarea { order: 2; } .vac-icon-textarea-left { order: 3; margin: 0 0 0 8px !important; }
+    #gnaw { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 4px 12px 10px; }
+    #gnaw:empty { display: none; }
+    #gnaw .w { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; background: #fffdf6ee; border: 1px solid #d6ccba; border-radius: 8px; font: 600 12px "JetBrains Mono", monospace; animation: glow 2.4s ease-in-out infinite; }
+    #gnaw img { width: 26px; height: 26px; image-rendering: pixelated; animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
+    #gnaw .lore { background: linear-gradient(90deg, #c4531e, #b8862b, #3a6644, #8a4f9e, #2f8a7a, #c4531e) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cook 2.4s linear infinite; }
+    #gnaw .lore.new { animation: cook 2.4s linear infinite, step .25s ease-out; }
+    @keyframes cook { to { background-position: -300% 0; } }
+    @keyframes chew { 50% { transform: scaleY(.9) translateY(1px); } }
+    @keyframes bob { 50% { translate: 0 -2px; } }
+    @keyframes glow { 50% { box-shadow: 0 0 0 1px #c4531e44, 0 2px 12px #c4531e22; } }
+    @keyframes step { from { transform: translateY(6px); opacity: 0; } }
     .vac-icon-textarea-left { display: flex; align-items: center; height: auto !important; }
     .vac-icon-textarea-left .vac-svg-button { flex: none; width: 46px !important; height: 46px !important; max-height: none !important; border-radius: 50%; background: ${THEME.accent}; display: grid; place-items: center; }
     .vac-icon-microphone { width: 24px !important; height: 24px !important; fill: #fff !important; }
