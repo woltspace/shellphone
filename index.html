@@ -142,7 +142,9 @@ function toMessage(m) {
   const d = new Date(m.at * 1000);
   const human = m.kind === "human";
   const owner = human ? m.email : m.owner;
-  const files = m.file ? [{ name: m.file.name.replace(/\.[^.]*$/, ""), extension: m.file.type, type: m.file.type, url: m.file.url, size: m.file.size }] : undefined;
+  // The chat kit spots a video by its type: tell it iPhone .mov and .m4v are videos too.
+  const kind = m.file ? ({ mov: "video/quicktime", m4v: "video/mp4" }[m.file.type] || m.file.type) : "";
+  const files = m.file ? [{ name: m.file.name.replace(/\.[^.]*$/, ""), extension: m.file.type, type: kind, url: m.file.url, size: m.file.size }] : undefined;
   const base = {
     _id: key(m), indexId: m.shownN || m.n, senderId: human ? m.email : woltId(m.wolt),
     username: human ? person(m.email).name : `${m.wolt} · ${owner === state.me ? "yours" : person(owner).name + "'s"}`,
