@@ -180,6 +180,7 @@ function render() {
   set("messages-loaded", "true");
   hackerCss();
   takeMic();
+  takeAudio();
   gnaw();
   receipts();
   requestAnimationFrame(voiceWords);
@@ -417,10 +418,27 @@ function hackerCss() {
   root.appendChild(st);
 }
 
+// Only one sound at a time: starting a voice note stops any other, and new notes that play by themselves stop yours.
+function hush(except) {
+  for (const a of chat.shadowRoot ? chat.shadowRoot.querySelectorAll("audio") : []) {
+    if (a !== except && !a.paused) { a.pause(); a.dispatchEvent(new Event("ended")); }  // "ended" resets the kit's play button
+  }
+}
+function takeAudio() {
+  const root = chat.shadowRoot;
+  if (!root || root.__audio) return;
+  root.__audio = true;
+  root.addEventListener("play", (e) => {
+    hush(e.target);
+    if (player) { player.pause(); player = null; }
+    queue.length = 0;  // you chose what to hear: don't start the others after it
+  }, true);
+}
 function playNext() {
   if (player || !queue.length) return;
   const id = queue.shift(), m = byId[id];
   if (!m || !m.audio) return playNext();
+  hush();
   player = new Audio("voice/" + m.audio);
   const done = () => { player = null; playNext(); };
   player.onended = done; player.onerror = done;
