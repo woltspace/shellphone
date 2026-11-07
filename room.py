@@ -26,6 +26,8 @@ FILES = DATA / "files"
 COLORS = ["#c4531e", "#3a6b8c", "#5e7a2c", "#8a4f9e", "#b8862b", "#2f8a7a"]
 SPEECH = os.environ.get("SHELLPHONE_SPEECH", "http://127.0.0.1:4077/v1")
 STT_MODEL = os.environ.get("SHELLPHONE_STT_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
+TTS_MODEL = os.environ.get("SHELLPHONE_TTS_MODEL", "pocket")
+SPEECH_KEY = os.environ.get("SHELLPHONE_SPEECH_KEY", "")  # for a hosted speech service; sent as a Bearer token
 LOCK = threading.RLock()
 DEV = False
 # Behind Cloudflare Access: the team domain and the Access app's audience tag. With both set, people must carry a valid Access login.
@@ -330,11 +332,15 @@ def key_hash(key):
     return hashlib.sha256(key.encode()).hexdigest()
 
 
+def speech_headers(kind):
+    return {"Content-Type": kind, **({"Authorization": f"Bearer {SPEECH_KEY}"} if SPEECH_KEY else {})}
+
+
 def speak(m, voice):
     try:
         words = re.sub(r"[*_`#]|https?://\S+", "", m["text"])[:1000]
-        req = urllib.request.Request(SPEECH.rstrip("/") + "/audio/speech", method="POST", headers={"Content-Type": "application/json"},
-                                     data=json.dumps({"model": "pocket", "voice": voice or "alba", "input": words, "response_format": "mp3"}).encode())
+        req = urllib.request.Request(SPEECH.rstrip("/") + "/audio/speech", method="POST", headers=speech_headers("application/json"),
+                                     data=json.dumps({"model": TTS_MODEL, "voice": voice or "alba", "input": words, "response_format": "mp3"}).encode())
         with urllib.request.urlopen(req, timeout=120) as r:
             audio = r.read()
         VOICE.mkdir(parents=True, exist_ok=True)
@@ -350,7 +356,7 @@ def transcribe(path):
             f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{path.name}"\r\n'
             "Content-Type: application/octet-stream\r\n\r\n").encode() + path.read_bytes() + f"\r\n--{boundary}--\r\n".encode()
     req = urllib.request.Request(SPEECH.rstrip("/") + "/audio/transcriptions", data=body, method="POST",
-                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+                                 headers=speech_headers(f"multipart/form-data; boundary={boundary}"))
     with urllib.request.urlopen(req, timeout=600) as r:
         return json.loads(r.read())["text"].strip()
 
