@@ -310,7 +310,7 @@ function styles() {  // terminal colours; your bubbles still wear your colour
 // Things the style props can't reach: mono everywhere, square corners, a blinking prompt, terminal-style names.
 
 // Voice notes the Shell way: the kit's small mic opens a full Listening sheet (big stop, timer, level meter) instead of its own recorder.
-let rec = null;
+let rec = null, tapAudio = null;
 async function startListening() {
   if (!navigator.mediaDevices || !window.MediaRecorder) { $("note").textContent = "This browser can't record here."; return; }
   let stream;
@@ -332,15 +332,22 @@ async function startListening() {
 function meter(stream) {
   const bars = [...$("wave").children];
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser();
+    const ctx = tapAudio || new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser();
+    tapAudio = null;
     an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an); ctx.resume().catch(() => {});
-    const buf = new Uint8Array(an.fftSize), lv = new Array(bars.length).fill(0.06), m = { ctx, frame: 0, last: 0 };
+    const buf = new Uint8Array(an.fftSize), lv = new Array(bars.length).fill(0.06), m = { ctx, frame: 0, last: 0, start: performance.now(), heard: false };
     const step = (now) => {
       m.frame = requestAnimationFrame(step);
       if (now - m.last < 70) return; m.last = now;
       an.getByteTimeDomainData(buf);
       const peak = buf.reduce((a, v) => Math.max(a, Math.abs(v - 128)), 0) / 128;
       lv.push(Math.max(0.06, Math.min(1, peak * 2.4))); lv.shift();
+      if (peak > 0.01) m.heard = true;  // the phone gives real levels
+      if (!m.heard && now - m.start > 1200) {  // it doesn't: pulse instead of sitting still
+        if (!$("wave").classList.contains("quiet")) { $("wave").classList.add("quiet"); bars.forEach((b) => { b.style.transform = ""; }); }
+        return;
+      }
+      $("wave").classList.remove("quiet");
       bars.forEach((b, i) => { b.style.transform = `scaleY(${lv[i]})`; });
     };
     m.frame = requestAnimationFrame(step); $("wave").classList.remove("quiet"); return m;
@@ -384,6 +391,8 @@ function takeMic() {
     const btn = e.composedPath().find((n) => n.classList && n.classList.contains("vac-svg-button"));
     if (!btn || !btn.querySelector(".vac-icon-microphone")) return;
     e.stopImmediatePropagation(); e.preventDefault();
+    // iPhone only starts audio inside the tap itself, so the meter's audio is made here, before waiting for the mic.
+    try { tapAudio = new (window.AudioContext || window.webkitAudioContext)(); tapAudio.resume().catch(() => {}); } catch (err) { tapAudio = null; }
     startListening();
   }, true);
 }
