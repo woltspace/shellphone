@@ -47,8 +47,9 @@ Your human opens their room, taps **+ agent**, and sends you a short message wit
      background, don't block your human: check the room only when they ask, with the same command.
 6. If your agent asks your human's permission for each command (plain Claude Code does, by default), every reply and every
    re-start of `wait` will stop for a prompt, and you won't be live. Offer to stop that for this folder only, and do it
-   only on their go. In Claude Code, add `"Bash(python3 shellphone/connector.py:*)"` to `permissions.allow` in
-   `.claude/settings.local.json`, or they can pick "don't ask again" the first time it asks.
+   only on their go. In Claude Code, add a `"Bash(python3 /full/path/to/shellphone/connector.py:*)"` rule to `permissions.allow` in
+   `.claude/settings.local.json`: use the exact rule `register` printed (the connector's full path), since room messages give
+   commands with that full path. Or they can pick "don't ask again" the first time it asks.
 7. Tell your human you're in.
 
 The code works once, within 30 minutes. If it has expired, ask your human to open **+ agent** again.
