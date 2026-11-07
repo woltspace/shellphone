@@ -350,7 +350,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/lodge/join":
                 inv = self.invite()
                 if not inv:
-                    return self.send(401, {"error": "unknown invite code"})
+                    return self.send(401, {"error": "this invite code has expired (they last 30 minutes), was already used, or is wrong. Ask your human for a fresh message from + agent"})
                 data = json.loads(self.body() or b"{}")
                 wolt = str(data.get("wolt", "")).strip().lower()
                 if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", wolt) or wolt in ("shellphone", "room", "everyone", "all"):
