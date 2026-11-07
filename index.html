@@ -132,7 +132,7 @@ function toMessage(m) {
   const owner = human ? m.email : m.owner;
   const files = m.file ? [{ name: m.file.name.replace(/\.[^.]*$/, ""), extension: m.file.type, type: m.file.type, url: m.file.url, size: m.file.size }] : undefined;
   const base = {
-    _id: key(m), indexId: m.n, senderId: human ? m.email : woltId(m.wolt),
+    _id: key(m), indexId: m.shownN || m.n, senderId: human ? m.email : woltId(m.wolt),
     username: human ? person(m.email).name : `${m.wolt} · ${owner === state.me ? "yours" : person(owner).name + "'s"}`,
     avatar: human ? personAvatar(person(m.email).name, person(m.email).color) : woltAvatar(m.creature, person(owner).color),
     content: toTags(m.text || ""), date: d.toLocaleDateString([], { day: "numeric", month: "long" }),
@@ -173,13 +173,17 @@ function render() {
     typingUsers: [],  // #gnaw shows who's working instead
   }]);
   set("templates-text", slashCommands());
-  const real = new Set(msgs.filter((m) => !m.pending && m.cid).map((m) => m.cid));
+  const real = new Map(msgs.filter((m) => !m.pending && m.cid).map((m) => [m.cid, m]));
+  for (const m of msgs) {  // the room's copy keeps playing the recording already on this page, so the player isn't rebuilt
+    if (m.pending && real.has(m.cid) && !real.get(m.cid).localUrl) Object.assign(real.get(m.cid), { localUrl: m.localUrl, shownN: m.n });
+  }
   msgs = msgs.filter((m) => !(m.pending && real.has(m.cid)));
   set("messages", msgs.flatMap(toMessage));
   set("messages-loaded", "true");
   hackerCss();
   takeMic();
   takeAudio();
+  watchBubbles();
   gnaw();
   receipts();
   requestAnimationFrame(voiceWords);
@@ -252,8 +256,6 @@ function gnaw() {
     const img = document.createElement("img"); img.src = woltAvatar(w.creature, person(w.owner).color); img.alt = "";
     const line = document.createElement("span"); line.className = "lore";
     row.append(img, line); box.append(row); setLore(row, w);
-    const sc = chat.shadowRoot.querySelector(".vac-container-scroll");  // keep it in view if you were reading the latest
-    if (sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160) requestAnimationFrame(() => sc.scrollTo({ top: sc.scrollHeight, behavior: "smooth" }));
   }
 }
 function setLore(row, w) {
@@ -431,18 +433,17 @@ function hackerCss() {
     @keyframes spin { to { transform: rotate(360deg); } }
     /* Shell's composer: a big round mic on the right while the box is empty, the send arrow once you type */
     .vac-box-footer textarea { order: 1; } .vac-icon-textarea { order: 2; } .vac-icon-textarea-left { order: 3; margin: 0 0 0 8px !important; }
-    #gnaw .w { animation: grow .22s ease-out, glow 2.4s ease-in-out infinite; overflow: hidden; }
-    #gnaw .w.bye { animation: shrink .25s ease-in forwards; }
-    @keyframes grow { from { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; } to { max-height: 40px; } }
-    @keyframes shrink { from { max-height: 40px; } to { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; border-width: 0; } }
     * { -webkit-tap-highlight-color: transparent; }
     .vac-container-scroll { overscroll-behavior: contain; }
     .vac-container-scroll, .vac-box-footer { touch-action: manipulation; }
-    #gnaw { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 4px 12px 10px; }
-    #gnaw:empty { display: none; }
-    #gnaw .w { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; background: #fffdf6ee; border: 1px solid #d6ccba; border-radius: 8px; font: 600 12px "JetBrains Mono", monospace; }
-    #gnaw img { width: 26px; height: 26px; image-rendering: pixelated; animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
-    #gnaw .lore { background: linear-gradient(90deg, #c4531e, #b8862b, #3a6644, #8a4f9e, #2f8a7a, #c4531e) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cook 2.4s linear infinite; }
+    /* Who's working: a fixed one-line slot at the bottom of the chat, wolts side by side, so it never pushes the chat */
+    #gnaw { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; height: 38px; padding: 0 12px 8px; overflow: hidden; }
+    #gnaw .w { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 3px 9px 3px 3px; background: #fffdf6ee; border: 1px solid #d6ccba; border-radius: 8px; font: 600 12px "JetBrains Mono", monospace; white-space: nowrap; animation: fadein .25s ease-out, glow 2.4s ease-in-out infinite; }
+    #gnaw .w.bye { animation: fadeout .25s ease-in forwards; }
+    @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
+    @keyframes fadeout { to { opacity: 0; } }
+    #gnaw img { flex: none; width: 24px; height: 24px; image-rendering: pixelated; animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
+    #gnaw .lore { overflow: hidden; text-overflow: ellipsis; background: linear-gradient(90deg, #c4531e, #b8862b, #3a6644, #8a4f9e, #2f8a7a, #c4531e) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cook 2.4s linear infinite; }
     #gnaw .lore.new { animation: cook 2.4s linear infinite, step .25s ease-out; }
     @keyframes cook { to { background-position: -300% 0; } }
     @keyframes chew { 50% { transform: scaleY(.9) translateY(1px); } }
@@ -465,6 +466,13 @@ function hush(except) {
   for (const a of chat.shadowRoot ? chat.shadowRoot.querySelectorAll("audio") : []) {
     if (a !== except && !a.paused) { a.pause(); a.dispatchEvent(new Event("ended")); }  // "ended" resets the kit's play button
   }
+}
+// The chat redraws a bubble's insides when it changes; put the words back in that same tick, before the screen paints.
+function watchBubbles() {
+  const list = chat.shadowRoot && chat.shadowRoot.querySelector(".vac-messages-container");
+  if (!list || list.__watched) return;
+  list.__watched = true;
+  new MutationObserver(() => voiceWords()).observe(list, { childList: true, subtree: true });
 }
 function takeAudio() {
   const root = chat.shadowRoot;
