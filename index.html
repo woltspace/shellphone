@@ -13,14 +13,8 @@ html, body { margin: 0; height: 100%; background: #f5f1e8; overflow: hidden; }
 body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }  /* iPhone: stop Safari sliding the whole page up under the keyboard */
 vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
 #note { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 9; font: 12px "JetBrains Mono", monospace; background: #fffdf6; color: #c4531e; border: 1px solid #c4531e; padding: 6px 12px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 10px rgba(24,16,10,.12); }
-#topbar { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 14px; z-index: 1000; display: flex; gap: 6px; }
-#topbar > * { font: 600 12px "JetBrains Mono", monospace; color: #c4531e; border: 1px solid #d6ccba; padding: 5px 10px; border-radius: 8px; text-decoration: none; background: #fffdf6; cursor: pointer; }
-#topbar > [hidden] { display: none; }
-#howto { position: fixed; left: 12px; right: 12px; top: calc(56px + env(safe-area-inset-top)); z-index: 1001; max-width: 420px; margin: 0 auto; padding: 14px 16px; background: #fffdf6; border: 1px solid #d6ccba; border-radius: 12px; box-shadow: 0 6px 24px #18100a33; font: 14px/1.45 -apple-system, system-ui, sans-serif; color: #18100a; }
-#howto[hidden] { display: none; }
-#howto b { font: 600 13px "JetBrains Mono", monospace; color: #c4531e; }
-#howto ol { margin: 8px 0 0; padding-left: 20px; }
-#howto button { position: absolute; top: 8px; right: 10px; border: 0; background: none; font-size: 18px; color: #8a7a68; cursor: pointer; }
+#bring { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 14px; z-index: 1000; font: 600 12px "JetBrains Mono", monospace; color: #c4531e; border: 1px solid #d6ccba; padding: 5px 10px; border-radius: 8px; text-decoration: none; background: #fffdf6; }
+#bell { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 96px; z-index: 1000; font: 600 12px "JetBrains Mono", monospace; color: #c4531e; border: 1px solid #d6ccba; padding: 5px 10px; border-radius: 8px; background: #fffdf6; cursor: pointer; }
 #viewer { position: fixed; inset: 0; z-index: 3000; background: #000e; display: grid; place-items: center; overflow: hidden; touch-action: none; }
 #viewer[hidden] { display: none; }
 #viewer img { max-width: 100vw; max-height: 100dvh; object-fit: contain; transform-origin: center; will-change: transform; user-select: none; -webkit-user-drag: none; pointer-events: none; }
@@ -67,12 +61,8 @@ vue-advanced-chat { display: block; height: var(--vh, 100dvh); font-family: "Jet
 </head>
 <body>
 <vue-advanced-chat id="chat"></vue-advanced-chat>
-<div id="topbar"><button id="install" type="button" hidden>📲 install</button><button id="bell" type="button" hidden>🔔 notify me</button><a id="bring" href="join">+ agent</a></div>
-<div id="howto" hidden><button type="button" aria-label="Close" id="howto-close">✕</button>
-  <b>Put Shell Phone on your home screen</b>
-  <ol><li>Tap <b>Share</b> ⬆️ (the square with an arrow: at the bottom in Safari, at the top right in Chrome).</li>
-  <li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li>
-  <li>Open Shell Phone from your home screen and tap <b>🔔 notify me</b>.</li></ol></div>
+<button id="bell" type="button" hidden>🔔 notify me</button>
+<a id="bring" href="join">+ agent</a>
 <div id="note"></div>
 <div id="viewer" hidden><img id="viewer-img" alt=""><button id="viewer-close" type="button" aria-label="Close">✕</button></div>
 <div id="listening" hidden><div class="sheet" role="dialog" aria-label="Listening">
@@ -633,19 +623,6 @@ async function pushSetup(ask) {
 }
 $("bell").onclick = () => pushSetup(true).catch((e) => { $("note").textContent = "Couldn't turn on notifications: " + e.message; });
 pushSetup(false).catch(() => {});
-// Install: Android and computers get the browser's own install prompt; iPhone can't be installed from a page,
-// so the button shows the two steps. Hidden inside the installed app.
-const installed = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-const iphone = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-let installEvent = null;
-addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvent = e; if (!installed) $("install").hidden = false; });
-if (!installed && iphone) $("install").hidden = false;
-$("install").onclick = async () => {
-  if (installEvent) { installEvent.prompt(); const r = await installEvent.userChoice.catch(() => ({})); if (r.outcome === "accepted") $("install").hidden = true; installEvent = null; }
-  else $("howto").hidden = false;
-};
-$("howto-close").onclick = () => { $("howto").hidden = true; };
-addEventListener("appinstalled", () => { $("install").hidden = true; });
 poll();
 </script>
 </body>
