@@ -104,6 +104,7 @@ function woltAvatar(creature, color) {
   return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${box} ${box}" shape-rendering="crispEdges"><circle cx="${side / 2}" cy="${side / 2}" r="${box / 2 - 1}" fill="${color}33" stroke="${color}" stroke-width="1.6"/>${rects}</svg>`);
 }
 
+const unfolded = new Set();  // voice notes whose words someone tapped open
 let state = { me: "", title: "shell", members: { people: [], wolts: [] }, working: {} };
 let after = 0, msgs = [], byId = {}, heard = new Set(), first = true, queue = [], player = null, shown = {};
 const person = (email) => state.members.people.find((p) => p.email === email) || { name: email, color: "#8a6a52" };
@@ -138,11 +139,15 @@ function toMessage(m) {
     timestamp: d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
     saved: true, distributed: true, disableReactions: true,
   };
-  // The component shows a lone voice note without its words, so the words and the voice note are two bubbles, like a transcript.
-  const out = [{ ...base, content: base.content, files }];
-  if (m.audio) out.push({ ...base, _id: m.id + ":voice", indexId: m.n + 0.5, content: "", disableActions: true,
-                          files: [{ name: "voice", type: "mp3", audio: true, url: "voice/" + m.audio, size: 0 }] });
-  return out;
+  if (!m.audio) return [{ ...base, files }];
+  // The component shows a lone voice note without its words, so the voice note and its words are two bubbles.
+  // A person's words fold under their voice note ("···", tap to open); a wolt's words stay open, since that's its answer.
+  const voice = { ...base, _id: m.id + "-voice", content: "", disableActions: true,
+                  files: [{ name: "voice", type: "mp3", audio: true, url: m.localUrl || "voice/" + m.audio, size: 0, duration: m.seconds || undefined }] };
+  const words = { ...base, _id: m.id, indexId: m.n + 0.5 };
+  if (m.pending) words.content = "sent · writing it down…";
+  else if (human && !unfolded.has(m.id)) words.content = "···";
+  return human ? [voice, words] : [words, { ...voice, indexId: m.n + 0.5 }];
 }
 
 function slashCommands() {
@@ -314,9 +319,14 @@ async function finishListening(r) {
   $("listening").hidden = true; $("clock").textContent = "0:00";
   if (!r.keep || !r.parts.length || Date.now() - r.start < 700) return;
   const type = (r.parts[0].type || r.recorder.mimeType || "audio/mp4").split(";")[0];
-  $("note").textContent = "Writing down what you said…";
-  await say("api/voice", { method: "POST", headers: { "Content-Type": type }, body: new Blob(r.parts, { type }) });
-  if ($("note").textContent.startsWith("Writing")) $("note").textContent = "";
+  const blob = new Blob(r.parts, { type }), seconds = Math.round((Date.now() - r.start) / 100) / 10;
+  // Show it as sent right away; the room writes down the words, then the real message takes this one's place.
+  const local = { id: "local-" + Date.now(), n: after + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: "",
+                  audio: "local", localUrl: URL.createObjectURL(blob), seconds, pending: true };
+  byId[local.id] = local; msgs.push(local); render();
+  await say(`api/voice?seconds=${seconds}`, { method: "POST", headers: { "Content-Type": type }, body: blob });
+  msgs = msgs.filter((x) => x !== local); delete byId[local.id];
+  render();
 }
 $("stop").onclick = () => stopListening(true);
 $("cancel").onclick = () => stopListening(false);
@@ -325,6 +335,12 @@ function takeMic() {
   if (!root || root.__mic) return;
   root.__mic = true;
   root.addEventListener("click", (e) => {
+    const wrap = e.composedPath().find((n) => n.classList && n.classList.contains("vac-message-wrapper"));
+    if (wrap && byId[wrap.id] && byId[wrap.id].audio && byId[wrap.id].kind === "human" && !byId[wrap.id].pending
+        && !e.composedPath().some((n) => n.classList && n.classList.contains("vac-message-actions-wrapper"))) {
+      unfolded.has(wrap.id) ? unfolded.delete(wrap.id) : unfolded.add(wrap.id);
+      render();
+    }
     const btn = e.composedPath().find((n) => n.classList && n.classList.contains("vac-svg-button"));
     if (!btn || !btn.querySelector(".vac-icon-microphone")) return;
     e.stopImmediatePropagation(); e.preventDefault();
@@ -371,6 +387,8 @@ async function poll() {
     const r = await fetch("api/state?after=" + after, { cache: "no-store" });
     if (r.status === 403) { $("note").textContent = "You're not on this room's list."; return; }
     const s = await r.json();
+    // The room's code changed: reload, unless you're recording or have something typed.
+    if (state.version && s.version && s.version !== state.version && !rec && !(chat.shadowRoot && (chat.shadowRoot.getElementById("roomTextarea") || {}).value)) return location.reload();
     state = s;
     for (const m of s.messages) {
       after = Math.max(after, m.n);
