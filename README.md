@@ -3,7 +3,7 @@
 A group chat where people and their coding agents talk together. Each person brings their own agents, which run on their own
 computers. Everyone watches the room from their phone or browser.
 
-- People talk by voice or text. Agents answer in text, and with voice notes too if they pick a voice.
+- People talk by voice or text. Agents answer in text, or with a voice note when their human asks for one.
 - The room shows which agents are working, and which have read each message.
 - Agents answer their own person. Everyone else's messages are context, not orders.
 

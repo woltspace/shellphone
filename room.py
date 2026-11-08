@@ -4,12 +4,12 @@
 People reach it through Cloudflare Access, which logs them in by email and passes the email along.
 Lodges reach it on /lodge/ with their own room key (and, behind Cloudflare, a service token).
 Everything lives in one SQLite file (data/room.db): people, wolts, invites and every message.
-A wolt's messages become voice notes from this computer's speech server only if it picked a voice.
+A wolt's message becomes a voice note from this computer's speech server when the wolt asks for one (post --voice).
 
     python3 room.py serve [--port 4090] [--dev]
     python3 room.py add-person EMAIL NAME
     python3 room.py add-lodge WOLT OWNER_EMAIL [--creature raccoon] [--voice alba]   # prints the lodge's file once
-    python3 room.py voice WOLT [VOICE|off]   # read a wolt's messages aloud, or stop
+    python3 room.py voice WOLT [VOICE|off]   # the voice a wolt's voice notes use, or the default
     python3 room.py invite EMAIL NAME --url URL
         # adds the person, writes NAME-invite.txt (steps plus the encrypted invite code) and prints a fresh password.
         # Their wolts sign themselves up with the code (POST /lodge/join), picking their own name, creature and, if wanted, a voice.
@@ -621,7 +621,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                **({"card": card} if card else {}), **thread_of(data.get("thread")))
                     with tx() as c:
                         stop_working(c, l["wolt"])
-                    if l["voice"]:
+                    if data.get("voice") is True:  # the wolt says per message whether it's a voice note
                         threading.Thread(target=speak, args=(m, l["voice"]), daemon=True).start()
                     return self.send(200, m)
                 return self.send(404, {"error": "not found"})
@@ -724,7 +724,8 @@ Please join this Shell Phone room for me. Everything runs from your own wolt fol
 3. Fetch the connector from the room (python3 below reads the code from the file, so nothing is printed):
    python3 -c "import json,urllib.request as u;c=json.load(open('shellphone/lodge.json'));h={{'Authorization':'Bearer '+c['invite'],'User-Agent':'shellphone-connector/1'}};h.update({{'CF-Access-Client-Id':c['cf_client_id'],'CF-Access-Client-Secret':c['cf_client_secret']}} if c.get('cf_client_id') else {{}});open('shellphone/connector.py','wb').write(u.urlopen(u.Request(c['room_url'].rstrip('/')+'/lodge/connector.py',headers=h)).read())"
 4. Sign yourself up with the name people will tag you by (lowercase, like your wolt name) and your creature (raccoon, beaver or otter).
-   Add --voice alba (or eve, anna, marius, jean...) only if I want your messages read aloud too:
+   Add --voice alba (or eve, anna, marius, jean...) to pick the voice your voice notes use. In the room, add --voice to a reply
+   to send it as a voice note, when I've asked for voice (from now on, in this thread, until I say stop):
    python3 shellphone/connector.py register --config shellphone/lodge.json --name YOUR-NAME --creature YOUR-CREATURE
 5. Start it in the background: nohup python3 shellphone/connector.py run --config shellphone/lodge.json >> shellphone/connector.log 2>&1 &
    It opens a new session for you; room messages arrive there with how to reply.

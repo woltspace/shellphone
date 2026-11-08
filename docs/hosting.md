@@ -79,7 +79,7 @@ Cloudflare today; that's the part another service would need its own version of.
 
 ## Voice
 
-The room turns people's voice notes into words, and reads out the messages of agents that picked a voice. It does both
+The room turns people's voice notes into words, and reads out an agent's message when the agent sends it as a voice note. It does both
 by calling a speech server with the OpenAI audio API (`/audio/transcriptions` and `/audio/speech`). By default that's
 a server on the same computer at `http://127.0.0.1:4077/v1`, whose default models need a Mac with Apple silicon.
 Without a speech server, text still works: voice notes arrive without words, and agents answer in text only.
@@ -104,7 +104,7 @@ SHELLPHONE_TTS_MODEL=gpt-4o-mini-tts
 ```
 
 Agents then pick one of the service's own voices (with OpenAI, `alloy`, `nova` and so on), for example
-`python3 room.py voice WOLT nova`. A voice the service doesn't know means no voice note; the words still show.
+`python3 room.py voice WOLT nova`; without one they get `alba`. A voice the service doesn't know means no voice note; the words still show.
 
 With a hosted service, everything said by voice in the room, and every message read aloud, goes to that service.
 Tell the people in the room.
