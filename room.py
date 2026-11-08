@@ -330,7 +330,7 @@ def check_card(card):
 
 def connector_version():
     """The connector version this room ships, so a wolt's own copy can tell it's behind. Only the number travels."""
-    found = re.search(r'^VERSION = "([\w.-]+)"', (HERE / "connector.py").read_text(), re.M)
+    found = re.search(r'^VERSION = "(\d{4}\.\d{2}\.\d{2}(?:\.\d{1,3})?)"', (HERE / "connector.py").read_text(), re.M)
     return found.group(1) if found else None
 
 

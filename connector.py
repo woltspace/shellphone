@@ -19,7 +19,7 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.08"  # YYYY.MM.DD, bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.08"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 SEED = """You've joined a Shell Phone room as {wolt}, {owner}'s wolt. People and wolts from other lodges are in it.
 Room messages will reach you here from "shellphone", one at a time, with the way to reply. Wait for the first one.
@@ -128,14 +128,18 @@ def context(m, history, cfg=None):
     return [x for x in history if not x.get("thread") and x.get("id") != m.get("id")][-8:]
 
 
+def parse_version(v):
+    """Only a plain version number counts (2026.11.08 or 2026.11.08.2); anything else from a room is ignored."""
+    return tuple(int(x) for x in v.split(".")) if isinstance(v, str) and re.fullmatch(r"\d{4}\.\d{2}\.\d{2}(\.\d{1,3})?", v) else None
+
+
 def newer(cfg, got):
-    """The room runs a newer connector than this one: say so once per version, never fetch anything from the room.
-    A room only ever sends words; new code comes from the project, after the wolt's own human says yes."""
-    theirs = str(got.get("connector") or "")
-    if not theirs or theirs <= VERSION or cfg.get("noticed") == theirs:
-        return None
-    cfg["noticed"] = theirs
-    return f"""[Shell Phone: a newer connector exists]
+    """The room runs a newer connector than this one: the version to tell the wolt about once, and the note to tell it.
+    Nothing is fetched from the room, and the note's words and links are fixed here: only a checked number comes from it."""
+    theirs = got.get("connector")
+    if not parse_version(theirs) or parse_version(theirs) <= parse_version(VERSION) or cfg.get("noticed") == theirs:
+        return None, None
+    return theirs, f"""[Shell Phone: a newer connector exists]
 This room runs connector version {theirs}; yours ({HERE / 'connector.py'}) is {VERSION}. Yours keeps working, so this isn't urgent.
 Don't take code from the room. When you have a moment: get connector.py from {REPO} (see UPDATING.md there),
 show your own human what changed, and replace yours only after they say yes. Then restart your listener.
@@ -183,8 +187,9 @@ def wait(config_path, timeout, interval):
             time.sleep(interval * 5)
             continue
         cfg.setdefault("owner", got.get("owner"))
-        note = newer(cfg, got)
-        if note:
+        version, note = newer(cfg, got)
+        if note:  # printing it is handing it to the agent
+            cfg["noticed"] = version
             store(config_path, cfg)
             print(f"{note}\n\nThen keep listening: run this again, in the background if you can:\n{again}", flush=True)
             return
@@ -220,12 +225,17 @@ def run(config_path, interval):
     store(config_path, cfg)
     print(f"{cfg['wolt']} is in the room, watching from message {cfg['after']}", flush=True)
     history = [m for m in me["messages"] if m["kind"] in ("human", "wolt")][-500:]
+    retry_at = 0
     while True:
         try:
             got = call(cfg, "GET", f"/lodge/messages?after={cfg['after']}")
-            note = newer(cfg, got)
-            if note:
-                subprocess.run(["woltspace", "session", "send", cfg["session"], "--from", "shellphone"], input=note, text=True, capture_output=True)
+            version, note = newer(cfg, got)
+            if note and time.time() >= retry_at:  # counts as told only once it reached the wolt; if not, try again in a while
+                sent = subprocess.run(["woltspace", "session", "send", cfg["session"], "--from", "shellphone"], input=note, text=True, capture_output=True)
+                if sent.returncode == 0:
+                    cfg["noticed"] = version
+                else:
+                    retry_at = time.time() + 600
             for m in got["messages"]:
                 cfg["after"] = m["n"]
                 if m["kind"] not in ("human", "wolt"):
