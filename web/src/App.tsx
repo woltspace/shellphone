@@ -209,13 +209,22 @@ export function App() {
     setLanding((x) => x + 1);
     const mine = target.current; setTimeout(() => { if (target.current === mine) target.current = null; }, 8000);  // not here after all: let it go
   };
+  // the note a tapped notification leaves behind (see sw.js), read once and only if it's fresh
+  const noted = async () => {
+    try {
+      const c = await caches.open("landing"), key = new URL("landing-note", location.href).href, r = await c.match(key);
+      if (!r) return; await c.delete(key);
+      const n = await r.json(); if (Date.now() - n.at < 60_000 && !target.current) goTo(n.url);  // already landing: just clear it
+    } catch { /* no caches here: the address and the message still work */ }
+  };
   useEffect(() => {
-    goTo(location.href);
-    const fromNote = (e: MessageEvent) => { if (e.data?.type === "open") goTo(e.data.url); };
+    goTo(location.href); noted();
+    const fromNote = (e: MessageEvent) => { if (e.data?.type === "open") { goTo(e.data.url); noted(); } };
     navigator.serviceWorker?.addEventListener("message", fromNote);
     let hidden = 0;
     const seen = () => {
       if (document.hidden) { hidden = Date.now(); return; }
+      noted();
       if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(true); setMenu(false); stickMain.current(); }
     };
     document.addEventListener("visibilitychange", seen);
