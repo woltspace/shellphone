@@ -10,7 +10,7 @@ export function Listening({ sprite, audio, onDone }: { sprite: string; audio: Au
   const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; parts: Blob[]; start: number; keep: boolean } | null>(null);
 
   useEffect(() => {
-    let frame = 0, clock = 0, ctx: AudioContext | null = audio, lock: any = null, gone = false;
+    let frame = 0, clock = 0, ctx: AudioContext | null = null, lock: any = null, gone = false;
     (async () => {
       let stream: MediaStream;
       try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
@@ -30,7 +30,9 @@ export function Listening({ sprite, audio, onDone }: { sprite: string; audio: Au
       try { if ("wakeLock" in navigator) lock = await (navigator as any).wakeLock.request("screen"); } catch { /* fine without */ }
       // the level meter: real levels if the phone gives them, a gentle pulse if it doesn't
       try {
-        ctx = ctx || new AudioContext();
+        // like the Becky app: the meter's audio starts after the mic is open, so the phone hands it the mic's full level
+        audio?.close().catch(() => {});
+        ctx = new AudioContext();
         const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an); ctx.resume().catch(() => {});
         const buf = new Uint8Array(an.fftSize), lv = new Array(40).fill(0.06), t0 = performance.now();
         let last = 0, heard = false;

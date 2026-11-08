@@ -19,7 +19,12 @@ export function Composer({ wolts, me, onText, onFiles, onMic }: {
     { tag: "handoff", text: `${mine[0] || all} write a handoff for ${others[0] || "the others"}: what's done, what's next, what's risky` },
   ].filter((s) => s.tag.startsWith(text.slice(1))) : [];
 
-  const grow = () => { const b = box.current; if (b) { b.style.height = "auto"; b.style.height = Math.min(140, b.scrollHeight) + "px"; } };
+  // grow only when the words need another line, and shrink back when the box empties: no size change on each key
+  const grow = () => {
+    const b = box.current; if (!b) return;
+    if (!b.value) { b.style.height = ""; return; }
+    if (b.scrollHeight > b.clientHeight + 1 && b.clientHeight < 140) b.style.height = Math.min(140, b.scrollHeight + 2) + "px";
+  };
   const set = (t: string) => { setText(t); requestAnimationFrame(() => { grow(); box.current?.focus(); }); };
   const send = () => { const t = text.trim(); if (!t) return; onText(t); set(""); };
   const round = "flex-none w-[46px] h-[46px] rounded-full bg-acc grid place-items-center border-0 cursor-pointer";

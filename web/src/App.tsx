@@ -99,9 +99,7 @@ export function App() {
   }
   function mic() {
     if (!navigator.mediaDevices || !window.MediaRecorder) return setError("This browser can't record here.");
-    // iPhone only starts audio inside the tap itself, so the meter's audio is made here
-    let a: AudioContext | null = null; try { a = new AudioContext(); a.resume().catch(() => {}); } catch { a = null; }
-    setListening(a);
+    setListening(null);
   }
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
