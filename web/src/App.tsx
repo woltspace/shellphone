@@ -45,9 +45,9 @@ function Viewer({ url, close }: { url: string; close: () => void }) {
 
 // A list of messages that stays at the bottom while you're there, and leaves you alone if you scrolled up to read.
 // Used for the main chat and for a thread alike.
-function Feed({ list, ctx, working, replies, picked, pick, open, stick }: {
+function Feed({ list, ctx, working, replies, open, divider, stick }: {
   list: Msg[]; ctx: Ctx; working: Record<string, unknown>; replies?: Map<string, Msg[]>;
-  picked?: string; pick?: (id: string) => void; open?: (id: string) => void; stick: React.MutableRefObject<() => void>;
+  open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<() => void>;
 }) {
   const scroller = useRef<HTMLDivElement>(null), stuck = useRef(true);
   stick.current = () => { stuck.current = true; };
@@ -64,7 +64,7 @@ function Feed({ list, ctx, working, replies, picked, pick, open, stick }: {
   let lastDay = "", lastWho = "";
   return <div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain pt-1">
     {list.length === 0 && <p className="text-center text-dim font-mono text-xs mt-10 px-6">Nobody has said anything yet. Tag a wolt with @ to bring it in.</p>}
-    {list.map((m) => {
+    {list.map((m, i) => {
       const d = new Date(m.at * 1000), day = d.toLocaleDateString([], { day: "numeric", month: "long" });
       const who = m.kind === "human" ? m.email! : "wolt:" + m.wolt, newDay = day !== lastDay;
       const thread = replies?.get(m.id) || [], mine = m.kind === "human" && m.email === ctx.me;
@@ -73,16 +73,17 @@ function Feed({ list, ctx, working, replies, picked, pick, open, stick }: {
       const side = `px-2.5 ${mine ? "pr-[46px] text-right" : "pl-[46px]"}`;
       return <div key={m.cid || m.id}>
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
-        <div onClick={(e) => { if (pick && !m.pending && !(e.target as HTMLElement).closest("button,a,audio,video,img")) pick(m.id); }}>
+        {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
+        <div className={open && !m.pending ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
+          onClick={(e) => { if (open && !m.pending && !(e.target as HTMLElement).closest("button,a,audio,video,img,[data-tap]")) open(m.id); }}>
           <Message m={m} ctx={ctx} firstOfRun={run} />
         </div>
+        {divider !== undefined && i === 0 && <div className="flex items-center gap-2.5 px-3.5 my-3 font-mono text-[11px] text-dim">
+          <span>{divider} {divider === 1 ? "reply" : "replies"}</span><span className="flex-1 h-px bg-line" /></div>}
         {thread.length > 0 && open && <div className={side}>
           <button type="button" onClick={() => open(m.id)} className="mt-1 font-mono font-semibold text-xs text-acc bg-transparent border-0 p-0 cursor-pointer">
             🧵 {thread.length} {thread.length === 1 ? "reply" : "replies"}<span className="text-dim font-normal"> · {names(thread, ctx)}</span> ›
           </button></div>}
-        {picked === m.id && open && <div className={side}>
-          <button type="button" onClick={() => open(m.id)} className="mt-1.5 font-mono font-semibold text-xs text-acc bg-panel border border-acc rounded-2xl px-3 py-1.5 cursor-pointer shadow-[0_2px_8px_#c4531e22]">🧵 Reply in thread</button>
-        </div>}
       </div>;
     })}
     <Gnaw ctx={ctx} working={working} />
@@ -100,7 +101,6 @@ export function App() {
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
   const [listening, setListening] = useState<AudioContext | null | false>(false);
   const [viewing, setViewing] = useState("");
-  const [picked, setPicked] = useState("");
   const [thread, setThread] = useState("");  // the message whose thread is open
   const stickMain = useRef(() => {}), stickThread = useRef(() => {});
   const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: setViewing };
@@ -115,7 +115,7 @@ export function App() {
     return { main, replies };
   }, [msgs]);
   const root = thread ? msgs.find((m) => m.id === thread) : undefined;
-  const open = (id: string) => { setPicked(""); setThread(id); };
+  const open = (id: string) => setThread(id);
 
   // New voice notes from wolts play one after another, unless you picked something to hear yourself.
   const playing = useRef<HTMLAudioElement | null>(null);
@@ -174,7 +174,7 @@ export function App() {
         <a href="/" className="font-mono font-semibold text-xs text-dim border border-line px-2 py-1 rounded-lg no-underline bg-panel">classic</a>
         <a href="/join" className="font-mono font-semibold text-xs text-acc border border-line px-2.5 py-1 rounded-lg no-underline bg-panel">+ agent</a>
       </header>
-      <Feed list={main} ctx={ctx} working={state.working || {}} replies={replies} picked={picked} pick={(id) => setPicked(picked === id ? "" : id)} open={open} stick={stickMain} />
+      <Feed list={main} ctx={ctx} working={state.working || {}} replies={replies} open={open} stick={stickMain} />
       {!thread && composer}
       {thread && <div className="absolute inset-0 z-[1500] bg-paper flex flex-col animate-[fadein_.18s_ease-out]">
         <header className="flex-none flex items-center gap-2 px-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
@@ -184,7 +184,7 @@ export function App() {
             <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · {root ? (root.text || root.file?.name || "voice note").slice(0, 60) : ""}</div>
           </div>
         </header>
-        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} stick={stickThread} />
+        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
       </div>}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
