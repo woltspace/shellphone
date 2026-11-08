@@ -5,7 +5,9 @@ import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
 import { say, sendText, useRoom, type Msg } from "./room";
 import { LORE, woltAvatar } from "./sprites";
-import { ThreadLine, ThreadList, unread, useSeen } from "./Threads";
+import { RecentStrip, ThreadLine, ThreadList, threadColor, threadTitle, unread, useRecent, useSeen } from "./Threads";
+import { Menu } from "./Menu";
+import { ChevronLeft, Menu as MenuIcon, MessagesSquare, X } from "lucide-react";
 import { usePush } from "./push";
 
 // iPhone Safari doesn't shrink the page for the keyboard, so size the app to the part of the screen still visible.
@@ -83,7 +85,7 @@ function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
         {divider !== undefined && i === 0 && <div className="flex items-center gap-2.5 px-3.5 my-3 font-mono text-[11px] text-dim">
           <span>{divider} {divider === 1 ? "reply" : "replies"}</span><span className="flex-1 h-px bg-line" /></div>}
         {thread.length > 0 && open && <div className={side}>
-          <ThreadLine list={thread} ctx={ctx} fresh={unread(thread, seen?.[m.id], ctx.me)} onOpen={() => open(m.id)} /></div>}
+          <ThreadLine root={m} list={thread} fresh={unread(thread, seen?.[m.id], ctx.me)} onOpen={() => open(m.id)} /></div>}
       </div>;
     })}
     <Gnaw ctx={ctx} working={working} />
@@ -127,11 +129,14 @@ export function App() {
   }, [msgs]);
   const root = thread ? msgs.find((m) => m.id === thread) : undefined;
   const [listOpen, setListOpen] = useState(false);
-  const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
+  const [menu, setMenu] = useState(false);
+  const { recent, touch } = useRecent();
+  const open = (id: string) => { touch(id); setThread(id); };  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
   const roots = main.filter((m) => replies.has(m.id));
+  const rootMap = useMemo(() => new Map(msgs.filter((m) => replies.has(m.id)).map((m) => [m.id, m])), [msgs, replies]);
   const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
   const swipe = useSwipeBack(() => setThread(""));
 
@@ -184,33 +189,39 @@ export function App() {
   const composer = <Composer wolts={state.members.wolts} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
   return (
     <div className="h-full flex flex-col relative">
-      <header className="flex-none flex items-center gap-2.5 px-3.5 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
+      <header className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
+        {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
+        <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={() => setMenu(!menu)}
+          className={`relative ${menu ? "z-[1720]" : ""} flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-[10px]`}>
+          {menu ? <X size={22} /> : <MenuIcon size={22} />}
+          {!menu && push.ask && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}
+        </button>
         <img src="/room-icon.png" alt="" className="w-9 h-9 rounded-full" />
         <div className="min-w-0 flex-1">
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
           <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
         </div>
-        <button type="button" aria-label="Threads" onClick={() => setListOpen(true)} className="relative font-mono font-semibold text-xs text-acc border border-line px-2 py-1 rounded-lg bg-panel cursor-pointer">
-          🧵{freshCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-4 h-4 px-1 rounded-full bg-acc text-white text-[10px] leading-4 text-center">{freshCount}</span>}
+        <button type="button" aria-label="Threads" onClick={() => setListOpen(true)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
+          <MessagesSquare size={22} />{freshCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{freshCount}</span>}
         </button>
-        {push.ask && <button type="button" onClick={push.turnOn} className="font-mono font-semibold text-xs text-acc border border-line px-2 py-1 rounded-lg bg-panel cursor-pointer">🔔 notify me</button>}
-        <a href="/join" className="font-mono font-semibold text-xs text-acc border border-line px-2.5 py-1 rounded-lg no-underline bg-panel">+ agent</a>
       </header>
       <Feed list={main} ctx={ctx} working={state.working || {}} replies={replies} seen={seen} open={open} stick={stickMain} />
       {!thread && composer}
       {listOpen && !thread && <ThreadList roots={roots} replies={replies} ctx={ctx} seen={seen} onOpen={open} onClose={() => setListOpen(false)} />}
       {thread && <div {...swipe.handlers} style={swipe.dx ? { transform: `translateX(${swipe.dx}px)`, boxShadow: "-8px 0 24px #18100a22" } : undefined}
         className={`absolute inset-0 z-[1550] bg-paper flex flex-col ${swipe.dx ? "" : "transition-transform duration-200 animate-[fadein_.18s_ease-out]"}`}>
-        <header className="flex-none flex items-center gap-2 px-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
-          <button type="button" aria-label="Back" onClick={() => setThread("")} className="w-10 h-10 border-0 bg-transparent text-acc text-[28px] leading-none cursor-pointer">‹</button>
+        <header className="flex-none flex items-center gap-2 px-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line" style={{ boxShadow: `inset 4px 0 0 ${threadColor(thread)}` }}>
+          <button type="button" aria-label="Back" onClick={() => setThread("")} className="w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>
           <div className="min-w-0 flex-1">
-            <div className="font-mono font-semibold text-acc">🧵 thread</div>
-            <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · {root ? (root.text || root.file?.name || "voice note").slice(0, 60) : ""}</div>
+            <div className="font-mono font-semibold truncate" style={{ color: threadColor(thread) }}>{threadTitle(root)}</div>
+            <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · started by {root ? (root.kind === "human" ? person(root.email).name : root.wolt) : ""}</div>
           </div>
         </header>
+        <RecentStrip ids={recent} current={thread} roots={rootMap} replies={replies} seen={seen} me={state.me} onOpen={open} onAll={() => { setThread(""); setListOpen(true); }} />
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
       </div>}
+      <Menu open={menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onDone={voice} />}
       {viewing && <Viewer url={viewing} close={() => setViewing("")} />}
