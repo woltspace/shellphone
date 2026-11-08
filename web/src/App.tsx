@@ -6,7 +6,7 @@ import { Message, type Ctx } from "./Message";
 import { say, send, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
-import { RecentStrip, ThreadLine, ThreadList, threadColor, threadTitle, unread, useRecent, useSeen } from "./Threads";
+import { ThreadLine, ThreadList, threadColor, threadTitle, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { ChevronLeft, Menu as MenuIcon, MessagesSquare, X } from "lucide-react";
 import { usePush } from "./push";
@@ -187,13 +187,11 @@ export function App() {
   const root = thread ? msgs.find((m) => m.id === thread) : undefined;
   const [listOpen, setListOpen] = useState(() => !location.hash.includes("m="));  // home: the threads list
   const [menu, setMenu] = useState(false);
-  const { recent, touch } = useRecent();
-  const open = (id: string) => { touch(id); setThread(id); };  // opened from the threads list, back returns to it
+  const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
   const roots = main.filter((m) => replies.has(m.id));
-  const rootMap = useMemo(() => new Map(msgs.filter((m) => replies.has(m.id)).map((m) => [m.id, m])), [msgs, replies]);
   const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
   const swipe = useSwipeBack(() => setThread(""));
 
@@ -369,7 +367,6 @@ export function App() {
             <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · started by {root ? (root.kind === "human" ? person(root.email).name : root.wolt) : ""}</div>
           </div>
         </header>
-        <RecentStrip ids={recent} current={thread} roots={rootMap} replies={replies} seen={seen} me={state.me} onOpen={open} onAll={() => { setThread(""); setListOpen(true); }} />
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
       </div>}

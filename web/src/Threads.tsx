@@ -24,17 +24,6 @@ export function threadTitle(m?: Msg) {
   return words.slice(0, 6).join(" ") + (words.length > 6 ? "…" : "");
 }
 
-// The threads you opened lately, newest first, kept on this phone: the strip at the top of a thread.
-export function useRecent() {
-  const [recent, setRecent] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("threads-recent") || "[]"); } catch { return []; } });
-  const touch = useCallback((id: string) => setRecent((r) => {
-    const next = [id, ...r.filter((x) => x !== id)].slice(0, 8);
-    try { localStorage.setItem("threads-recent", JSON.stringify(next)); } catch { /* fine without */ }
-    return next;
-  }), []);
-  return { recent, touch };
-}
-
 // who replied, latest first, one face each
 function faces(list: Msg[], ctx: Ctx) {
   const out: { key: string; src: string }[] = [];
@@ -70,24 +59,6 @@ export function ThreadLine({ root, list, fresh, onOpen }: { root: Msg; list: Msg
     {fresh && <i className="flex-none w-2 h-2 rounded-full bg-acc" aria-label="new replies" />}
     <ChevronRight className="flex-none" size={15} />
   </button>;
-}
-
-// Recent threads side by side under a thread's header: hop between them without going back to the list.
-export function RecentStrip({ ids, current, roots, replies, seen, me, onOpen, onAll }: {
-  ids: string[]; current: string; roots: Map<string, Msg>; replies: Map<string, Msg[]>; seen: Record<string, number>; me: string;
-  onOpen: (id: string) => void; onAll: () => void;
-}) {
-  const shown = ids.filter((id) => roots.has(id));
-  if (shown.length < 2) return null;
-  return <div className="flex-none flex gap-1.5 overflow-x-auto px-2.5 py-2 bg-panel border-b border-line [scrollbar-width:none]">
-    {shown.map((id) => { const c = threadColor(id), on = id === current, fresh = !on && unread(replies.get(id) || [], seen[id], me);
-      return <button key={id} type="button" onClick={() => onOpen(id)} style={on ? { color: c, borderColor: c, boxShadow: `0 0 0 1px ${c}` } : undefined}
-        className={`flex-none max-w-[190px] inline-flex items-center gap-1.5 font-mono font-semibold text-[11.5px] rounded-full border border-line px-2.5 py-1 cursor-pointer ${on ? "bg-white" : "bg-paper text-ink"}`}>
-        <i className="flex-none w-2 h-2 rounded-full" style={{ background: c }} /><span className="truncate">{threadTitle(roots.get(id))}</span>
-        {fresh && <i className="flex-none w-1.5 h-1.5 rounded-full bg-acc" />}
-      </button>; })}
-    <button type="button" onClick={onAll} className="flex-none font-mono font-semibold text-[11.5px] text-acc bg-transparent border-0 px-1.5 cursor-pointer">all ›</button>
-  </div>;
 }
 
 const preview = (m: Msg) => (m.text || (m.file ? "📎 " + m.file.name : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
