@@ -483,6 +483,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, (HERE / "vendor" / m.group(1)).read_bytes(), "text/javascript; charset=utf-8")
         if not p:
             return self.send(403, {"error": "not on this room's list"})
+        if path in ("/next", "/next/"):  # the new page, built ahead of time into dist/, next to the classic one
+            return self.send(200, (HERE / "dist" / "index.html").read_bytes(), "text/html; charset=utf-8") if (HERE / "dist" / "index.html").is_file() else self.send(404, {"error": "not built"})
+        m = re.fullmatch(r"/next/assets/([\w.-]+\.(js|css))", path)
+        if m and (HERE / "dist" / "assets" / m.group(1)).is_file():
+            return self.send(200, (HERE / "dist" / "assets" / m.group(1)).read_bytes(), "text/javascript; charset=utf-8" if m.group(2) == "js" else "text/css; charset=utf-8")
         if path == "/api/push":  # the key a page subscribes with, if this room can send notifications
             return self.send(200, {"key": vapid()[1]} if pywebpush else {"key": None})
         if path == "/api/state":
