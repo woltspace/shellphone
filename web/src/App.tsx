@@ -276,10 +276,27 @@ export function App() {
   }
   async function sendVoice(o: Outgoing) {
     outgoing.current.set(o.cid, o);
-    setMsgs((m) => m.map((x) => (x.cid === o.cid ? { ...x, pending: true, failed: false } : x)));
-    const err = await say(`/api/voice?seconds=${o.seconds}&cid=${o.cid}${where(o.thread)}`, { method: "POST", headers: { "Content-Type": o.type }, body: o.blob });
-    if (err) { setMsgs((m) => m.map((x) => (x.cid === o.cid ? { ...x, pending: false, failed: true } : x))); return report(err); }
-    outgoing.current.delete(o.cid); drop(o.cid);
+    shown(o.cid, { pending: true, failed: false });
+    const r = await send(`/api/voice?seconds=${o.seconds}&cid=${o.cid}${where(o.thread)}`, { method: "POST", headers: { "Content-Type": o.type }, body: o.blob });
+    settle(o.cid, r);
+  }
+  // Only the copy shown while sending (its id is still the cid) is ever marked; the room's copy never is.
+  const shown = (cid: string, f: Partial<Msg>) => setMsgs((m) => m.map((x) => (x.id === cid ? { ...x, ...f } : x)));
+  const msgsNow = useRef(msgs); msgsNow.current = msgs;
+  // The room's answer to a send: its copy takes the place of the one shown while sending (keeping a recording already
+  // loaded). If it failed but a poll already brought the room's copy, it did get there: nothing to retry.
+  async function settle(cid: string, r: Response | null) {
+    const real = r?.ok ? ((await r.json().catch(() => null)) as Msg | null) : null;
+    if (real?.id || msgsNow.current.some((x) => x.cid === cid && x.id !== cid)) {
+      outgoing.current.delete(cid); drop(cid);
+      if (real?.id) setMsgs((m) => {
+        const local = m.find((x) => x.id === cid); if (local?.localUrl) real.localUrl = local.localUrl;
+        return (m.some((x) => x.id === real.id) ? m.filter((x) => x.id !== cid) : m.map((x) => (x.id === cid ? real : x))).sort((a, b) => a.n - b.n);
+      });
+      return;
+    }
+    shown(cid, { pending: false, failed: true });
+    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
   }
   // after a reload or a closed app: notes the room never got come back, ready to send again
   useEffect(() => {
@@ -294,7 +311,7 @@ export function App() {
   }, [state.me]);
   retryRef.current = (cid) => retry(cid);
   function retry(cid: string) {
-    const o = outgoing.current.get(cid); if (!o) return;
+    const o = outgoing.current.get(cid); if (!o || !msgsNow.current.some((x) => x.id === cid)) return;
     if ("blob" in o) { if (o.owner === state.me) sendVoice(o); } else sendTyped(o);
   }
   async function files(list: File[], text: string) {
@@ -316,12 +333,8 @@ export function App() {
   // every try carries the same name (cid), so if the room got an earlier one, it answers with that copy instead of posting again
   async function sendTyped(o: Typed) {
     outgoing.current.set(o.cid, o);
-    setMsgs((m) => m.map((x) => (x.id === o.cid ? { ...x, pending: true, failed: false } : x)));
-    const r = await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: o.text, cid: o.cid, ...(o.thread ? { thread: o.thread } : {}) }) });
-    const real = r?.ok ? ((await r.json().catch(() => null)) as Msg | null) : null;
-    if (real?.id) { outgoing.current.delete(o.cid); return setMsgs((m) => (m.some((x) => x.id === real.id) ? m.filter((x) => x.id !== o.cid) : m.map((x) => (x.id === o.cid ? real : x))).sort((a, b) => a.n - b.n)); }
-    setMsgs((m) => m.map((x) => (x.id === o.cid ? { ...x, pending: false, failed: true } : x)));
-    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
+    shown(o.cid, { pending: true, failed: false });
+    settle(o.cid, await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: o.text, cid: o.cid, ...(o.thread ? { thread: o.thread } : {}) }) }));
   }
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
