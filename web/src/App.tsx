@@ -14,15 +14,23 @@ import { usePush } from "./push";
 // iPhone Safari doesn't shrink the page for the keyboard, so size the app to the part of the screen still visible.
 function useFit() {
   useEffect(() => {
+    // the keyboard is only up while a text box has focus; otherwise the whole screen is ours (iOS sometimes misses the
+    // resize when the keyboard goes away and leaves its height empty, so don't trust the last size then)
+    const typing = () => !!document.activeElement?.matches("textarea, input:not([type=file]), [contenteditable]");
     const fit = () => {
-      document.documentElement.style.setProperty("--vh", window.visualViewport ? Math.round(visualViewport!.height) + "px" : "100dvh");
+      document.documentElement.style.setProperty("--vh", window.visualViewport && typing() ? Math.round(visualViewport!.height) + "px" : "100dvh");
       window.scrollTo(0, 0);
     };
+    const settle = () => { fit(); for (const ms of [100, 350, 700]) setTimeout(fit, ms); };  // again as the keyboard finishes moving
     const pin = () => window.scrollTo(0, 0);  // Safari slides the page while you type: put it back, without resizing anything
     fit();
     visualViewport?.addEventListener("resize", fit);
     visualViewport?.addEventListener("scroll", pin);
-    return () => { visualViewport?.removeEventListener("resize", fit); visualViewport?.removeEventListener("scroll", pin); };
+    document.addEventListener("focusin", settle); document.addEventListener("focusout", settle); document.addEventListener("visibilitychange", settle);
+    return () => {
+      visualViewport?.removeEventListener("resize", fit); visualViewport?.removeEventListener("scroll", pin);
+      document.removeEventListener("focusin", settle); document.removeEventListener("focusout", settle); document.removeEventListener("visibilitychange", settle);
+    };
   }, []);
 }
 
