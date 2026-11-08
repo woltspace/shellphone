@@ -9,7 +9,10 @@ self.addEventListener("push", (e) => {
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const url = new URL(e.notification.data.url, self.registration.scope).href;
-  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (open) => {
+  // Also leave a note the page reads when it starts or comes back: a phone opening the app from closed may drop the
+  // address's #m=…, and a suspended page may miss the message below.
+  const note = caches.open("landing").then((c) => c.put(new URL("landing-note", self.registration.scope).href, new Response(JSON.stringify({ url, at: Date.now() })))).catch(() => {});
+  e.waitUntil(note.then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true })).then(async (open) => {
     // the chat page knows how to land on a message; any other page (like the invite one) is sent to the chat
     const chat = open.find((c) => new URL(c.url).pathname === new URL(self.registration.scope).pathname);
     if (chat) { chat.postMessage({ type: "open", url }); return chat.focus(); }

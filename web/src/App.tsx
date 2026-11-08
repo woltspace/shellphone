@@ -199,23 +199,35 @@ export function App() {
   // chat scrolled to it. Opening it normally, or coming back after a while, lands home: the threads list.
   const target = useRef<{ m: string; t: string } | null>(null);
   const [landing, setLanding] = useState(0);
+  const went = useRef({ m: "", at: 0 });  // the last message landed on, so the same tap arriving two ways lands once
   const goTo = (url: string) => {
     const h = new URLSearchParams(new URL(url, location.href).hash.slice(1));
-    if (!h.get("m")) return;
+    if (!h.get("m") || (h.get("m") === went.current.m && Date.now() - went.current.at < 10_000)) return;
+    went.current = { m: h.get("m")!, at: Date.now() };
     target.current = { m: h.get("m")!, t: h.get("t") || "" };
-    history.replaceState(null, "", location.pathname);
+    // the address says where we're going until we get there, so a reload on the way (a room update) still lands
+    history.replaceState(null, "", location.pathname + "#m=" + encodeURIComponent(h.get("m")!) + (h.get("t") ? "&t=" + encodeURIComponent(h.get("t")!) : ""));
     setMenu(false); setListOpen(false);
     if (target.current.t) open(target.current.t); else setThread("");  // no jump to the bottom: we're going to the message
     setLanding((x) => x + 1);
-    const mine = target.current; setTimeout(() => { if (target.current === mine) target.current = null; }, 8000);  // not here after all: let it go
+    const mine = target.current; setTimeout(() => { if (target.current === mine) { target.current = null; history.replaceState(null, "", location.pathname); } }, 8000);  // not here after all: let it go
+  };
+  // the note a tapped notification leaves behind (see sw.js), read once and only if it's fresh
+  const noted = async () => {
+    try {
+      const c = await caches.open("landing"), key = new URL("landing-note", location.href).href, r = await c.match(key);
+      if (!r) return; await c.delete(key);
+      const n = await r.json(); if (Date.now() - n.at < 60_000) goTo(n.url);  // a tap already handled the other way is skipped there
+    } catch { /* no caches here: the address and the message still work */ }
   };
   useEffect(() => {
-    goTo(location.href);
-    const fromNote = (e: MessageEvent) => { if (e.data?.type === "open") goTo(e.data.url); };
+    goTo(location.href); noted();
+    const fromNote = (e: MessageEvent) => { if (e.data?.type === "open") { goTo(e.data.url); noted(); } };
     navigator.serviceWorker?.addEventListener("message", fromNote);
     let hidden = 0;
     const seen = () => {
       if (document.hidden) { hidden = Date.now(); return; }
+      noted();
       if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(true); setMenu(false); stickMain.current(); }
     };
     document.addEventListener("visibilitychange", seen);
@@ -225,13 +237,23 @@ export function App() {
   useEffect(() => {
     const t = target.current; if (!t) return;
     const el = [...document.querySelectorAll<HTMLElement>(`[data-mid="${CSS.escape(t.m)}"]`)].at(-1); if (!el) return;
-    target.current = null;
+    target.current = null;  // the address keeps the spot until you leave it, so a reload for an update brings you back here
     // after the feeds have done their own scrolling for this render, so "stay at the bottom" doesn't undo it
     (t.t ? stickThread : stickMain).current(false);  // reading back here: stop following the newest
+    // and again as the page settles (voice players, cards and pictures above it take their height after a cold start),
+    // until you touch or scroll yourself
+    let yours = false; const mine = () => { yours = true; };
+    for (const ev of ["touchstart", "wheel", "keydown"]) window.addEventListener(ev, mine, { once: true, capture: true });
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      el.scrollIntoView({ block: "center" }); el.classList.add("landed"); setTimeout(() => el.classList.remove("landed"), 1600);
+      el.scrollIntoView({ block: "center" }); el.classList.add("landed"); setTimeout(() => el.classList.remove("landed"), 3000);
+      for (const ms of [250, 700, 1500]) setTimeout(() => { if (!yours && el.isConnected) el.scrollIntoView({ block: "center" }); }, ms);
     }));
   }, [msgs, thread, landing]);
+  // leaving the spot you landed on (back to the list, another thread) clears it from the address
+  useEffect(() => {
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (h.get("m") && !target.current && (listOpen || (h.get("t") || "") !== thread)) history.replaceState(null, "", location.pathname);
+  }, [thread, listOpen]);
   const listSwipe = useSwipeBack(() => setListOpen(false));
   const menuSwipe = useMenuSwipe(menu, setMenu, !thread && !listOpen);
 
