@@ -199,9 +199,11 @@ export function App() {
   // chat scrolled to it. Opening it normally, or coming back after a while, lands home: the threads list.
   const target = useRef<{ m: string; t: string } | null>(null);
   const [landing, setLanding] = useState(0);
+  const went = useRef({ m: "", at: 0 });  // the last message landed on, so the same tap arriving two ways lands once
   const goTo = (url: string) => {
     const h = new URLSearchParams(new URL(url, location.href).hash.slice(1));
-    if (!h.get("m")) return;
+    if (!h.get("m") || (h.get("m") === went.current.m && Date.now() - went.current.at < 10_000)) return;
+    went.current = { m: h.get("m")!, at: Date.now() };
     target.current = { m: h.get("m")!, t: h.get("t") || "" };
     history.replaceState(null, "", location.pathname);
     setMenu(false); setListOpen(false);
@@ -214,7 +216,7 @@ export function App() {
     try {
       const c = await caches.open("landing"), key = new URL("landing-note", location.href).href, r = await c.match(key);
       if (!r) return; await c.delete(key);
-      const n = await r.json(); if (Date.now() - n.at < 60_000 && !target.current) goTo(n.url);  // already landing: just clear it
+      const n = await r.json(); if (Date.now() - n.at < 60_000) goTo(n.url);  // a tap already handled the other way is skipped there
     } catch { /* no caches here: the address and the message still work */ }
   };
   useEffect(() => {
@@ -242,7 +244,7 @@ export function App() {
     let yours = false; const mine = () => { yours = true; };
     for (const ev of ["touchstart", "wheel", "keydown"]) window.addEventListener(ev, mine, { once: true, capture: true });
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      el.scrollIntoView({ block: "center" }); el.classList.add("landed"); setTimeout(() => el.classList.remove("landed"), 1600);
+      el.scrollIntoView({ block: "center" }); el.classList.add("landed"); setTimeout(() => el.classList.remove("landed"), 3000);
       for (const ms of [250, 700, 1500]) setTimeout(() => { if (!yours && el.isConnected) el.scrollIntoView({ block: "center" }); }, ms);
     }));
   }, [msgs, thread, landing]);
