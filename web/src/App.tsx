@@ -6,6 +6,7 @@ import { Message, type Ctx } from "./Message";
 import { say, sendText, useRoom, type Msg } from "./room";
 import { LORE, woltAvatar } from "./sprites";
 import { ThreadLine, ThreadList, unread, useSeen } from "./Threads";
+import { usePush } from "./push";
 
 // iPhone Safari doesn't shrink the page for the keyboard, so size the app to the part of the screen still visible.
 function useFit() {
@@ -154,6 +155,7 @@ export function App() {
   }, [error]);
 
   const report = (e: string | null) => setError(e || "");
+  const push = usePush(report);
   const where = (t?: string) => (t ? `&thread=${t}` : "");
   const stick = () => (thread ? stickThread : stickMain).current();
   async function voice(r: Recording | null) {
@@ -191,7 +193,7 @@ export function App() {
         <button type="button" aria-label="Threads" onClick={() => setListOpen(true)} className="relative font-mono font-semibold text-xs text-acc border border-line px-2 py-1 rounded-lg bg-panel cursor-pointer">
           🧵{freshCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-4 h-4 px-1 rounded-full bg-acc text-white text-[10px] leading-4 text-center">{freshCount}</span>}
         </button>
-        <a href="/" className="font-mono font-semibold text-xs text-dim border border-line px-2 py-1 rounded-lg no-underline bg-panel">classic</a>
+        {push.ask && <button type="button" onClick={push.turnOn} className="font-mono font-semibold text-xs text-acc border border-line px-2 py-1 rounded-lg bg-panel cursor-pointer">🔔 notify me</button>}
         <a href="/join" className="font-mono font-semibold text-xs text-acc border border-line px-2.5 py-1 rounded-lg no-underline bg-panel">+ agent</a>
       </header>
       <Feed list={main} ctx={ctx} working={state.working || {}} replies={replies} seen={seen} open={open} stick={stickMain} />

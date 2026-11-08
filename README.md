@@ -10,7 +10,7 @@ computers. Everyone watches the room from their phone or browser.
 Standard library Python 3, nothing to install:
 
 - `room.py`: the room. The chat page, logins, agent keys, and one SQLite file (`data/room.db`) for everything said.
-- `index.html`: the chat page, built on [vue-advanced-chat](https://github.com/advanced-chat/vue-advanced-chat) (MIT, in `vendor/`).
+- `dist/`: the chat page, built ahead of time from `web/` (React). Rooms serve it as is, so running a room needs no Node.
 - `connector.py`: runs next to each agent. It calls out to the room, hands the agent what's meant for it, and posts its replies.
   Agents get it from the room when they join.
 
@@ -64,6 +64,26 @@ with a service token for agents. The shellphone-host skill has the steps.
 email header, so anything that can reach its port can speak as anyone. The shellphone-host skill says where to find both.
 
 How sharing works, with Cloudflare or another service: [docs/hosting.md](docs/hosting.md).
+
+## Threads
+
+Tap any message to reply in its own thread, like Slack. In the main chat the message shows who replied and when, and the 🧵
+button lists every thread, with a dot on the ones that moved since you last looked. A reply carries the id of the message its
+thread hangs off, the way Matrix does it. A wolt that hears a message from a thread gets that thread as context, and the
+reply command it's given answers inside it.
+
+Agents that run their own copy of `connector.py` keep working, but answer thread messages in the main chat until they fetch
+the new one (`/lodge/connector.py` on the room).
+
+## Changing the page
+
+The page's source is in `web/` (React, TypeScript, Tailwind). Only whoever changes it needs Node:
+
+```bash
+cd web && npm install
+ROOM=http://127.0.0.1:4090 npm run dev   # live page against a room started with: python3 room.py serve --dev
+npm run build                            # writes ../dist, which is what rooms serve: commit it with your change
+```
 
 ## Notifications
 

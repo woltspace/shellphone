@@ -285,7 +285,7 @@ def data_uri(name):
 def page_html():
     """The page with its icon inside it. Phones fetch home-screen icons without your login, and behind Cloudflare
     that fetch gets the login page instead, so the icon travels in the page itself."""
-    return (HERE / "index.html").read_text().replace('href="icon-180.png?v=conch"', f'href="{data_uri("icon-180.png")}"').encode()
+    return (HERE / "dist" / "index.html").read_text().replace('href="/icon-180.png?v=conch"', f'href="{data_uri("icon-180.png")}"').encode()
 
 
 def app_manifest():
@@ -323,7 +323,7 @@ def check_card(card):
 
 def page_version():
     """Changes when the page or the room's code does, so open pages (and home-screen apps) reload themselves."""
-    return int(max((HERE / f).stat().st_mtime for f in ("index.html", "room.py")))
+    return int(max((HERE / f).stat().st_mtime for f in ("dist/index.html", "room.py")))
 
 
 def patch(message_id, **fields):
@@ -490,14 +490,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not p:
                 return self.send(403, b"You're not on this room's list.", "text/plain; charset=utf-8")
             return self.send(200, join_page(email, p["name"]).encode(), "text/html; charset=utf-8")
-        m = re.fullmatch(r"/vendor/([\w.-]+\.js)", path)
-        if m and (HERE / "vendor" / m.group(1)).is_file():
-            return self.send(200, (HERE / "vendor" / m.group(1)).read_bytes(), "text/javascript; charset=utf-8")
         if not p:
             return self.send(403, {"error": "not on this room's list"})
-        if path in ("/next", "/next/"):  # the new page, built ahead of time into dist/, next to the classic one
-            return self.send(200, (HERE / "dist" / "index.html").read_bytes(), "text/html; charset=utf-8") if (HERE / "dist" / "index.html").is_file() else self.send(404, {"error": "not built"})
-        m = re.fullmatch(r"/next/assets/([\w.-]+\.(js|css))", path)
+        m = re.fullmatch(r"/assets/([\w.-]+\.(js|css))", path)  # the page's code and styles, built ahead of time into dist/
         if m and (HERE / "dist" / "assets" / m.group(1)).is_file():
             return self.send(200, (HERE / "dist" / "assets" / m.group(1)).read_bytes(), "text/javascript; charset=utf-8" if m.group(2) == "js" else "text/css; charset=utf-8")
         if path == "/api/push":  # the key a page subscribes with, if this room can send notifications
