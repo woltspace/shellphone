@@ -1,6 +1,7 @@
 // Voice notes not yet in the room, kept on this phone until the room says it has them.
-// A failed send, a closed app or a reload never loses the recording: it waits here with "Tap to send again".
-export type Outgoing = { cid: string; blob: Blob; type: string; seconds: number; thread?: string; at: number };
+// A failed send, a closed app or a reload never loses the recording: it waits here with "Tap to send again",
+// and only for the person who recorded it.
+export type Outgoing = { cid: string; owner: string; blob: Blob; type: string; seconds: number; thread?: string; at: number };
 
 function db(): Promise<IDBDatabase> {
   return new Promise((ok, no) => {

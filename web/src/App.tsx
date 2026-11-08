@@ -185,7 +185,7 @@ export function App() {
     return { main, replies };
   }, [msgs]);
   const root = thread ? msgs.find((m) => m.id === thread) : undefined;
-  const [listOpen, setListOpen] = useState(false);
+  const [listOpen, setListOpen] = useState(() => !location.hash.includes("m="));  // home: the threads list
   const [menu, setMenu] = useState(false);
   const { recent, touch } = useRecent();
   const open = (id: string) => { touch(id); setThread(id); };  // opened from the threads list, back returns to it
@@ -198,7 +198,7 @@ export function App() {
   const swipe = useSwipeBack(() => setThread(""));
 
   // Where the app opens. A tapped notification lands on its message: inside its thread if it's a reply, or the main
-  // chat scrolled to it. Coming back after a while, or opening it normally, lands on the main chat at the newest.
+  // chat scrolled to it. Opening it normally, or coming back after a while, lands home: the threads list.
   const target = useRef<{ m: string; t: string } | null>(null);
   const [landing, setLanding] = useState(0);
   const goTo = (url: string) => {
@@ -218,7 +218,7 @@ export function App() {
     let hidden = 0;
     const seen = () => {
       if (document.hidden) { hidden = Date.now(); return; }
-      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(false); setMenu(false); stickMain.current(); }
+      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(true); setMenu(false); stickMain.current(); }
     };
     document.addEventListener("visibilitychange", seen);
     return () => { navigator.serviceWorker?.removeEventListener("message", fromNote); document.removeEventListener("visibilitychange", seen); };
@@ -261,13 +261,14 @@ export function App() {
   const where = (t?: string) => (t ? `&thread=${t}` : "");
   const stick = () => (thread ? stickThread : stickMain).current();
   // A voice note waits on this phone until the room has it. If it doesn't get there, it stays with "Tap to send again".
-  const outgoing = useRef(new Map<string, Outgoing | { cid: string; text: string; thread?: string }>());
+  type Typed = { cid: string; text: string; thread?: string };
+  const outgoing = useRef(new Map<string, Outgoing | Typed>());
   async function voice(r: Recording | null) {
     setListening(false);
     if (!r) return;
     // shows as sent right away; the room's copy takes its place under the same id once the words are written down
     const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t = thread || undefined;
-    const o: Outgoing = { cid, blob: r.blob, type: r.type, seconds: r.seconds, thread: t, at: Date.now() / 1000 };
+    const o: Outgoing = { cid, owner: state.me, blob: r.blob, type: r.type, seconds: r.seconds, thread: t, at: Date.now() / 1000 };
     const local: Msg = { id: cid, cid, n: after.current + 0.9, at: o.at, kind: "human", email: state.me, text: "", audio: "local", localUrl: URL.createObjectURL(r.blob), seconds: r.seconds, pending: true, thread: t };
     setMsgs((m) => [...m, local]); stick();
     await keep(o);
@@ -285,7 +286,8 @@ export function App() {
     if (!state.me) return;
     waiting().then((list) => {
       const have = new Set(msgs.map((m) => m.cid).filter(Boolean));
-      const lost = list.filter((o) => { if (have.has(o.cid)) { drop(o.cid); return false; } return !outgoing.current.has(o.cid); });
+      // only what you recorded: someone else signed in on this phone never sees or sends it
+      const lost = list.filter((o) => { if (o.owner !== state.me) return false; if (have.has(o.cid)) { drop(o.cid); return false; } return !outgoing.current.has(o.cid); });
       for (const o of lost) outgoing.current.set(o.cid, o);
       if (lost.length) setMsgs((m) => [...m, ...lost.map((o): Msg => ({ id: o.cid, cid: o.cid, n: after.current + 0.9, at: o.at, kind: "human", email: state.me, text: "", audio: "local", localUrl: URL.createObjectURL(o.blob), seconds: o.seconds, failed: true, thread: o.thread }))]);
     });
@@ -293,7 +295,7 @@ export function App() {
   retryRef.current = (cid) => retry(cid);
   function retry(cid: string) {
     const o = outgoing.current.get(cid); if (!o) return;
-    if ("blob" in o) sendVoice(o); else { setMsgs((m) => m.filter((x) => x.cid !== cid)); outgoing.current.delete(cid); text(o.text, o.thread); }
+    if ("blob" in o) { if (o.owner === state.me) sendVoice(o); } else sendTyped(o);
   }
   async function files(list: File[], text: string) {
     const t = thread || undefined;
@@ -305,20 +307,25 @@ export function App() {
     setListening(null);
   }
   // what you type shows at once, then becomes the room's copy as soon as the room has it (no wait for the next poll)
-  async function text(t: string, inThread?: string) {
+  async function text(t: string) {
     stick();
-    const cid = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), th = inThread ?? (thread || undefined);
-    setMsgs((m) => [...m, { id: cid, cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, thread: th }]);
-    const r = await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, cid, ...(th ? { thread: th } : {}) }) }).catch(() => null);
+    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t, thread: thread || undefined };
+    setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, thread: o.thread }]);
+    sendTyped(o);
+  }
+  // every try carries the same name (cid), so if the room got an earlier one, it answers with that copy instead of posting again
+  async function sendTyped(o: Typed) {
+    outgoing.current.set(o.cid, o);
+    setMsgs((m) => m.map((x) => (x.id === o.cid ? { ...x, pending: true, failed: false } : x)));
+    const r = await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: o.text, cid: o.cid, ...(o.thread ? { thread: o.thread } : {}) }) });
     const real = r?.ok ? ((await r.json().catch(() => null)) as Msg | null) : null;
-    if (real?.id) return setMsgs((m) => (m.some((x) => x.id === real.id) ? m.filter((x) => x.id !== cid) : m.map((x) => (x.id === cid ? real : x))).sort((a, b) => a.n - b.n));
-    outgoing.current.set(cid, { cid, text: t, thread: th });
-    setMsgs((m) => m.map((x) => (x.id === cid ? { ...x, pending: false, failed: true } : x)));
+    if (real?.id) { outgoing.current.delete(o.cid); return setMsgs((m) => (m.some((x) => x.id === real.id) ? m.filter((x) => x.id !== o.cid) : m.map((x) => (x.id === o.cid ? real : x))).sort((a, b) => a.n - b.n)); }
+    setMsgs((m) => m.map((x) => (x.id === o.cid ? { ...x, pending: false, failed: true } : x)));
     report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
   }
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
-  const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} me={state.me} onText={(t) => text(t)} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
+  const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
   return (
     <div className="h-full flex flex-col relative" {...menuSwipe.screen}>
       <header className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
