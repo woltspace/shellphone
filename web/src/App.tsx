@@ -237,7 +237,7 @@ export function App() {
   useEffect(() => {
     const t = target.current; if (!t) return;
     const el = [...document.querySelectorAll<HTMLElement>(`[data-mid="${CSS.escape(t.m)}"]`)].at(-1); if (!el) return;
-    target.current = null; history.replaceState(null, "", location.pathname);
+    target.current = null;  // the address keeps the spot until you leave it, so a reload for an update brings you back here
     // after the feeds have done their own scrolling for this render, so "stay at the bottom" doesn't undo it
     (t.t ? stickThread : stickMain).current(false);  // reading back here: stop following the newest
     // and again as the page settles (voice players, cards and pictures above it take their height after a cold start),
@@ -249,6 +249,11 @@ export function App() {
       for (const ms of [250, 700, 1500]) setTimeout(() => { if (!yours && el.isConnected) el.scrollIntoView({ block: "center" }); }, ms);
     }));
   }, [msgs, thread, landing]);
+  // leaving the spot you landed on (back to the list, another thread) clears it from the address
+  useEffect(() => {
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (h.get("m") && !target.current && (listOpen || (h.get("t") || "") !== thread)) history.replaceState(null, "", location.pathname);
+  }, [thread, listOpen]);
   const listSwipe = useSwipeBack(() => setListOpen(false));
   const menuSwipe = useMenuSwipe(menu, setMenu, !thread && !listOpen);
 
