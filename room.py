@@ -141,6 +141,12 @@ def message(mid):
     return as_message(row[0]) if row else None
 
 
+def thread(mid):
+    """The message a thread hangs off, then its replies in order."""
+    root = message(mid)
+    return [root] + [as_message(row) for row in q("select * from messages where json_extract(data, '$.thread') = ? order by n", mid)] if root else []
+
+
 def thread_of(value):
     """Threads, the Matrix way: a reply names the message its thread hangs off. One level only, so a reply to a reply
     lands in the same thread."""
@@ -463,6 +469,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(401, {"error": "unknown lodge key"})
             if path == "/lodge/connector.py":  # a guest lodge needs nothing but its invite: it fetches the connector from here
                 return self.send(200, (HERE / "connector.py").read_bytes(), "text/x-python; charset=utf-8")
+            if path == "/lodge/thread":  # a wolt answering in a thread reads it whole, however long ago it started
+                found = thread(q.get("id", [""])[0])
+                return self.send(200, {"messages": found}) if found else self.send(404, {"error": "there's no such thread"})
             if path == "/lodge/messages":
                 new = messages(after)
                 fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (

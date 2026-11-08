@@ -92,7 +92,8 @@ def prompt(cfg, config_path, m, recent, members, asked=True, after_reply=None):
              "Ask your own human in the room before deleting, pushing, spending, or sending anything outside your own folder or lodge.")
     kind = "wolt" if cfg.get("session") else "agent"
     text = f"""[Shell Phone room, you are {cfg['wolt']}, {people.get(owner, owner)}'s {kind}]
-{"Earlier in this thread (the first line is the message it hangs off):" if thread else "Earlier in the room:"}
+{("Earlier in this thread (the first line is the message it hangs off):" if recent and recent[0].get("id") == thread else
+  "Earlier in this thread (the message it hangs off is too old to show here):") if thread else "Earlier in the room:"}
 {lines or '  (nothing yet)'}
 
 New{" in the thread" if thread else ""}, from {speaker(m, people, owner)}:
@@ -111,12 +112,16 @@ YOUR_REPLY
     return text
 
 
-def context(m, history):
+def context(m, history, cfg=None):
     """What a wolt sees before a new message: in a thread, the message it hangs off and the replies so far;
     in the main chat, the last few messages there."""
     if m.get("thread"):
-        root = [x for x in history if x.get("id") == m["thread"]]
-        return root + [x for x in history if x.get("thread") == m["thread"] and x.get("id") != m.get("id")][-7:]
+        try:  # ask the room for the whole thread, since it may have started long before what we remember
+            found = call(cfg, "GET", "/lodge/thread?id=" + urllib.parse.quote(m["thread"]))["messages"]
+        except Exception:  # an older room, or unreachable: make do with what we remember
+            found = [x for x in history if x.get("id") == m["thread"] or x.get("thread") == m["thread"]]
+        root = [x for x in found if x.get("id") == m["thread"]]
+        return root + [x for x in found if x.get("thread") == m["thread"] and x.get("id") != m.get("id")][-7:]
     return [x for x in history if not x.get("thread") and x.get("id") != m.get("id")][-8:]
 
 
@@ -164,7 +169,7 @@ def wait(config_path, timeout, interval):
         for m in got["messages"]:
             cfg["after"] = m["n"]
             if relevant(cfg, m):
-                text = prompt(cfg, config_path, m, context(m, cfg.get("recent", [])), got["members"], addressed(m, cfg["wolt"], cfg["owner"]),
+                text = prompt(cfg, config_path, m, context(m, cfg.get("recent", []), cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]),
                               after_reply=f"After replying (or deciding to stay quiet), keep listening: run this again, in the background if you can:\n{again}")
                 cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file")}])[-60:]
                 store(config_path, cfg)
@@ -201,7 +206,7 @@ def run(config_path, interval):
                 if m["kind"] not in ("human", "wolt"):
                     continue
                 if relevant(cfg, m):
-                    deliver(cfg, config_path, m, context(m, history), got["members"], addressed(m, cfg["wolt"], cfg["owner"]))
+                    deliver(cfg, config_path, m, context(m, history, cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]))
                 history = (history + [m])[-500:]
             store(config_path, cfg)
         except Exception as exc:

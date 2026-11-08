@@ -48,21 +48,36 @@ function Block({ node, msg, answered }: { node: CardNode; msg: Msg; answered?: s
 }
 
 // Your choice goes to the room as a normal message, so the wolts hear it.
-// A card inside a thread gets its answer in that same thread.
+// A card inside a thread gets its answer in that same thread. A button only stays picked once the room has the answer.
 function Choices({ options, answered, thread }: { options: any[]; answered?: string; thread?: string }) {
   const [picked, setPicked] = useState<string | undefined>(answered);
-  return <div className="flex flex-wrap gap-1.5">{options.map((o, i) => {
-    const label = typeof o === "string" ? o : o.label, value = typeof o === "string" ? o : (o.value || o.label);
-    const done = !!(picked ?? answered), on = (picked ?? answered) === value;
-    return <button key={i} type="button" disabled={done}
-      className={`${btn} ${on ? "bg-acc! text-white!" : done ? "opacity-45" : ""}`}
-      onClick={() => { setPicked(value); sendText(value, thread); }}>{label}</button>;
-  })}</div>;
+  const [sending, setSending] = useState<string>();
+  const [error, setError] = useState("");
+  async function pick(value: string) {
+    setSending(value); setError("");
+    const failed = await sendText(value, thread);
+    setSending(undefined);
+    if (failed) setError(failed); else setPicked(value);
+  }
+  const chosen = picked ?? answered;
+  return <div className="flex flex-col gap-1">
+    <div className="flex flex-wrap gap-1.5">{options.map((o, i) => {
+      const label = typeof o === "string" ? o : o.label, value = typeof o === "string" ? o : (o.value || o.label);
+      const on = chosen === value || sending === value;
+      return <button key={i} type="button" disabled={!!chosen || !!sending}
+        className={`${btn} ${on ? "bg-acc! text-white!" : chosen || sending ? "opacity-45" : ""}`}
+        onClick={() => pick(value)}>{label}</button>;
+    })}</div>
+    {error && <div className="text-xs text-acc">{error} Tap to try again.</div>}
+  </div>;
 }
 
 export function Card({ msg, all }: { msg: Msg; all: Msg[] }) {
   if (!msg.card) return null;
-  const answered = all.find((x) => x.kind === "human" && x.n > msg.n && (msg.card ? optionValues(msg.card).includes(x.text || "") : false))?.text;
+  // An answer belongs to this card: said after it, in the same thread (or the main chat), before the next card there.
+  const values = optionValues(msg.card), here = (x: Msg) => (x.thread || "") === (msg.thread || "");
+  const after = all.filter((x) => x.n > msg.n && here(x)), next = after.findIndex((x) => !!x.card);
+  const answered = (next < 0 ? after : after.slice(0, next)).find((x) => x.kind === "human" && values.includes(x.text || ""))?.text;
   return <div className="mt-1.5 mb-0.5 min-w-[min(280px,64vw)] text-sm"><Block node={msg.card} msg={msg} answered={answered} /></div>;
 }
 function optionValues(n: CardNode): string[] {
