@@ -23,6 +23,8 @@ DATA = Path(os.environ.get("SHELLPHONE_DATA", HERE / "data"))
 DB = DATA / "room.db"
 VOICE = DATA / "voice"
 FILES = DATA / "files"
+UPLOAD_LIMIT = 50_000_000  # a sane cap per file; Cloudflare refuses requests over 100 MB anyway
+FILE_KINDS = {"mov": "video/quicktime", "m4v": "video/mp4", "mp4": "video/mp4", "webm": "video/webm"}  # mimetypes misses some on Linux
 COLORS = ["#c4531e", "#3a6b8c", "#5e7a2c", "#8a4f9e", "#b8862b", "#2f8a7a"]
 SPEECH = os.environ.get("SHELLPHONE_SPEECH", "http://127.0.0.1:4077/v1")
 STT_MODEL = os.environ.get("SHELLPHONE_STT_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
@@ -370,7 +372,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def send(self, code, body, kind="application/json", download=None):
+    def send(self, code, body, kind="application/json", download=None, sandbox=False):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         ranged = code == 200 and kind.split("/")[0] in ("audio", "video")
         got = re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range") or "") if ranged else None
@@ -392,6 +394,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.send_header("Content-Type", kind)
         self.send_header("X-Content-Type-Options", "nosniff")
+        if sandbox:  # a shared web page runs walled off: its own blank origin, so it can't reach the room, your login or your messages
+            self.send_header("Content-Security-Policy", "sandbox allow-scripts allow-popups allow-forms allow-modals allow-downloads")
         if download:  # anything that isn't a picture, a video or audio is saved, never opened in the room's page
             self.send_header("Content-Disposition", f'attachment; filename="{download}"')
         self.send_header("Content-Length", str(len(data)))
@@ -491,10 +495,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, (VOICE / m.group(1)).read_bytes(), kind)
         m = re.fullmatch(r"/files/([0-9a-f]{32})\.([a-z0-9]{1,8})", path)
         if m and (FILES / f"{m.group(1)}.{m.group(2)}").is_file():
-            kind = mimetypes.types_map.get("." + m.group(2), "application/octet-stream")
-            inline = kind.split("/")[0] in ("image", "video", "audio") and kind != "image/svg+xml"
-            return self.send(200, (FILES / f"{m.group(1)}.{m.group(2)}").read_bytes(), kind if inline else "application/octet-stream",
-                             download=None if inline else f"{m.group(1)}.{m.group(2)}")
+            kind = FILE_KINDS.get(m.group(2)) or mimetypes.types_map.get("." + m.group(2), "application/octet-stream")
+            page = m.group(2) in ("html", "htm")
+            inline = page or (kind.split("/")[0] in ("image", "video", "audio") and kind != "image/svg+xml")
+            return self.send(200, (FILES / f"{m.group(1)}.{m.group(2)}").read_bytes(),
+                             "text/html; charset=utf-8" if page else kind if inline else "application/octet-stream",
+                             download=None if inline else f"{m.group(1)}.{m.group(2)}", sandbox=page)
         self.send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -527,7 +533,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if path == "/lodge/files":  # a wolt shares a picture or a file, with words alongside if it wants
                     q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                     m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"),
-                               text=q.get("text", [""])[0].strip()[:8000], file=save_upload(q.get("name", ["file"])[0], self.body(limit=25_000_000)))
+                               text=q.get("text", [""])[0].strip()[:8000], file=save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT)))
                     with tx() as c:
                         stop_working(c, l["wolt"])
                     return self.send(200, m)
@@ -557,6 +563,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         threading.Thread(target=speak, args=(m, l["voice"]), daemon=True).start()
                     return self.send(200, m)
                 return self.send(404, {"error": "not found"})
+            if self.headers.get("Origin") == "null" or self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
+                return self.send(403, {"error": "only the room's own page can post"})  # e.g. a shared web page, which runs sandboxed
             email, p = self.person()
             if not p:
                 return self.send(403, {"error": "not on this room's list"})
@@ -598,7 +606,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/files":  # a picture, video or file, with the words typed alongside
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 return self.send(200, append(kind="human", email=email, text=q.get("text", [""])[0].strip()[:8000],
-                                             file=save_upload(q.get("name", ["file"])[0], self.body(limit=25_000_000))))
+                                             file=save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT))))
             self.send(404, {"error": "not found"})
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})
