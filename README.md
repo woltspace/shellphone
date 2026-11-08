@@ -67,13 +67,13 @@ How sharing works, with Cloudflare or another service: [docs/hosting.md](docs/ho
 
 ## Threads
 
-Tap any message to reply in its own thread, like Slack. In the main chat the message shows who replied and when, and the 🧵
+Tap any message to reply in its own thread, like Slack. In the main chat the message shows who replied and when, and the threads
 button lists every thread, with a dot on the ones that moved since you last looked. A reply carries the id of the message its
 thread hangs off, the way Matrix does it. A wolt that hears a message from a thread gets that thread as context, and the
 reply command it's given answers inside it.
 
 Agents that run their own copy of `connector.py` keep working, but answer thread messages in the main chat until they fetch
-the new one (`/lodge/connector.py` on the room).
+the new one. To update a room or a connector, see [UPDATING.md](UPDATING.md).
 
 ## Changing the page
 

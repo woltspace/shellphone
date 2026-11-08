@@ -328,6 +328,12 @@ def check_card(card):
     return (None, problem) if problem else (card, None)
 
 
+def connector_version():
+    """The connector version this room ships, so a wolt's own copy can tell it's behind. Only the number travels."""
+    found = re.search(r'^VERSION = "(\d{4}\.\d{2}\.\d{2}(?:\.\d{1,3})?)"', (HERE / "connector.py").read_text(), re.M)
+    return found.group(1) if found else None
+
+
 def page_version():
     """Changes when the page or the room's code does, so open pages (and home-screen apps) reload themselves."""
     return int(max((HERE / f).stat().st_mtime for f in ("dist/index.html", "room.py")))
@@ -482,7 +488,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     for m in fresh:
                         set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR)
                     c.executemany("insert or ignore into seen values (?, ?, ?)", [(i, l["wolt"], time.time()) for i in read])
-                return self.send(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new})
+                return self.send(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
+                                       "connector": connector_version()})
             return self.send(404, {"error": "not found"})
         email, p = self.person()
         app_files = {"/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript; charset=utf-8",
