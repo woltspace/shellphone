@@ -58,7 +58,9 @@ export function useRoom() {
               if (r) r.localUrl = m.localUrl;
               return !r;
             });
-            const all = [...kept, ...added];
+            const have = new Set(kept.map((m) => m.id));  // your own text is already shown from when you sent it
+            // in the room's order, whatever order they reached this phone in (a message still sending sits last)
+            const all = [...kept, ...added.filter((m) => !have.has(m.id))].sort((a, b) => a.n - b.n);
             for (const p of patches) { const t = all.find((m) => m.id === p.of); if (t) t.audio = p.audio; }
             return patches.length ? all.map((m) => ({ ...m })) : all;
           });

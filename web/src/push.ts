@@ -24,5 +24,5 @@ export function usePush(report: (e: string) => void) {
   useEffect(() => { setup(false).then(setState).catch(() => {}); }, []);
   const turnOn = () => setup(true).then((s) => { setState(s); if (s === "on") report("Notifications on for this phone."); })
     .catch((e) => report("Couldn't turn on notifications: " + e.message));
-  return { ask: state === "ask", turnOn };
+  return { state, ask: state === "ask", turnOn };
 }

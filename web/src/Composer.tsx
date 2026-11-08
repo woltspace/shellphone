@@ -1,12 +1,17 @@
 // Shell's composer: a big round mic while the box is empty, the send arrow once you type. A paperclip for files.
 // Typing @ suggests the room's wolts; typing / at the start offers a few ready-made asks.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Mic, Paperclip, SendHorizontal } from "lucide-react";
 import type { Wolt } from "./room";
 
-export function Composer({ wolts, me, onText, onFiles, onMic, placeholder }: {
-  wolts: Wolt[]; me: string; onText: (t: string) => void; onFiles: (f: File[], text: string) => void; onMic: () => void; placeholder?: string;
+// What you were typing, kept per box (the main chat, each thread) while you go back and forth.
+const drafts = new Map<string, string>();
+
+export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder }: {
+  draft: string; wolts: Wolt[]; me: string; onText: (t: string) => void; onFiles: (f: File[], text: string) => void; onMic: () => void; placeholder?: string;
 }) {
-  const [text, setText] = useState("");
+  const [text, setTextNow] = useState(() => drafts.get(draft) || "");
+  const setText = (t: string) => { setTextNow(t); if (t) drafts.set(draft, t); else drafts.delete(draft); };
   const box = useRef<HTMLTextAreaElement>(null), pick = useRef<HTMLInputElement>(null);
   const tag = text.match(/(?:^|\s)@([\w-]*)$/);
   const tagOpts = tag ? wolts.filter((w) => w.wolt.toLowerCase().startsWith(tag[1].toLowerCase())) : [];
@@ -25,6 +30,7 @@ export function Composer({ wolts, me, onText, onFiles, onMic, placeholder }: {
     if (!b.value) { b.style.height = ""; return; }
     if (b.scrollHeight > b.clientHeight + 1 && b.clientHeight < 140) b.style.height = Math.min(140, b.scrollHeight + 2) + "px";
   };
+  useEffect(grow, []);  // a long draft coming back gets its height back too
   const set = (t: string) => { setText(t); requestAnimationFrame(() => { grow(); box.current?.focus(); }); };
   const send = () => { const t = text.trim(); if (!t) return; onText(t); set(""); };
   const round = "flex-none w-[46px] h-[46px] rounded-full bg-acc grid place-items-center border-0 cursor-pointer";
@@ -37,7 +43,7 @@ export function Composer({ wolts, me, onText, onFiles, onMic, placeholder }: {
       {slash.length > 0 && <div className={menu}>{slash.map((s) => <button key={s.tag} type="button" className={item} onClick={() => set(s.text)}><b className="text-acc">/{s.tag}</b> <span className="text-dim">{s.text}</span></button>)}</div>}
       <div className="flex items-center gap-2">
         <button type="button" aria-label="Attach" onClick={() => pick.current?.click()} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent cursor-pointer">
-          <svg viewBox="0 0 24 24" className="w-6 h-6 fill-acc"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5Z" /></svg>
+          <Paperclip size={23} className="text-acc" />
         </button>
         <input ref={pick} type="file" multiple hidden onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; if (f.length) { onFiles(f, text.trim()); set(""); } }} />
         <textarea ref={box} rows={1} value={text} placeholder={placeholder || "$ message, @wolt, or /"}
@@ -45,8 +51,8 @@ export function Composer({ wolts, me, onText, onFiles, onMic, placeholder }: {
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window)) { e.preventDefault(); send(); } }}
           className="flex-1 min-w-0 resize-none bg-paper border border-line rounded-[10px] px-3 py-2.5 text-base leading-snug outline-none focus:shadow-[0_0_0_1px_var(--color-acc)] placeholder:font-mono placeholder:text-dim" />
         {text.trim()
-          ? <button type="button" aria-label="Send" className={round} onClick={send}><svg viewBox="0 0 24 24" className="w-[22px] h-[22px] fill-white"><path d="M2 21l21-9L2 3v7l15 2-15 2v7Z" /></svg></button>
-          : <button type="button" aria-label="Talk" className={round} onClick={onMic}><svg viewBox="0 0 24 24" className="w-6 h-6 fill-white"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-2.1A7 7 0 0 0 19 12h-2Z" /></svg></button>}
+          ? <button type="button" aria-label="Send" className={round} onClick={send}><SendHorizontal size={22} className="text-white" /></button>
+          : <button type="button" aria-label="Talk" className={round} onClick={onMic}><Mic size={24} className="text-white" /></button>}
       </div>
     </div>
   );

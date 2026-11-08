@@ -3,9 +3,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
-import { say, sendText, useRoom, type Msg } from "./room";
+import { say, useRoom, type Msg } from "./room";
 import { LORE, woltAvatar } from "./sprites";
-import { ThreadLine, ThreadList, unread, useSeen } from "./Threads";
+import { RecentStrip, ThreadLine, ThreadList, threadColor, threadTitle, unread, useRecent, useSeen } from "./Threads";
+import { Menu } from "./Menu";
+import { ChevronLeft, Menu as MenuIcon, MessagesSquare, X } from "lucide-react";
 import { usePush } from "./push";
 
 // iPhone Safari doesn't shrink the page for the keyboard, so size the app to the part of the screen still visible.
@@ -49,10 +51,10 @@ function Viewer({ url, close }: { url: string; close: () => void }) {
 // Used for the main chat and for a thread alike.
 function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
   list: Msg[]; ctx: Ctx; working: Record<string, unknown>; replies?: Map<string, Msg[]>; seen?: Record<string, number>;
-  open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<() => void>;
+  open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<(on?: boolean) => void>;
 }) {
   const scroller = useRef<HTMLDivElement>(null), stuck = useRef(true);
-  stick.current = () => { stuck.current = true; };
+  stick.current = (on = true) => { stuck.current = on; };
   const last = list.at(-1);
   useLayoutEffect(() => { const s = scroller.current; if (s && stuck.current) s.scrollTop = s.scrollHeight; }, [list.length, last?.pending, working, replies]);
   // the keyboard opening, the suggestion bar, or the text box growing a line all shrink the chat: keep the last message in view
@@ -73,7 +75,7 @@ function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
       const run = newDay || who !== lastWho;
       lastDay = day; lastWho = thread.length ? "" : who;  // a thread line breaks the run, so the next bubble shows its name
       const side = `px-2.5 ${mine ? "pr-[46px] text-right" : "pl-[46px]"}`;
-      return <div key={m.cid || m.id}>
+      return <div key={m.cid || m.id} data-mid={m.id}>
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
         <div className={open && !m.pending ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
@@ -83,27 +85,82 @@ function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
         {divider !== undefined && i === 0 && <div className="flex items-center gap-2.5 px-3.5 my-3 font-mono text-[11px] text-dim">
           <span>{divider} {divider === 1 ? "reply" : "replies"}</span><span className="flex-1 h-px bg-line" /></div>}
         {thread.length > 0 && open && <div className={side}>
-          <ThreadLine list={thread} ctx={ctx} fresh={unread(thread, seen?.[m.id], ctx.me)} onOpen={() => open(m.id)} /></div>}
+          <ThreadLine root={m} list={thread} fresh={unread(thread, seen?.[m.id], ctx.me)} onOpen={() => open(m.id)} /></div>}
       </div>;
     })}
     <Gnaw ctx={ctx} working={working} />
   </div>;
 }
-// Leave a thread like going back on iPhone: drag from the left edge to the right. The screen follows your finger.
+// Swipes move the screen itself, frame by frame, without redrawing the chat: smooth under your finger.
+// On release they glide the rest of the way, and a quick flick counts even if it was short.
+type Pt = { x: number; y: number; t: number; dx: number; dir?: "x" | "y" };
+const track = (s: Pt, e: React.TouchEvent) => {
+  const t = e.touches[0];
+  if (!s.dir && Math.hypot(t.clientX - s.x, t.clientY - s.y) > 8) s.dir = Math.abs(t.clientX - s.x) > Math.abs(t.clientY - s.y) ? "x" : "y";
+  const v = (t.clientX - s.x - s.dx) / Math.max(1, performance.now() - s.t);
+  s.dx = t.clientX - s.x; s.t = performance.now();
+  return v;  // px per ms, + to the right
+};
+const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
+  if (!el) return;
+  el.style.transition = "transform .22s cubic-bezier(.2,.8,.2,1)"; el.style.transform = transform; el.style.boxShadow = shadow;
+};
+
+// Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
 function useSwipeBack(close: () => void) {
-  const [dx, setDx] = useState(0);
-  const start = useRef<{ x: number; y: number } | null>(null);
+  const el = useRef<HTMLDivElement>(null), s = useRef<Pt | null>(null), v = useRef(0);
+  const back = () => { glide(el.current, "translateX(100%)"); setTimeout(close, 200); };
   return {
-    dx,
+    el, back,
     handlers: {
-      onTouchStart: (e: React.TouchEvent) => { const t = e.touches[0]; start.current = t.clientX < 28 ? { x: t.clientX, y: t.clientY } : null; },
+      onTouchStart: (e: React.TouchEvent) => { const t = e.touches[0]; s.current = t.clientX < 28 ? { x: t.clientX, y: t.clientY, t: performance.now(), dx: 0 } : null; v.current = 0; },
       onTouchMove: (e: React.TouchEvent) => {
-        const s = start.current, t = e.touches[0]; if (!s) return;
-        if (Math.abs(t.clientY - s.y) > Math.abs(t.clientX - s.x) && dx === 0) { start.current = null; return; }  // that's a scroll
-        setDx(Math.max(0, t.clientX - s.x));
+        const p = s.current; if (!p) return;
+        v.current = track(p, e);
+        if (p.dir === "y") { s.current = null; return; }  // that's a scroll
+        const d = el.current; if (!d || p.dir !== "x") return;
+        d.style.transition = "none"; d.style.transform = `translateX(${Math.max(0, p.dx)}px)`; d.style.boxShadow = "-8px 0 24px #18100a22";
       },
-      onTouchEnd: () => { if (start.current && dx > 90) close(); start.current = null; setDx(0); },
+      onTouchEnd: () => {
+        const p = s.current; s.current = null; if (!p || p.dir !== "x") return;
+        if (p.dx > 90 || (p.dx > 30 && v.current > 0.4)) back(); else glide(el.current, "translateX(0)");
+      },
     },
+  };
+}
+
+// The menu, like Slack's: drag it out from the left edge of the main screen, push it back to the left to close.
+function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: boolean) {
+  const panel = useRef<HTMLElement>(null), scrim = useRef<HTMLDivElement>(null), s = useRef<(Pt & { open: boolean }) | null>(null), v = useRef(0);
+  const width = () => panel.current?.offsetWidth || 300;
+  const place = (dx: number) => {  // dx: how far the panel is out, 0 (shut) to its width (open)
+    const p = panel.current, c = scrim.current; if (!p || !c) return;
+    p.style.transition = "none"; p.style.transform = `translateX(${dx - width()}px)`;
+    c.style.transition = "none"; c.style.opacity = String(dx / width()); c.style.pointerEvents = "none";
+  };
+  const release = () => { for (const e of [panel.current, scrim.current]) if (e) { e.style.transition = ""; e.style.transform = ""; e.style.opacity = ""; e.style.pointerEvents = ""; } };
+  const begin = (e: React.TouchEvent, open: boolean) => { const t = e.touches[0]; s.current = { x: t.clientX, y: t.clientY, t: performance.now(), dx: 0, open }; v.current = 0; };
+  const move = (e: React.TouchEvent) => {
+    const p = s.current; if (!p) return;
+    v.current = track(p, e);
+    if (p.dir === "y") { s.current = null; release(); return; }
+    if (p.dir === "x") place(Math.min(width(), Math.max(0, (p.open ? 0 : width()) + p.dx)));
+  };
+  const end = () => {
+    const p = s.current; s.current = null; if (!p || p.dir !== "x") return;
+    const open = p.open ? p.dx > 70 || (p.dx > 20 && v.current > 0.4) : !(p.dx < -70 || (p.dx < -20 && v.current < -0.4));
+    // glide from where your finger left it, then hand back to the classes, which by then agree
+    const p2 = panel.current, c = scrim.current;
+    if (p2) { p2.style.transition = "transform .22s cubic-bezier(.2,.8,.2,1)"; p2.style.transform = open ? "translateX(0)" : "translateX(-100%)"; }
+    if (c) { c.style.transition = "opacity .22s"; c.style.opacity = open ? "1" : "0"; }
+    setMenu(open); setTimeout(release, 260);
+  };
+  return {
+    panel, scrim,
+    screen: { onTouchStart: (e: React.TouchEvent) => { if (!menu && canOpen && e.touches[0].clientX < 28) begin(e, true); }, onTouchMove: move, onTouchEnd: end },
+    // the menu sits inside the screen, so its touches stop here instead of being counted twice
+    menu: { onTouchStart: (e: React.TouchEvent) => { e.stopPropagation(); if (menu) begin(e, false); },
+      onTouchMove: (e: React.TouchEvent) => { e.stopPropagation(); move(e); }, onTouchEnd: (e: React.TouchEvent) => { e.stopPropagation(); end(); } },
   };
 }
 
@@ -113,7 +170,7 @@ export function App() {
   const [listening, setListening] = useState<AudioContext | null | false>(false);
   const [viewing, setViewing] = useState("");
   const [thread, setThread] = useState("");  // the message whose thread is open
-  const stickMain = useRef(() => {}), stickThread = useRef(() => {});
+  const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
   const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: setViewing };
 
   // Threads the Matrix way: a reply carries the id of the message its thread hangs off. The main chat shows only the rest.
@@ -127,13 +184,56 @@ export function App() {
   }, [msgs]);
   const root = thread ? msgs.find((m) => m.id === thread) : undefined;
   const [listOpen, setListOpen] = useState(false);
-  const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
+  const [menu, setMenu] = useState(false);
+  const { recent, touch } = useRecent();
+  const open = (id: string) => { touch(id); setThread(id); };  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
   const roots = main.filter((m) => replies.has(m.id));
+  const rootMap = useMemo(() => new Map(msgs.filter((m) => replies.has(m.id)).map((m) => [m.id, m])), [msgs, replies]);
   const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
   const swipe = useSwipeBack(() => setThread(""));
+
+  // Where the app opens. A tapped notification lands on its message: inside its thread if it's a reply, or the main
+  // chat scrolled to it. Coming back after a while, or opening it normally, lands on the main chat at the newest.
+  const target = useRef<{ m: string; t: string } | null>(null);
+  const [landing, setLanding] = useState(0);
+  const goTo = (url: string) => {
+    const h = new URLSearchParams(new URL(url, location.href).hash.slice(1));
+    if (!h.get("m")) return;
+    target.current = { m: h.get("m")!, t: h.get("t") || "" };
+    history.replaceState(null, "", location.pathname);
+    setMenu(false); setListOpen(false);
+    if (target.current.t) open(target.current.t); else setThread("");  // no jump to the bottom: we're going to the message
+    setLanding((x) => x + 1);
+    const mine = target.current; setTimeout(() => { if (target.current === mine) target.current = null; }, 8000);  // not here after all: let it go
+  };
+  useEffect(() => {
+    goTo(location.href);
+    const fromNote = (e: MessageEvent) => { if (e.data?.type === "open") goTo(e.data.url); };
+    navigator.serviceWorker?.addEventListener("message", fromNote);
+    let hidden = 0;
+    const seen = () => {
+      if (document.hidden) { hidden = Date.now(); return; }
+      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(false); setMenu(false); stickMain.current(); }
+    };
+    document.addEventListener("visibilitychange", seen);
+    return () => { navigator.serviceWorker?.removeEventListener("message", fromNote); document.removeEventListener("visibilitychange", seen); };
+  }, []);
+  // once that message is on screen, bring it into view and light it up for a moment
+  useEffect(() => {
+    const t = target.current; if (!t) return;
+    const el = [...document.querySelectorAll<HTMLElement>(`[data-mid="${CSS.escape(t.m)}"]`)].at(-1); if (!el) return;
+    target.current = null;
+    // after the feeds have done their own scrolling for this render, so "stay at the bottom" doesn't undo it
+    (t.t ? stickThread : stickMain).current(false);  // reading back here: stop following the newest
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.scrollIntoView({ block: "center" }); el.classList.add("landed"); setTimeout(() => el.classList.remove("landed"), 1600);
+    }));
+  }, [msgs, thread, landing]);
+  const listSwipe = useSwipeBack(() => setListOpen(false));
+  const menuSwipe = useMenuSwipe(menu, setMenu, !thread && !listOpen);
 
   // New voice notes from wolts play one after another, unless you picked something to hear yourself.
   const playing = useRef<HTMLAudioElement | null>(null);
@@ -178,39 +278,55 @@ export function App() {
     if (!navigator.mediaDevices || !window.MediaRecorder) return setError("This browser can't record here.");
     setListening(null);
   }
-  const text = (t: string) => { stick(); sendText(t, thread || undefined).then(report); };
+  // what you type shows at once, then becomes the room's copy as soon as the room has it (no wait for the next poll)
+  async function text(t: string) {
+    stick();
+    const cid = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), th = thread || undefined;
+    setMsgs((m) => [...m, { id: cid, cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, thread: th }]);
+    const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, cid, ...(th ? { thread: th } : {}) }) }).catch(() => null);
+    const real = r?.ok ? ((await r.json().catch(() => null)) as Msg | null) : null;
+    if (real?.id) return setMsgs((m) => (m.some((x) => x.id === real.id) ? m.filter((x) => x.id !== cid) : m.map((x) => (x.id === cid ? real : x))).sort((a, b) => a.n - b.n));
+    setMsgs((m) => m.map((x) => (x.id === cid ? { ...x, pending: false, text: t + "\n— didn't send: copy it and try again" } : x)));
+    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
+  }
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
-  const composer = <Composer wolts={state.members.wolts} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
+  const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
   return (
-    <div className="h-full flex flex-col relative">
-      <header className="flex-none flex items-center gap-2.5 px-3.5 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
+    <div className="h-full flex flex-col relative" {...menuSwipe.screen}>
+      <header className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
+        {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
+        <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={() => setMenu(!menu)}
+          className={`relative ${menu ? "z-[1720]" : ""} flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-[10px]`}>
+          {menu ? <X size={22} /> : <MenuIcon size={22} />}
+          {!menu && push.ask && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}
+        </button>
         <img src="/room-icon.png" alt="" className="w-9 h-9 rounded-full" />
         <div className="min-w-0 flex-1">
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
           <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
         </div>
-        <button type="button" aria-label="Threads" onClick={() => setListOpen(true)} className="relative font-mono font-semibold text-xs text-acc border border-line px-2 py-1 rounded-lg bg-panel cursor-pointer">
-          🧵{freshCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-4 h-4 px-1 rounded-full bg-acc text-white text-[10px] leading-4 text-center">{freshCount}</span>}
+        <button type="button" aria-label="Threads" onClick={() => setListOpen(true)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
+          <MessagesSquare size={22} />{freshCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{freshCount}</span>}
         </button>
-        {push.ask && <button type="button" onClick={push.turnOn} className="font-mono font-semibold text-xs text-acc border border-line px-2 py-1 rounded-lg bg-panel cursor-pointer">🔔 notify me</button>}
-        <a href="/join" className="font-mono font-semibold text-xs text-acc border border-line px-2.5 py-1 rounded-lg no-underline bg-panel">+ agent</a>
       </header>
       <Feed list={main} ctx={ctx} working={state.working || {}} replies={replies} seen={seen} open={open} stick={stickMain} />
       {!thread && composer}
-      {listOpen && !thread && <ThreadList roots={roots} replies={replies} ctx={ctx} seen={seen} onOpen={open} onClose={() => setListOpen(false)} />}
-      {thread && <div {...swipe.handlers} style={swipe.dx ? { transform: `translateX(${swipe.dx}px)`, boxShadow: "-8px 0 24px #18100a22" } : undefined}
-        className={`absolute inset-0 z-[1550] bg-paper flex flex-col ${swipe.dx ? "" : "transition-transform duration-200 animate-[fadein_.18s_ease-out]"}`}>
-        <header className="flex-none flex items-center gap-2 px-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
-          <button type="button" aria-label="Back" onClick={() => setThread("")} className="w-10 h-10 border-0 bg-transparent text-acc text-[28px] leading-none cursor-pointer">‹</button>
+      {listOpen && !thread && <div ref={listSwipe.el} {...listSwipe.handlers} className="absolute inset-0 z-[1500] will-change-transform">
+        <ThreadList roots={roots} replies={replies} ctx={ctx} seen={seen} onOpen={open} onClose={listSwipe.back} /></div>}
+      {thread && <div ref={swipe.el} {...swipe.handlers} className="absolute inset-0 z-[1550] bg-paper flex flex-col will-change-transform animate-[slidein_.22s_cubic-bezier(.2,.8,.2,1)]">
+        <header className="flex-none flex items-center gap-2 px-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line" style={{ boxShadow: `inset 4px 0 0 ${threadColor(thread)}` }}>
+          <button type="button" aria-label="Back" onClick={swipe.back} className="w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>
           <div className="min-w-0 flex-1">
-            <div className="font-mono font-semibold text-acc">🧵 thread</div>
-            <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · {root ? (root.text || root.file?.name || "voice note").slice(0, 60) : ""}</div>
+            <div className="font-mono font-semibold truncate" style={{ color: threadColor(thread) }}>{threadTitle(root)}</div>
+            <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · started by {root ? (root.kind === "human" ? person(root.email).name : root.wolt) : ""}</div>
           </div>
         </header>
+        <RecentStrip ids={recent} current={thread} roots={rootMap} replies={replies} seen={seen} me={state.me} onOpen={open} onAll={() => { setThread(""); setListOpen(true); }} />
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
       </div>}
+      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onDone={voice} />}
       {viewing && <Viewer url={viewing} close={() => setViewing("")} />}
