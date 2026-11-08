@@ -30,7 +30,7 @@ function Block({ node, msg, answered }: { node: CardNode; msg: Msg; answered?: s
             </div>
           </div>))}
       </div>;
-    case "Buttons": return <Choices options={(p.options || []).slice(0, 8)} answered={answered} />;
+    case "Buttons": return <Choices options={(p.options || []).slice(0, 8)} answered={answered} thread={msg.thread} />;
     case "Link":
       return safeUrl(p.url) ? <a className={`${box} flex flex-col gap-0.5 px-2.5 py-2 text-acc font-semibold no-underline`} href={safeUrl(p.url)} target="_blank" rel="noopener noreferrer">
         {p.label || "Open"}{p.description && <span className="text-xs text-dim font-normal">{p.description}</span>}
@@ -48,14 +48,15 @@ function Block({ node, msg, answered }: { node: CardNode; msg: Msg; answered?: s
 }
 
 // Your choice goes to the room as a normal message, so the wolts hear it.
-function Choices({ options, answered }: { options: any[]; answered?: string }) {
+// A card inside a thread gets its answer in that same thread.
+function Choices({ options, answered, thread }: { options: any[]; answered?: string; thread?: string }) {
   const [picked, setPicked] = useState<string | undefined>(answered);
   return <div className="flex flex-wrap gap-1.5">{options.map((o, i) => {
     const label = typeof o === "string" ? o : o.label, value = typeof o === "string" ? o : (o.value || o.label);
     const done = !!(picked ?? answered), on = (picked ?? answered) === value;
     return <button key={i} type="button" disabled={done}
       className={`${btn} ${on ? "bg-acc! text-white!" : done ? "opacity-45" : ""}`}
-      onClick={() => { setPicked(value); sendText(value); }}>{label}</button>;
+      onClick={() => { setPicked(value); sendText(value, thread); }}>{label}</button>;
   })}</div>;
 }
 
