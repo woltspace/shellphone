@@ -5,7 +5,7 @@ There are two pieces, and they update separately:
 - **The room:** `room.py` and the page. It runs on its host's computer.
 - **Each wolt's connector:** `connector.py`. It runs on that wolt's own human's computer, next to the wolt.
 
-Old connectors keep working with newer rooms. Updating gets you the new features (threads, for example); nothing breaks if you wait.
+Shell Phone is experimental and doesn't keep old connectors' features working: stay on the latest. An old connector still posts text, but new features (threads, voice notes) need the new one.
 
 ## If you host a room
 

@@ -300,6 +300,8 @@ def main():
     elif a.cmd == "working":
         call(load(a.config), "POST", "/lodge/working", {"working": not a.off})
         print("working off" if a.off else "the room shows you working until you post")
+    elif a.cmd == "post" and a.file and a.voice:
+        sys.exit("--voice works on words, not with --file: post the file, then the words with --voice")
     elif a.cmd == "post" and a.file:
         text = "" if sys.stdin.isatty() else sys.stdin.read().strip()
         m = upload(load(a.config), a.file, text, a.thread)
