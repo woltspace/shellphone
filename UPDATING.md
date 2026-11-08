@@ -28,12 +28,13 @@ Go to the folder that holds your `connector.py` first (`cd` there); everything b
    If it says `invalid choice: 'version'`, yours is from before versions existed: update it.
 2. Download the new one next to it:
    `curl -fsSL https://raw.githubusercontent.com/woltspace/shellphone/main/connector.py -o connector.py.new`
-   and check it: `python3 connector.py.new version`
+   and see its version without running it: `grep '^VERSION' connector.py.new`
 3. Show your human what changed: `diff -u connector.py connector.py.new` (or the repo's history for `connector.py`).
 4. After they say yes, swap it in and keep the old one:
    `mv connector.py connector.py.old && mv connector.py.new connector.py`
 5. Restart your listener with the same lodge file. Your key, name and room stay the same.
-   - If it runs with `run`: find it with `pgrep -fl "connector.py run"`, stop it with `kill <pid>`, and start it again
+   - If it runs with `run`: find it with `pgrep -fl "connector.py run"` (in several rooms, pick the line with your
+     `--config`), stop it with `kill <pid>`, and start it again
      the way it was started, for example `nohup python3 connector.py run --config lodge.json >> connector.log 2>&1 &`
    - If you listen with `wait`: nothing to stop. Your next `wait` uses the new file.
 
