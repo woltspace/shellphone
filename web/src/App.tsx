@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
-import { say, useRoom, type Msg } from "./room";
+import { say, send, useRoom, type Msg } from "./room";
+import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
 import { RecentStrip, ThreadLine, ThreadList, threadColor, threadTitle, unread, useRecent, useSeen } from "./Threads";
 import { Menu } from "./Menu";
@@ -78,8 +79,8 @@ function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
       return <div key={m.cid || m.id} data-mid={m.id}>
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
-        <div className={open && !m.pending ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
-          onClick={(e) => { if (open && !m.pending && !(e.target as HTMLElement).closest("button,a,audio,video,img,[data-tap]")) open(m.id); }}>
+        <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
+          onClick={(e) => { if (open && !m.pending && !m.failed && !(e.target as HTMLElement).closest("button,a,audio,video,img,[data-tap]")) open(m.id); }}>
           <Message m={m} ctx={ctx} firstOfRun={run} />
         </div>
         {divider !== undefined && i === 0 && <div className="flex items-center gap-2.5 px-3.5 my-3 font-mono text-[11px] text-dim">
@@ -170,8 +171,9 @@ export function App() {
   const [listening, setListening] = useState<AudioContext | null | false>(false);
   const [viewing, setViewing] = useState("");
   const [thread, setThread] = useState("");  // the message whose thread is open
+  const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: setViewing };
+  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: setViewing, retry: (cid) => retryRef.current(cid) };
 
   // Threads the Matrix way: a reply carries the id of the message its thread hangs off. The main chat shows only the rest.
   const { main, replies } = useMemo(() => {
@@ -258,16 +260,40 @@ export function App() {
   const push = usePush(report);
   const where = (t?: string) => (t ? `&thread=${t}` : "");
   const stick = () => (thread ? stickThread : stickMain).current();
+  // A voice note waits on this phone until the room has it. If it doesn't get there, it stays with "Tap to send again".
+  const outgoing = useRef(new Map<string, Outgoing | { cid: string; text: string; thread?: string }>());
   async function voice(r: Recording | null) {
     setListening(false);
     if (!r) return;
     // shows as sent right away; the room's copy takes its place under the same id once the words are written down
     const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t = thread || undefined;
-    const local: Msg = { id: cid, cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: "", audio: "local", localUrl: URL.createObjectURL(r.blob), seconds: r.seconds, pending: true, thread: t };
+    const o: Outgoing = { cid, blob: r.blob, type: r.type, seconds: r.seconds, thread: t, at: Date.now() / 1000 };
+    const local: Msg = { id: cid, cid, n: after.current + 0.9, at: o.at, kind: "human", email: state.me, text: "", audio: "local", localUrl: URL.createObjectURL(r.blob), seconds: r.seconds, pending: true, thread: t };
     setMsgs((m) => [...m, local]); stick();
-    const err = await say(`/api/voice?seconds=${r.seconds}&cid=${cid}${where(t)}`, { method: "POST", headers: { "Content-Type": r.type }, body: r.blob });
-    if (err) setMsgs((m) => m.map((x) => (x.cid === cid ? { ...x, pending: false, text: "didn't send: tap the mic to try again" } : x)));
-    report(err);
+    await keep(o);
+    sendVoice(o);
+  }
+  async function sendVoice(o: Outgoing) {
+    outgoing.current.set(o.cid, o);
+    setMsgs((m) => m.map((x) => (x.cid === o.cid ? { ...x, pending: true, failed: false } : x)));
+    const err = await say(`/api/voice?seconds=${o.seconds}&cid=${o.cid}${where(o.thread)}`, { method: "POST", headers: { "Content-Type": o.type }, body: o.blob });
+    if (err) { setMsgs((m) => m.map((x) => (x.cid === o.cid ? { ...x, pending: false, failed: true } : x))); return report(err); }
+    outgoing.current.delete(o.cid); drop(o.cid);
+  }
+  // after a reload or a closed app: notes the room never got come back, ready to send again
+  useEffect(() => {
+    if (!state.me) return;
+    waiting().then((list) => {
+      const have = new Set(msgs.map((m) => m.cid).filter(Boolean));
+      const lost = list.filter((o) => { if (have.has(o.cid)) { drop(o.cid); return false; } return !outgoing.current.has(o.cid); });
+      for (const o of lost) outgoing.current.set(o.cid, o);
+      if (lost.length) setMsgs((m) => [...m, ...lost.map((o): Msg => ({ id: o.cid, cid: o.cid, n: after.current + 0.9, at: o.at, kind: "human", email: state.me, text: "", audio: "local", localUrl: URL.createObjectURL(o.blob), seconds: o.seconds, failed: true, thread: o.thread }))]);
+    });
+  }, [state.me]);
+  retryRef.current = (cid) => retry(cid);
+  function retry(cid: string) {
+    const o = outgoing.current.get(cid); if (!o) return;
+    if ("blob" in o) sendVoice(o); else { setMsgs((m) => m.filter((x) => x.cid !== cid)); outgoing.current.delete(cid); text(o.text, o.thread); }
   }
   async function files(list: File[], text: string) {
     const t = thread || undefined;
@@ -279,19 +305,20 @@ export function App() {
     setListening(null);
   }
   // what you type shows at once, then becomes the room's copy as soon as the room has it (no wait for the next poll)
-  async function text(t: string) {
+  async function text(t: string, inThread?: string) {
     stick();
-    const cid = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), th = thread || undefined;
+    const cid = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), th = inThread ?? (thread || undefined);
     setMsgs((m) => [...m, { id: cid, cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, thread: th }]);
-    const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, cid, ...(th ? { thread: th } : {}) }) }).catch(() => null);
+    const r = await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, cid, ...(th ? { thread: th } : {}) }) }).catch(() => null);
     const real = r?.ok ? ((await r.json().catch(() => null)) as Msg | null) : null;
     if (real?.id) return setMsgs((m) => (m.some((x) => x.id === real.id) ? m.filter((x) => x.id !== cid) : m.map((x) => (x.id === cid ? real : x))).sort((a, b) => a.n - b.n));
-    setMsgs((m) => m.map((x) => (x.id === cid ? { ...x, pending: false, text: t + "\n— didn't send: copy it and try again" } : x)));
+    outgoing.current.set(cid, { cid, text: t, thread: th });
+    setMsgs((m) => m.map((x) => (x.id === cid ? { ...x, pending: false, failed: true } : x)));
     report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
   }
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
-  const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
+  const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} me={state.me} onText={(t) => text(t)} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
   return (
     <div className="h-full flex flex-col relative" {...menuSwipe.screen}>
       <header className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">

@@ -9,7 +9,7 @@ export type Msg = {
   n: number; id: string; cid?: string; at: number; kind: "human" | "wolt" | "patch";
   email?: string; wolt?: string; owner?: string; creature?: string;
   text?: string; audio?: string; seconds?: number; file?: FileInfo; card?: CardNode; of?: string;
-  localUrl?: string; pending?: boolean; thread?: string;
+  localUrl?: string; pending?: boolean; failed?: boolean; thread?: string;
 };
 export type Tab = { slug: string; title: string; v: number };
 export type State = {
@@ -18,8 +18,14 @@ export type State = {
   working: Record<string, unknown>; seen: Record<string, string[]>; tabs: Tab[];
 };
 
+// How many sends are on their way. The page doesn't reload itself for a new version while one is.
+export const sending = { n: 0 };
+export async function send(url: string, init: RequestInit) {
+  sending.n++;
+  try { return await fetch(url, init).catch(() => null); } finally { sending.n--; }
+}
 export async function say(url: string, init: RequestInit): Promise<string | null> {
-  const r = await fetch(url, init).catch(() => null);
+  const r = await send(url, init);
   if (!r) return "Can't reach the room.";
   if (!r.ok) return ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send.";
   return null;
@@ -41,8 +47,9 @@ export function useRoom() {
         const r = await fetch(`/api/state?after=${after.current}${document.visibilityState === "visible" ? "&here=1" : ""}`, { cache: "no-store" });
         if (r.status === 403) { setError("You're not on this room's list."); return; }
         const s = (await r.json()) as State & { messages: Msg[] };
-        if (version.current && s.version && s.version !== version.current && !document.querySelector("[data-busy]")) return location.reload();
-        version.current = s.version;
+        // a new version of the page: reload, but not in the middle of recording, typing or sending (it waits, then reloads)
+        if (version.current && s.version && s.version !== version.current) { if (!document.querySelector("[data-busy]") && !sending.n) return location.reload(); }
+        else version.current = s.version;
         const { messages, ...rest } = s;
         setState(rest);
         const patches = messages.filter((m) => m.kind === "patch");
@@ -54,7 +61,7 @@ export function useRoom() {
             // the room's copy of a voice note replaces the one shown while sending, keeping the recording already loaded
             const real = new Map(added.filter((m) => m.cid).map((m) => [m.cid, m]));
             const kept = old.filter((m) => {
-              const r = m.pending && m.cid ? real.get(m.cid) : undefined;
+              const r = (m.pending || m.failed) && m.cid ? real.get(m.cid) : undefined;
               if (r) r.localUrl = m.localUrl;
               return !r;
             });

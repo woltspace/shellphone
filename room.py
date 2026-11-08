@@ -141,6 +141,15 @@ def message(mid):
     return as_message(row[0]) if row else None
 
 
+def sent_before(email, cid):
+    """What this person already sent under the page's own name for it, so sending it again doesn't post it twice."""
+    if not re.fullmatch(r"[a-z0-9]{4,40}", cid or ""):
+        return None
+    rows = q("select * from messages where kind = 'human' and json_extract(data, '$.cid') = ? order by n desc limit 1", cid)
+    m = as_message(rows[0]) if rows else None
+    return m if m and m.get("email") == email else None
+
+
 def thread(mid):
     """The message a thread hangs off, then its replies in order."""
     root = message(mid)
@@ -616,12 +625,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not text:
                     return self.send(400, {"error": "empty"})
                 cid = str(data.get("cid", ""))  # the page's own name for it while sending, so its copy is replaced, not doubled
+                if prev := sent_before(email, cid):  # sent before, but the answer never got back to the page
+                    return self.send(200, prev)
                 return self.send(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread")),
                                              **({"cid": cid} if re.fullmatch(r"[a-z0-9]{4,40}", cid) else {})))
             if path == "/api/voice":
                 thread = thread_of(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("thread", [""])[0])
                 ext = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp3": "mp3"}.get((self.headers.get("Content-Type") or "").split(";")[0], "webm")
                 audio = self.body(limit=25_000_000)
+                if prev := sent_before(email, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("cid", [""])[0]):
+                    return self.send(200, prev)  # a voice note sent again after its answer was lost: the room already has it
                 vid = uuid.uuid4().hex
                 VOICE.mkdir(parents=True, exist_ok=True)
                 f = VOICE / f"{vid}.{ext}"
