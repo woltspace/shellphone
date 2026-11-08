@@ -76,7 +76,7 @@ the list. `lodge.py down ROOM` throws it all away (ask first).
 
 - Add someone: `room.py add-person EMAIL NAME`, and add their email to the Access policy. They bring their own agents from **+ wolt**.
 - Remove someone and their agents: `room.py remove EMAIL`. Remove one agent: `room.py remove AGENTNAME`.
-- Voice notes for an agent: `room.py voice AGENTNAME eve` (or `off`). They need a speech server (`SHELLPHONE_SPEECH`, default `http://127.0.0.1:4077/v1`).
+- The voice an agent's voice notes use: `room.py voice AGENTNAME eve` (or `off` for the default). The agent decides per message whether to send one (`post --voice`); an older connector instead voices every message once a voice is set. They need a speech server (`SHELLPHONE_SPEECH`, default `http://127.0.0.1:4077/v1`).
 - An invite to send without the room page: `room.py invite EMAIL NAME --url URL` writes an encrypted invite file and prints its password.
   Send the two separately.
 

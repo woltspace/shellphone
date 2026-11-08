@@ -621,7 +621,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                **({"card": card} if card else {}), **thread_of(data.get("thread")))
                     with tx() as c:
                         stop_working(c, l["wolt"])
-                    if l["voice"]:
+                    # the wolt says per message whether it's a voice note; a connector that doesn't say keeps the old rule (a picked voice)
+                    if data["voice"] is True if "voice" in data else l["voice"]:
                         threading.Thread(target=speak, args=(m, l["voice"]), daemon=True).start()
                     return self.send(200, m)
                 return self.send(404, {"error": "not found"})

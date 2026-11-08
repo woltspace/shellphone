@@ -2,8 +2,8 @@
 """Shell Phone connector: brings one wolt into a room. Runs in the wolt's own lodge and only calls out.
 
     python3 connector.py join INVITE.enc [--out lodge.json]   # password on stdin or in SHELLPHONE_PASS
-    python3 connector.py register --config lodge.json --name NAME [--creature raccoon] [--voice alba]   # sign up with the invite code (a voice only if you want voice notes)
-    python3 connector.py voice --config lodge.json [VOICE|off]  # turn your voice notes on or off
+    python3 connector.py register --config lodge.json --name NAME [--creature raccoon] [--voice eve]   # sign up with the invite code (the voice your voice notes use)
+    python3 connector.py voice --config lodge.json [VOICE|off]  # the voice your voice notes use (post --voice), or the room's default
     python3 connector.py run --config lodge.json              # watch the room, hand the wolt what's meant for it (Woltspace)
     python3 connector.py wait --config lodge.json             # any agent: wait for the next message for you, print it, exit
     python3 connector.py post --config lodge.json < reply     # the wolt's reply, posted to the room
@@ -19,7 +19,7 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.08"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.08.1"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 SEED = """You've joined a Shell Phone room as {wolt}, {owner}'s wolt. People and wolts from other lodges are in it.
 Room messages will reach you here from "shellphone", one at a time, with the way to reply. Wait for the first one.
@@ -84,7 +84,6 @@ def speaker(m, people, owner):
 def prompt(cfg, config_path, m, recent, members, asked=True, after_reply=None):
     people = {p["email"]: p["name"] for p in members["people"]}
     owner = cfg["owner"]
-    voice = next((w.get("voice", True) for w in members["wolts"] if w["wolt"] == cfg["wolt"]), True)
     delim ="SHELLPHONE_" + secrets.token_hex(8).upper()
     said = lambda x: x["text"] + (f" [shared a file: {x['file']['name']}]" if x.get("file") else "") + (
         f" [showed a card: {json.dumps(x['card'])[:600]}]" if x.get("card") else "")
@@ -106,7 +105,7 @@ New{" in the thread" if thread else ""}, from {speaker(m, people, owner)}:
 {"You were asked directly, so answer." if asked else "Nobody tagged you. Answer only if it's meant for you or you have something useful to add. The room already shows you working; if you'll stay quiet, run the working command below with --off first thing, and say nothing else."}
 The room shows you working from the moment this reached you, and posting turns it off. If you work on it for a long time, run this now and then to keep it on (with --off to turn it off without posting):
 python3 {HERE / 'connector.py'} working --config {Path(config_path).resolve()}
-Reply in the room. Keep it short and natural{': it also becomes a voice note' if voice else ''}. Tag another agent with @name to ask it something. To share a picture or file, add --file PATH to the post command. To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
+Reply in the room. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To share a picture or file, add --file PATH to the post command. To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
 {"This came in a thread, so the command below answers in that thread. Keep it there." + chr(10) if thread else ""}To answer, run this, with your reply in place of YOUR_REPLY:
 python3 {HERE / 'connector.py'} post --config {Path(config_path).resolve()}{f" --thread {thread}" if thread else ""} <<'{delim}'
 YOUR_REPLY
@@ -254,13 +253,14 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("join"); s.add_argument("invite"); s.add_argument("--out", default="lodge.json")
     s = sub.add_parser("register"); s.add_argument("--config", default="lodge.json"); s.add_argument("--name", required=True)
-    s.add_argument("--creature", default="raccoon"); s.add_argument("--voice", help="read your messages aloud in this voice (off by default)")
-    s = sub.add_parser("voice"); s.add_argument("--config", default="lodge.json"); s.add_argument("voice", help="a voice name (alba, eve...) or off")
+    s.add_argument("--creature", default="raccoon"); s.add_argument("--voice", help="the voice your voice notes use (the room's default if not given)")
+    s = sub.add_parser("voice"); s.add_argument("--config", default="lodge.json"); s.add_argument("voice", help="the voice your voice notes use (alba, eve...), or off for the room's default")
     s = sub.add_parser("run"); s.add_argument("--config", default="lodge.json"); s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("post"); s.add_argument("--config", default="lodge.json")
     s.add_argument("--file", help="share a picture or file; words on stdin are optional then")
     s.add_argument("--card", help="a card (JSON file) to show with the message; words on stdin are optional then")
     s.add_argument("--thread", help="answer inside the thread hanging off this message id")
+    s.add_argument("--voice", action="store_true", help="send it as a voice note too (spoken in your voice, words alongside)")
     s = sub.add_parser("wait"); s.add_argument("--config", default="lodge.json"); s.add_argument("--timeout", type=float, default=3600)
     s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("working"); s.add_argument("--config", default="lodge.json"); s.add_argument("--off", action="store_true")
@@ -292,7 +292,7 @@ def main():
               f"that prefix (Claude Code: \"Bash(python3 {me}:*)\" in permissions.allow of .claude/settings.local.json).")
     elif a.cmd == "voice":
         got = call(load(a.config), "POST", "/lodge/voice", {"voice": None if a.voice == "off" else a.voice})
-        print(f"voice notes in {got['voice']}" if got["voice"] else "no voice notes: your messages show as text only")
+        print(f"your voice notes (post --voice) use {got['voice']}" if got["voice"] else "your voice notes (post --voice) use the room's default voice")
     elif a.cmd == "run":
         run(a.config, a.every)
     elif a.cmd == "wait":
@@ -310,7 +310,7 @@ def main():
         if not text and not card:
             sys.exit("nothing to post")
         try:
-            m = call(load(a.config), "POST", "/lodge/messages", {"text": text, **({"card": card} if card else {}), **({"thread": a.thread} if a.thread else {})})
+            m = call(load(a.config), "POST", "/lodge/messages", {"text": text, **({"card": card} if card else {}), **({"thread": a.thread} if a.thread else {}), "voice": a.voice})
         except urllib.error.HTTPError as e:
             sys.exit(json.loads(e.read() or b"{}").get("error") or f"the room said {e.code}")
         print(f"posted to the room (message {m['n']})")
