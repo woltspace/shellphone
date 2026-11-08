@@ -4,16 +4,14 @@ import { Bell, BellOff, BellRing, Check, ChevronRight, MessagesSquare, Shell, Sq
 const row = "flex items-center gap-3 w-full px-4 py-2.5 border-0 bg-transparent text-left text-[15px] text-ink no-underline cursor-pointer active:bg-panel";
 const sec = "px-4 pt-4 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 
-export function Menu({ open, drag, touch, close, title, me, push, freshCount, onThreads }: {
-  open: boolean; drag: number; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string;
+export function Menu({ open, panel, scrim, touch, close, title, me, push, freshCount, onThreads }: {
+  open: boolean; panel: React.RefObject<HTMLElement | null>; scrim: React.RefObject<HTMLDivElement | null>; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string;
   push: { state: "ask" | "on" | "off"; turnOn: () => void }; freshCount: number; onThreads: () => void;
 }) {
-  // while a finger drags it, the menu sits wherever the finger is, with no animation
-  const shown = open || drag > 0;
-  const style = drag > 0 ? { transform: `translateX(min(0px, calc(-102% + ${drag}px)))`, transition: "none" } : drag < 0 ? { transform: `translateX(${drag}px)`, transition: "none" } : undefined;
+  // while a finger drags it, App moves these two directly; otherwise the classes below decide
   return <>
-    <div onClick={close} {...touch} className={`absolute inset-0 z-[1700] bg-[#18100a55] transition-opacity duration-200 ${shown ? "opacity-100" : "opacity-0 pointer-events-none"}`} />
-    <aside aria-hidden={!open} {...touch} style={style} className={`absolute inset-y-0 left-0 z-[1710] w-[84%] max-w-[360px] bg-paper flex flex-col shadow-[8px_0_24px_#18100a22] transition-transform duration-200 ${open ? "" : "-translate-x-[102%]"}`}>
+    <div ref={scrim} onClick={close} {...touch} className={`absolute inset-0 z-[1700] bg-[#18100a55] transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0 pointer-events-none"}`} />
+    <aside ref={panel} aria-hidden={!open} {...touch} className={`absolute inset-y-0 left-0 z-[1710] w-[84%] max-w-[360px] bg-paper flex flex-col shadow-[8px_0_24px_#18100a22] will-change-transform transition-transform duration-[220ms] ease-[cubic-bezier(.2,.8,.2,1)] ${open ? "" : "-translate-x-full"}`}>
       {/* leaves room on the left for the ☰/✕ button, which stays on top in the same spot */}
       <div className="flex-none flex items-center gap-2.5 pl-[60px] pr-4 pt-[calc(14px+env(safe-area-inset-top))] pb-3 bg-panel border-b border-line">
         <div className="min-w-0"><div className="font-mono font-semibold text-acc">shell phone</div><div className="font-mono text-[11px] text-dim truncate">{me}</div></div>

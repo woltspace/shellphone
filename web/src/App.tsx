@@ -91,40 +91,76 @@ function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
     <Gnaw ctx={ctx} working={working} />
   </div>;
 }
-// Leave a thread like going back on iPhone: drag from the left edge to the right. The screen follows your finger.
+// Swipes move the screen itself, frame by frame, without redrawing the chat: smooth under your finger.
+// On release they glide the rest of the way, and a quick flick counts even if it was short.
+type Pt = { x: number; y: number; t: number; dx: number; dir?: "x" | "y" };
+const track = (s: Pt, e: React.TouchEvent) => {
+  const t = e.touches[0];
+  if (!s.dir && Math.hypot(t.clientX - s.x, t.clientY - s.y) > 8) s.dir = Math.abs(t.clientX - s.x) > Math.abs(t.clientY - s.y) ? "x" : "y";
+  const v = (t.clientX - s.x - s.dx) / Math.max(1, performance.now() - s.t);
+  s.dx = t.clientX - s.x; s.t = performance.now();
+  return v;  // px per ms, + to the right
+};
+const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
+  if (!el) return;
+  el.style.transition = "transform .22s cubic-bezier(.2,.8,.2,1)"; el.style.transform = transform; el.style.boxShadow = shadow;
+};
+
+// Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
 function useSwipeBack(close: () => void) {
-  const [dx, setDx] = useState(0);
-  const start = useRef<{ x: number; y: number } | null>(null);
+  const el = useRef<HTMLDivElement>(null), s = useRef<Pt | null>(null), v = useRef(0);
+  const back = () => { glide(el.current, "translateX(100%)"); setTimeout(close, 200); };
   return {
-    dx,
+    el, back,
     handlers: {
-      onTouchStart: (e: React.TouchEvent) => { const t = e.touches[0]; start.current = t.clientX < 28 ? { x: t.clientX, y: t.clientY } : null; },
+      onTouchStart: (e: React.TouchEvent) => { const t = e.touches[0]; s.current = t.clientX < 28 ? { x: t.clientX, y: t.clientY, t: performance.now(), dx: 0 } : null; v.current = 0; },
       onTouchMove: (e: React.TouchEvent) => {
-        const s = start.current, t = e.touches[0]; if (!s) return;
-        if (Math.abs(t.clientY - s.y) > Math.abs(t.clientX - s.x) && dx === 0) { start.current = null; return; }  // that's a scroll
-        setDx(Math.max(0, t.clientX - s.x));
+        const p = s.current; if (!p) return;
+        v.current = track(p, e);
+        if (p.dir === "y") { s.current = null; return; }  // that's a scroll
+        const d = el.current; if (!d || p.dir !== "x") return;
+        d.style.transition = "none"; d.style.transform = `translateX(${Math.max(0, p.dx)}px)`; d.style.boxShadow = "-8px 0 24px #18100a22";
       },
-      onTouchEnd: () => { if (start.current && dx > 90) close(); start.current = null; setDx(0); },
+      onTouchEnd: () => {
+        const p = s.current; s.current = null; if (!p || p.dir !== "x") return;
+        if (p.dx > 90 || (p.dx > 30 && v.current > 0.4)) back(); else glide(el.current, "translateX(0)");
+      },
     },
   };
 }
 
 // The menu, like Slack's: drag it out from the left edge of the main screen, push it back to the left to close.
-// It follows your finger either way, and settles open or shut depending on how far you went.
 function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: boolean) {
-  const [drag, setDrag] = useState(0);  // > 0 while pulling it open, < 0 while pushing it shut
-  const start = useRef<{ x: number; y: number; open: boolean } | null>(null);
-  const begin = (e: React.TouchEvent, open: boolean) => { const t = e.touches[0]; start.current = { x: t.clientX, y: t.clientY, open }; };
-  const move = (e: React.TouchEvent) => {
-    const s = start.current, t = e.touches[0]; if (!s) return;
-    if (drag === 0 && Math.abs(t.clientY - s.y) > Math.abs(t.clientX - s.x)) { start.current = null; return; }  // that's a scroll
-    setDrag(s.open ? Math.max(0, t.clientX - s.x) : Math.min(0, t.clientX - s.x));
+  const panel = useRef<HTMLElement>(null), scrim = useRef<HTMLDivElement>(null), s = useRef<(Pt & { open: boolean }) | null>(null), v = useRef(0);
+  const width = () => panel.current?.offsetWidth || 300;
+  const place = (dx: number) => {  // dx: how far the panel is out, 0 (shut) to its width (open)
+    const p = panel.current, c = scrim.current; if (!p || !c) return;
+    p.style.transition = "none"; p.style.transform = `translateX(${dx - width()}px)`;
+    c.style.transition = "none"; c.style.opacity = String(dx / width()); c.style.pointerEvents = "none";
   };
-  const end = () => { if (start.current) { if (drag > 70) setMenu(true); else if (drag < -70) setMenu(false); } start.current = null; setDrag(0); };
+  const release = () => { for (const e of [panel.current, scrim.current]) if (e) { e.style.transition = ""; e.style.transform = ""; e.style.opacity = ""; e.style.pointerEvents = ""; } };
+  const begin = (e: React.TouchEvent, open: boolean) => { const t = e.touches[0]; s.current = { x: t.clientX, y: t.clientY, t: performance.now(), dx: 0, open }; v.current = 0; };
+  const move = (e: React.TouchEvent) => {
+    const p = s.current; if (!p) return;
+    v.current = track(p, e);
+    if (p.dir === "y") { s.current = null; release(); return; }
+    if (p.dir === "x") place(Math.min(width(), Math.max(0, (p.open ? 0 : width()) + p.dx)));
+  };
+  const end = () => {
+    const p = s.current; s.current = null; if (!p || p.dir !== "x") return;
+    const open = p.open ? p.dx > 70 || (p.dx > 20 && v.current > 0.4) : !(p.dx < -70 || (p.dx < -20 && v.current < -0.4));
+    // glide from where your finger left it, then hand back to the classes, which by then agree
+    const p2 = panel.current, c = scrim.current;
+    if (p2) { p2.style.transition = "transform .22s cubic-bezier(.2,.8,.2,1)"; p2.style.transform = open ? "translateX(0)" : "translateX(-100%)"; }
+    if (c) { c.style.transition = "opacity .22s"; c.style.opacity = open ? "1" : "0"; }
+    setMenu(open); setTimeout(release, 260);
+  };
   return {
-    drag,
+    panel, scrim,
     screen: { onTouchStart: (e: React.TouchEvent) => { if (!menu && canOpen && e.touches[0].clientX < 28) begin(e, true); }, onTouchMove: move, onTouchEnd: end },
-    menu: { onTouchStart: (e: React.TouchEvent) => { if (menu) begin(e, false); }, onTouchMove: move, onTouchEnd: end },
+    // the menu sits inside the screen, so its touches stop here instead of being counted twice
+    menu: { onTouchStart: (e: React.TouchEvent) => { e.stopPropagation(); if (menu) begin(e, false); },
+      onTouchMove: (e: React.TouchEvent) => { e.stopPropagation(); move(e); }, onTouchEnd: (e: React.TouchEvent) => { e.stopPropagation(); end(); } },
   };
 }
 
@@ -228,13 +264,11 @@ export function App() {
       </header>
       <Feed list={main} ctx={ctx} working={state.working || {}} replies={replies} seen={seen} open={open} stick={stickMain} />
       {!thread && composer}
-      {listOpen && !thread && <div {...listSwipe.handlers} className="absolute inset-0 z-[1500]"
-        style={listSwipe.dx ? { transform: `translateX(${listSwipe.dx}px)`, boxShadow: "-8px 0 24px #18100a22" } : undefined}>
-        <ThreadList roots={roots} replies={replies} ctx={ctx} seen={seen} onOpen={open} onClose={() => setListOpen(false)} /></div>}
-      {thread && <div {...swipe.handlers} style={swipe.dx ? { transform: `translateX(${swipe.dx}px)`, boxShadow: "-8px 0 24px #18100a22" } : undefined}
-        className={`absolute inset-0 z-[1550] bg-paper flex flex-col ${swipe.dx ? "" : "transition-transform duration-200 animate-[fadein_.18s_ease-out]"}`}>
+      {listOpen && !thread && <div ref={listSwipe.el} {...listSwipe.handlers} className="absolute inset-0 z-[1500] will-change-transform">
+        <ThreadList roots={roots} replies={replies} ctx={ctx} seen={seen} onOpen={open} onClose={listSwipe.back} /></div>}
+      {thread && <div ref={swipe.el} {...swipe.handlers} className="absolute inset-0 z-[1550] bg-paper flex flex-col will-change-transform animate-[slidein_.22s_cubic-bezier(.2,.8,.2,1)]">
         <header className="flex-none flex items-center gap-2 px-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line" style={{ boxShadow: `inset 4px 0 0 ${threadColor(thread)}` }}>
-          <button type="button" aria-label="Back" onClick={() => setThread("")} className="w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>
+          <button type="button" aria-label="Back" onClick={swipe.back} className="w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>
           <div className="min-w-0 flex-1">
             <div className="font-mono font-semibold truncate" style={{ color: threadColor(thread) }}>{threadTitle(root)}</div>
             <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · started by {root ? (root.kind === "human" ? person(root.email).name : root.wolt) : ""}</div>
@@ -244,7 +278,7 @@ export function App() {
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
       </div>}
-      <Menu open={menu} drag={menuSwipe.drag} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
+      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onDone={voice} />}
       {viewing && <Viewer url={viewing} close={() => setViewing("")} />}
