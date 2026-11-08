@@ -1,4 +1,4 @@
-// Shell's composer: a big round mic while the box is empty, the send arrow once you type. A paperclip for files.
+// Shell's composer: a big round mic while the box is empty, the send arrow once you type. A paperclip for files, or paste them.
 // Typing @ suggests the room's wolts; typing / at the start offers a few ready-made asks.
 import { useEffect, useRef, useState } from "react";
 import { Mic, Paperclip, SendHorizontal } from "lucide-react";
@@ -49,6 +49,10 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
         <textarea ref={box} rows={1} value={text} placeholder={placeholder || "$ message, @wolt, or /"}
           onChange={(e) => { setText(e.target.value); grow(); }}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window)) { e.preventDefault(); send(); } }}
+          onPaste={(e) => {  // a pasted picture (or file) goes out like one from the paperclip, with the words typed so far
+            const f = [...e.clipboardData.items].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter((x): x is File => !!x);
+            if (f.length) { e.preventDefault(); onFiles(f, text.trim()); set(""); }
+          }}
           className="flex-1 min-w-0 resize-none bg-paper border border-line rounded-[10px] px-3 py-2.5 text-base leading-snug outline-none focus:shadow-[0_0_0_1px_var(--color-acc)] placeholder:font-mono placeholder:text-dim" />
         {text.trim()
           ? <button type="button" aria-label="Send" className={round} onClick={send}><SendHorizontal size={22} className="text-white" /></button>
