@@ -237,8 +237,13 @@ export function App() {
     target.current = null;
     // after the feeds have done their own scrolling for this render, so "stay at the bottom" doesn't undo it
     (t.t ? stickThread : stickMain).current(false);  // reading back here: stop following the newest
+    // and again as the page settles (voice players, cards and pictures above it take their height after a cold start),
+    // until you touch or scroll yourself
+    let yours = false; const mine = () => { yours = true; };
+    for (const ev of ["touchstart", "wheel", "keydown"]) window.addEventListener(ev, mine, { once: true, capture: true });
     requestAnimationFrame(() => requestAnimationFrame(() => {
       el.scrollIntoView({ block: "center" }); el.classList.add("landed"); setTimeout(() => el.classList.remove("landed"), 1600);
+      for (const ms of [250, 700, 1500]) setTimeout(() => { if (!yours && el.isConnected) el.scrollIntoView({ block: "center" }); }, ms);
     }));
   }, [msgs, thread, landing]);
   const listSwipe = useSwipeBack(() => setListOpen(false));
