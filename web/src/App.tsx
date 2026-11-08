@@ -51,10 +51,10 @@ function Viewer({ url, close }: { url: string; close: () => void }) {
 // Used for the main chat and for a thread alike.
 function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
   list: Msg[]; ctx: Ctx; working: Record<string, unknown>; replies?: Map<string, Msg[]>; seen?: Record<string, number>;
-  open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<() => void>;
+  open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<(on?: boolean) => void>;
 }) {
   const scroller = useRef<HTMLDivElement>(null), stuck = useRef(true);
-  stick.current = () => { stuck.current = true; };
+  stick.current = (on = true) => { stuck.current = on; };
   const last = list.at(-1);
   useLayoutEffect(() => { const s = scroller.current; if (s && stuck.current) s.scrollTop = s.scrollHeight; }, [list.length, last?.pending, working, replies]);
   // the keyboard opening, the suggestion bar, or the text box growing a line all shrink the chat: keep the last message in view
@@ -170,7 +170,7 @@ export function App() {
   const [listening, setListening] = useState<AudioContext | null | false>(false);
   const [viewing, setViewing] = useState("");
   const [thread, setThread] = useState("");  // the message whose thread is open
-  const stickMain = useRef(() => {}), stickThread = useRef(() => {});
+  const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
   const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: setViewing };
 
   // Threads the Matrix way: a reply carries the id of the message its thread hangs off. The main chat shows only the rest.
@@ -198,13 +198,16 @@ export function App() {
   // Where the app opens. A tapped notification lands on its message: inside its thread if it's a reply, or the main
   // chat scrolled to it. Coming back after a while, or opening it normally, lands on the main chat at the newest.
   const target = useRef<{ m: string; t: string } | null>(null);
+  const [landing, setLanding] = useState(0);
   const goTo = (url: string) => {
     const h = new URLSearchParams(new URL(url, location.href).hash.slice(1));
     if (!h.get("m")) return;
     target.current = { m: h.get("m")!, t: h.get("t") || "" };
     history.replaceState(null, "", location.pathname);
     setMenu(false); setListOpen(false);
-    if (target.current.t) open(target.current.t); else { setThread(""); stickMain.current(); }
+    if (target.current.t) open(target.current.t); else setThread("");  // no jump to the bottom: we're going to the message
+    setLanding((x) => x + 1);
+    const mine = target.current; setTimeout(() => { if (target.current === mine) target.current = null; }, 8000);  // not here after all: let it go
   };
   useEffect(() => {
     goTo(location.href);
@@ -223,8 +226,12 @@ export function App() {
     const t = target.current; if (!t) return;
     const el = [...document.querySelectorAll<HTMLElement>(`[data-mid="${CSS.escape(t.m)}"]`)].at(-1); if (!el) return;
     target.current = null;
-    requestAnimationFrame(() => { el.scrollIntoView({ block: "center" }); el.classList.add("landed"); setTimeout(() => el.classList.remove("landed"), 1600); });
-  }, [msgs, thread]);
+    // after the feeds have done their own scrolling for this render, so "stay at the bottom" doesn't undo it
+    (t.t ? stickThread : stickMain).current(false);  // reading back here: stop following the newest
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.scrollIntoView({ block: "center" }); el.classList.add("landed"); setTimeout(() => el.classList.remove("landed"), 1600);
+    }));
+  }, [msgs, thread, landing]);
   const listSwipe = useSwipeBack(() => setListOpen(false));
   const menuSwipe = useMenuSwipe(menu, setMenu, !thread && !listOpen);
 
