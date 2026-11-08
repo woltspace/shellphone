@@ -9,8 +9,11 @@ self.addEventListener("push", (e) => {
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const url = new URL(e.notification.data.url, self.registration.scope).href;
-  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((open) => {
-    if (open.length) { open[0].postMessage({ type: "open", url }); return open[0].focus(); }
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (open) => {
+    // the chat page knows how to land on a message; any other page (like the invite one) is sent to the chat
+    const chat = open.find((c) => new URL(c.url).pathname === new URL(self.registration.scope).pathname);
+    if (chat) { chat.postMessage({ type: "open", url }); return chat.focus(); }
+    if (open.length) { const c = await open[0].navigate(url).catch(() => null); if (c) return c.focus(); }
     return self.clients.openWindow(url);
   }));
 });

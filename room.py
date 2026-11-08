@@ -608,7 +608,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 text = str(data.get("text", "")).strip()[:8000]
                 if not text:
                     return self.send(400, {"error": "empty"})
-                return self.send(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread"))))
+                cid = str(data.get("cid", ""))  # the page's own name for it while sending, so its copy is replaced, not doubled
+                return self.send(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread")),
+                                             **({"cid": cid} if re.fullmatch(r"[a-z0-9]{4,40}", cid) else {})))
             if path == "/api/voice":
                 thread = thread_of(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("thread", [""])[0])
                 ext = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp3": "mp3"}.get((self.headers.get("Content-Type") or "").split(";")[0], "webm")

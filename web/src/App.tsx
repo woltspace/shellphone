@@ -283,10 +283,10 @@ export function App() {
     stick();
     const cid = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), th = thread || undefined;
     setMsgs((m) => [...m, { id: cid, cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, thread: th }]);
-    const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, ...(th ? { thread: th } : {}) }) }).catch(() => null);
+    const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, cid, ...(th ? { thread: th } : {}) }) }).catch(() => null);
     const real = r?.ok ? ((await r.json().catch(() => null)) as Msg | null) : null;
-    if (real?.id) return setMsgs((m) => m.some((x) => x.id === real.id) ? m.filter((x) => x.cid !== cid) : m.map((x) => (x.cid === cid ? real : x)));
-    setMsgs((m) => m.map((x) => (x.cid === cid ? { ...x, pending: false, text: t + "\n— didn't send: copy it and try again" } : x)));
+    if (real?.id) return setMsgs((m) => (m.some((x) => x.id === real.id) ? m.filter((x) => x.id !== cid) : m.map((x) => (x.id === cid ? real : x))).sort((a, b) => a.n - b.n));
+    setMsgs((m) => m.map((x) => (x.id === cid ? { ...x, pending: false, text: t + "\n— didn't send: copy it and try again" } : x)));
     report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
   }
 
