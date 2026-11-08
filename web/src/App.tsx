@@ -1,5 +1,5 @@
 // Shell Phone, our own page. Same room, same look as the classic page, but every piece is ours to change.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
@@ -43,16 +43,16 @@ function Viewer({ url, close }: { url: string; close: () => void }) {
   </div>;
 }
 
-export function App() {
-  useFit();
-  const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
-  const [listening, setListening] = useState<AudioContext | null | false>(false);
-  const [viewing, setViewing] = useState("");
+// A list of messages that stays at the bottom while you're there, and leaves you alone if you scrolled up to read.
+// Used for the main chat and for a thread alike.
+function Feed({ list, ctx, working, replies, picked, pick, open, stick }: {
+  list: Msg[]; ctx: Ctx; working: Record<string, unknown>; replies?: Map<string, Msg[]>;
+  picked?: string; pick?: (id: string) => void; open?: (id: string) => void; stick: React.MutableRefObject<() => void>;
+}) {
   const scroller = useRef<HTMLDivElement>(null), stuck = useRef(true);
-  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: setViewing };
-
-  // stay at the bottom while you're there; leave you alone if you scrolled up to read
-  useLayoutEffect(() => { const s = scroller.current; if (s && stuck.current) s.scrollTop = s.scrollHeight; }, [msgs.length, state.working]);
+  stick.current = () => { stuck.current = true; };
+  const last = list.at(-1);
+  useLayoutEffect(() => { const s = scroller.current; if (s && stuck.current) s.scrollTop = s.scrollHeight; }, [list.length, last?.pending, working, replies]);
   // the keyboard opening, the suggestion bar, or the text box growing a line all shrink the chat: keep the last message in view
   useEffect(() => {
     const s = scroller.current; if (!s) return;
@@ -61,6 +61,61 @@ export function App() {
     return () => ro.disconnect();
   }, []);
   const onScroll = () => { const s = scroller.current!; stuck.current = s.scrollHeight - s.scrollTop - s.clientHeight < 80; };
+  let lastDay = "", lastWho = "";
+  return <div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain pt-1">
+    {list.length === 0 && <p className="text-center text-dim font-mono text-xs mt-10 px-6">Nobody has said anything yet. Tag a wolt with @ to bring it in.</p>}
+    {list.map((m) => {
+      const d = new Date(m.at * 1000), day = d.toLocaleDateString([], { day: "numeric", month: "long" });
+      const who = m.kind === "human" ? m.email! : "wolt:" + m.wolt, newDay = day !== lastDay;
+      const thread = replies?.get(m.id) || [], mine = m.kind === "human" && m.email === ctx.me;
+      const run = newDay || who !== lastWho;
+      lastDay = day; lastWho = thread.length ? "" : who;  // a thread line breaks the run, so the next bubble shows its name
+      const side = `px-2.5 ${mine ? "pr-[46px] text-right" : "pl-[46px]"}`;
+      return <div key={m.cid || m.id}>
+        {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
+        <div onClick={(e) => { if (pick && !m.pending && !(e.target as HTMLElement).closest("button,a,audio,video,img")) pick(m.id); }}>
+          <Message m={m} ctx={ctx} firstOfRun={run} />
+        </div>
+        {thread.length > 0 && open && <div className={side}>
+          <button type="button" onClick={() => open(m.id)} className="mt-1 font-mono font-semibold text-xs text-acc bg-transparent border-0 p-0 cursor-pointer">
+            🧵 {thread.length} {thread.length === 1 ? "reply" : "replies"}<span className="text-dim font-normal"> · {names(thread, ctx)}</span> ›
+          </button></div>}
+        {picked === m.id && open && <div className={side}>
+          <button type="button" onClick={() => open(m.id)} className="mt-1.5 font-mono font-semibold text-xs text-acc bg-panel border border-acc rounded-2xl px-3 py-1.5 cursor-pointer shadow-[0_2px_8px_#c4531e22]">🧵 Reply in thread</button>
+        </div>}
+      </div>;
+    })}
+    <Gnaw ctx={ctx} working={working} />
+  </div>;
+}
+// who's in a thread, latest first: "becky, jerpint"
+function names(list: Msg[], ctx: Ctx) {
+  const seen: string[] = [];
+  for (const m of [...list].reverse()) { const n = m.kind === "human" ? ctx.person(m.email).name : m.wolt!; if (!seen.includes(n)) seen.push(n); }
+  return seen.slice(0, 3).join(", ");
+}
+
+export function App() {
+  useFit();
+  const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
+  const [listening, setListening] = useState<AudioContext | null | false>(false);
+  const [viewing, setViewing] = useState("");
+  const [picked, setPicked] = useState("");
+  const [thread, setThread] = useState("");  // the message whose thread is open
+  const stickMain = useRef(() => {}), stickThread = useRef(() => {});
+  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: setViewing };
+
+  // Threads the Matrix way: a reply carries the id of the message its thread hangs off. The main chat shows only the rest.
+  const { main, replies } = useMemo(() => {
+    const replies = new Map<string, Msg[]>(), main: Msg[] = [];
+    for (const m of msgs) {
+      if (m.thread) replies.set(m.thread, [...(replies.get(m.thread) || []), m]);
+      else main.push(m);
+    }
+    return { main, replies };
+  }, [msgs]);
+  const root = thread ? msgs.find((m) => m.id === thread) : undefined;
+  const open = (id: string) => { setPicked(""); setThread(id); };
 
   // New voice notes from wolts play one after another, unless you picked something to hear yourself.
   const playing = useRef<HTMLAudioElement | null>(null);
@@ -82,30 +137,34 @@ export function App() {
   }, [error]);
 
   const report = (e: string | null) => setError(e || "");
+  const where = (t?: string) => (t ? `&thread=${t}` : "");
+  const stick = () => (thread ? stickThread : stickMain).current();
   async function voice(r: Recording | null) {
     setListening(false);
     if (!r) return;
     // shows as sent right away; the room's copy takes its place under the same id once the words are written down
-    const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const local: Msg = { id: cid, cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: "", audio: "local", localUrl: URL.createObjectURL(r.blob), seconds: r.seconds, pending: true };
-    setMsgs((m) => [...m, local]); stuck.current = true;
-    const err = await say(`/api/voice?seconds=${r.seconds}&cid=${cid}`, { method: "POST", headers: { "Content-Type": r.type }, body: r.blob });
+    const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t = thread || undefined;
+    const local: Msg = { id: cid, cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: "", audio: "local", localUrl: URL.createObjectURL(r.blob), seconds: r.seconds, pending: true, thread: t };
+    setMsgs((m) => [...m, local]); stick();
+    const err = await say(`/api/voice?seconds=${r.seconds}&cid=${cid}${where(t)}`, { method: "POST", headers: { "Content-Type": r.type }, body: r.blob });
     if (err) setMsgs((m) => m.map((x) => (x.cid === cid ? { ...x, pending: false, text: "didn't send: tap the mic to try again" } : x)));
     report(err);
   }
   async function files(list: File[], text: string) {
+    const t = thread || undefined;
     for (const [i, f] of list.entries())
-      report(await say(`/api/files?name=${encodeURIComponent(f.name)}&text=${encodeURIComponent(i === 0 ? text : "")}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f }));
+      report(await say(`/api/files?name=${encodeURIComponent(f.name)}&text=${encodeURIComponent(i === 0 ? text : "")}${where(t)}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f }));
   }
   function mic() {
     if (!navigator.mediaDevices || !window.MediaRecorder) return setError("This browser can't record here.");
     setListening(null);
   }
+  const text = (t: string) => { stick(); sendText(t, thread || undefined).then(report); };
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
-  let lastDay = "", lastWho = "";
+  const composer = <Composer wolts={state.members.wolts} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
       <header className="flex-none flex items-center gap-2.5 px-3.5 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
         <img src="/room-icon.png" alt="" className="w-9 h-9 rounded-full" />
         <div className="min-w-0 flex-1">
@@ -115,21 +174,20 @@ export function App() {
         <a href="/" className="font-mono font-semibold text-xs text-dim border border-line px-2 py-1 rounded-lg no-underline bg-panel">classic</a>
         <a href="/join" className="font-mono font-semibold text-xs text-acc border border-line px-2.5 py-1 rounded-lg no-underline bg-panel">+ agent</a>
       </header>
-      <div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain pt-1">
-        {msgs.length === 0 && <p className="text-center text-dim font-mono text-xs mt-10 px-6">Nobody has said anything yet. Tag a wolt with @ to bring it in.</p>}
-        {msgs.map((m) => {
-          const d = new Date(m.at * 1000), day = d.toLocaleDateString([], { day: "numeric", month: "long" });
-          const who = m.kind === "human" ? m.email! : "wolt:" + m.wolt, newDay = day !== lastDay, run = newDay || who !== lastWho;
-          lastDay = day; lastWho = who;
-          return <div key={m.cid || m.id}>
-            {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
-            <Message m={m} ctx={ctx} firstOfRun={run} />
-          </div>;
-        })}
-        <Gnaw ctx={ctx} working={state.working || {}} />
-      </div>
-      {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-10 font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
-      <Composer wolts={state.members.wolts} me={state.me} onText={(t) => { stuck.current = true; sendText(t).then(report); }} onFiles={files} onMic={mic} />
+      <Feed list={main} ctx={ctx} working={state.working || {}} replies={replies} picked={picked} pick={(id) => setPicked(picked === id ? "" : id)} open={open} stick={stickMain} />
+      {!thread && composer}
+      {thread && <div className="absolute inset-0 z-[1500] bg-paper flex flex-col animate-[fadein_.18s_ease-out]">
+        <header className="flex-none flex items-center gap-2 px-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
+          <button type="button" aria-label="Back" onClick={() => setThread("")} className="w-10 h-10 border-0 bg-transparent text-acc text-[28px] leading-none cursor-pointer">‹</button>
+          <div className="min-w-0 flex-1">
+            <div className="font-mono font-semibold text-acc">🧵 thread</div>
+            <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · {root ? (root.text || root.file?.name || "voice note").slice(0, 60) : ""}</div>
+          </div>
+        </header>
+        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} stick={stickThread} />
+        {composer}
+      </div>}
+      {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onDone={voice} />}
       {viewing && <Viewer url={viewing} close={() => setViewing("")} />}
     </div>

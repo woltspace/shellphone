@@ -141,6 +141,17 @@ def message(mid):
     return as_message(row[0]) if row else None
 
 
+def thread_of(value):
+    """Threads, the Matrix way: a reply names the message its thread hangs off. One level only, so a reply to a reply
+    lands in the same thread."""
+    if not value:
+        return {}
+    root = message(str(value))
+    if not root or root["kind"] not in ("human", "wolt"):
+        raise ValueError("there's no such message to reply to in a thread")
+    return {"thread": root.get("thread") or root["id"]}
+
+
 def append(**fields):
     m = {"id": uuid.uuid4().hex, "at": time.time(), **fields}
     rest = {k: v for k, v in fields.items() if k != "kind"}
@@ -240,6 +251,7 @@ def notify(m):
         pem, _ = vapid()
         people = {r["email"]: r["name"] for r in q("select email, name from people")}
         who = m.get("wolt") or people.get(m.get("email"), "someone")
+        who += " 🧵" if m.get("thread") else ""
         body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['file']['name']}")[:180], "tag": m["id"], "url": "./"})
         for row in q("select * from push"):
             if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
@@ -537,8 +549,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self.send(401, {"error": "unknown lodge key"})
                 if path == "/lodge/files":  # a wolt shares a picture or a file, with words alongside if it wants
                     q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                    thread = thread_of(q.get("thread", [""])[0])
                     m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"),
-                               text=q.get("text", [""])[0].strip()[:8000], file=save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT)))
+                               text=q.get("text", [""])[0].strip()[:8000], file=save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT)), **thread)
                     with tx() as c:
                         stop_working(c, l["wolt"])
                     return self.send(200, m)
@@ -561,7 +574,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send(400, {"error": problem})
                     if not text and not card:
                         return self.send(400, {"error": "empty"})
-                    m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"), text=text, **({"card": card} if card else {}))
+                    m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"), text=text,
+                               **({"card": card} if card else {}), **thread_of(data.get("thread")))
                     with tx() as c:
                         stop_working(c, l["wolt"])
                     if l["voice"]:
@@ -585,11 +599,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         c.execute("insert or replace into push values (?, ?, ?)", (sub["endpoint"], email, json.dumps(sub)))
                 return self.send(200, {"ok": True})
             if path == "/api/messages":
-                text = str(json.loads(self.body() or b"{}").get("text", "")).strip()[:8000]
+                data = json.loads(self.body() or b"{}")
+                text = str(data.get("text", "")).strip()[:8000]
                 if not text:
                     return self.send(400, {"error": "empty"})
-                return self.send(200, append(kind="human", email=email, text=text))
+                return self.send(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread"))))
             if path == "/api/voice":
+                thread = thread_of(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("thread", [""])[0])
                 ext = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp3": "mp3"}.get((self.headers.get("Content-Type") or "").split(";")[0], "webm")
                 audio = self.body(limit=25_000_000)
                 vid = uuid.uuid4().hex
@@ -607,11 +623,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     seconds = 0
                 cid = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("cid", [""])[0]
                 extra = {**({"seconds": seconds} if seconds else {}), **({"cid": cid} if re.fullmatch(r"[a-z0-9]{4,40}", cid) else {})}
-                return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra))
+                return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra, **thread))
             if path == "/api/files":  # a picture, video or file, with the words typed alongside
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                thread = thread_of(q.get("thread", [""])[0])
                 return self.send(200, append(kind="human", email=email, text=q.get("text", [""])[0].strip()[:8000],
-                                             file=save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT))))
+                                             file=save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT)), **thread))
             self.send(404, {"error": "not found"})
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})

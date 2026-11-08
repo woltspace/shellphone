@@ -3,8 +3,8 @@
 import { useRef, useState } from "react";
 import type { Wolt } from "./room";
 
-export function Composer({ wolts, me, onText, onFiles, onMic }: {
-  wolts: Wolt[]; me: string; onText: (t: string) => void; onFiles: (f: File[], text: string) => void; onMic: () => void;
+export function Composer({ wolts, me, onText, onFiles, onMic, placeholder }: {
+  wolts: Wolt[]; me: string; onText: (t: string) => void; onFiles: (f: File[], text: string) => void; onMic: () => void; placeholder?: string;
 }) {
   const [text, setText] = useState("");
   const box = useRef<HTMLTextAreaElement>(null), pick = useRef<HTMLInputElement>(null);
@@ -40,7 +40,7 @@ export function Composer({ wolts, me, onText, onFiles, onMic }: {
           <svg viewBox="0 0 24 24" className="w-6 h-6 fill-acc"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5Z" /></svg>
         </button>
         <input ref={pick} type="file" multiple hidden onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; if (f.length) { onFiles(f, text.trim()); set(""); } }} />
-        <textarea ref={box} rows={1} value={text} placeholder="$ message, @wolt, or /"
+        <textarea ref={box} rows={1} value={text} placeholder={placeholder || "$ message, @wolt, or /"}
           onChange={(e) => { setText(e.target.value); grow(); }}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window)) { e.preventDefault(); send(); } }}
           className="flex-1 min-w-0 resize-none bg-paper border border-line rounded-[10px] px-3 py-2.5 text-base leading-snug outline-none focus:shadow-[0_0_0_1px_var(--color-acc)] placeholder:font-mono placeholder:text-dim" />

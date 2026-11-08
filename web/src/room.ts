@@ -9,7 +9,7 @@ export type Msg = {
   n: number; id: string; cid?: string; at: number; kind: "human" | "wolt" | "patch";
   email?: string; wolt?: string; owner?: string; creature?: string;
   text?: string; audio?: string; seconds?: number; file?: FileInfo; card?: CardNode; of?: string;
-  localUrl?: string; pending?: boolean;
+  localUrl?: string; pending?: boolean; thread?: string;
 };
 export type Tab = { slug: string; title: string; v: number };
 export type State = {
@@ -24,8 +24,8 @@ export async function say(url: string, init: RequestInit): Promise<string | null
   if (!r.ok) return ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send.";
   return null;
 }
-export const sendText = (text: string) =>
-  say("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+export const sendText = (text: string, thread?: string) =>
+  say("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, ...(thread ? { thread } : {}) }) });
 
 export function useRoom() {
   const [state, setState] = useState<State>({ title: "shell", me: "", members: { people: [], wolts: [] }, working: {}, seen: {}, tabs: [] });
