@@ -1,13 +1,17 @@
 // Shell's composer: a big round mic while the box is empty, the send arrow once you type. A paperclip for files.
 // Typing @ suggests the room's wolts; typing / at the start offers a few ready-made asks.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Mic, Paperclip, SendHorizontal } from "lucide-react";
 import type { Wolt } from "./room";
 
-export function Composer({ wolts, me, onText, onFiles, onMic, placeholder }: {
-  wolts: Wolt[]; me: string; onText: (t: string) => void; onFiles: (f: File[], text: string) => void; onMic: () => void; placeholder?: string;
+// What you were typing, kept per box (the main chat, each thread) while you go back and forth.
+const drafts = new Map<string, string>();
+
+export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder }: {
+  draft: string; wolts: Wolt[]; me: string; onText: (t: string) => void; onFiles: (f: File[], text: string) => void; onMic: () => void; placeholder?: string;
 }) {
-  const [text, setText] = useState("");
+  const [text, setTextNow] = useState(() => drafts.get(draft) || "");
+  const setText = (t: string) => { setTextNow(t); if (t) drafts.set(draft, t); else drafts.delete(draft); };
   const box = useRef<HTMLTextAreaElement>(null), pick = useRef<HTMLInputElement>(null);
   const tag = text.match(/(?:^|\s)@([\w-]*)$/);
   const tagOpts = tag ? wolts.filter((w) => w.wolt.toLowerCase().startsWith(tag[1].toLowerCase())) : [];
@@ -26,6 +30,7 @@ export function Composer({ wolts, me, onText, onFiles, onMic, placeholder }: {
     if (!b.value) { b.style.height = ""; return; }
     if (b.scrollHeight > b.clientHeight + 1 && b.clientHeight < 140) b.style.height = Math.min(140, b.scrollHeight + 2) + "px";
   };
+  useEffect(grow, []);  // a long draft coming back gets its height back too
   const set = (t: string) => { setText(t); requestAnimationFrame(() => { grow(); box.current?.focus(); }); };
   const send = () => { const t = text.trim(); if (!t) return; onText(t); set(""); };
   const round = "flex-none w-[46px] h-[46px] rounded-full bg-acc grid place-items-center border-0 cursor-pointer";
