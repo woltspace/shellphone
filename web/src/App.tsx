@@ -13,10 +13,11 @@ function useFit() {
       document.documentElement.style.setProperty("--vh", window.visualViewport ? Math.round(visualViewport!.height) + "px" : "100dvh");
       window.scrollTo(0, 0);
     };
+    const pin = () => window.scrollTo(0, 0);  // Safari slides the page while you type: put it back, without resizing anything
     fit();
     visualViewport?.addEventListener("resize", fit);
-    visualViewport?.addEventListener("scroll", fit);
-    return () => { visualViewport?.removeEventListener("resize", fit); visualViewport?.removeEventListener("scroll", fit); };
+    visualViewport?.addEventListener("scroll", pin);
+    return () => { visualViewport?.removeEventListener("resize", fit); visualViewport?.removeEventListener("scroll", pin); };
   }, []);
 }
 
@@ -52,6 +53,13 @@ export function App() {
 
   // stay at the bottom while you're there; leave you alone if you scrolled up to read
   useLayoutEffect(() => { const s = scroller.current; if (s && stuck.current) s.scrollTop = s.scrollHeight; }, [msgs.length, state.working]);
+  // the keyboard opening, the suggestion bar, or the text box growing a line all shrink the chat: keep the last message in view
+  useEffect(() => {
+    const s = scroller.current; if (!s) return;
+    const ro = new ResizeObserver(() => { if (stuck.current) s.scrollTop = s.scrollHeight; });
+    ro.observe(s);
+    return () => ro.disconnect();
+  }, []);
   const onScroll = () => { const s = scroller.current!; stuck.current = s.scrollHeight - s.scrollTop - s.clientHeight < 80; };
 
   // New voice notes from wolts play one after another, unless you picked something to hear yourself.

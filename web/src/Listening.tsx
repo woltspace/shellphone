@@ -66,7 +66,7 @@ export function Listening({ sprite, audio, onDone }: { sprite: string; audio: Au
           <div><h2 className="m-0 font-mono font-semibold text-[17px] text-acc">Listening</h2><p className="m-0 text-dim text-[13px]">Talk, then tap send. It goes to the room as a voice note.</p></div>
         </div>
         <div ref={bars} aria-hidden className={`wave flex items-center justify-center gap-[3px] h-[72px] mt-7 text-acc ${quiet ? "quiet" : ""}`}>
-          {Array.from({ length: 40 }, (_, i) => <i key={i} className="block w-[3px] h-[72px] rounded-sm bg-current scale-y-[.06] transition-transform duration-[90ms]" style={{ animationDelay: `${-(i * 0.13) % 1.4}s` }} />)}
+          {Array.from({ length: 40 }, (_, i) => <i key={i} className="block w-[3px] h-[72px] rounded-sm bg-current transition-transform duration-[90ms]" style={{ transform: "scaleY(.06)", animationDelay: `${-(i * 0.13) % 1.4}s` }} />)}
         </div>
         <div className="text-center font-light text-[40px] tabular-nums mt-1.5">{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}</div>
         <div className="flex-1" />
