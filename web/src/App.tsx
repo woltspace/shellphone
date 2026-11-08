@@ -109,6 +109,25 @@ function useSwipeBack(close: () => void) {
   };
 }
 
+// The menu, like Slack's: drag it out from the left edge of the main screen, push it back to the left to close.
+// It follows your finger either way, and settles open or shut depending on how far you went.
+function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: boolean) {
+  const [drag, setDrag] = useState(0);  // > 0 while pulling it open, < 0 while pushing it shut
+  const start = useRef<{ x: number; y: number; open: boolean } | null>(null);
+  const begin = (e: React.TouchEvent, open: boolean) => { const t = e.touches[0]; start.current = { x: t.clientX, y: t.clientY, open }; };
+  const move = (e: React.TouchEvent) => {
+    const s = start.current, t = e.touches[0]; if (!s) return;
+    if (drag === 0 && Math.abs(t.clientY - s.y) > Math.abs(t.clientX - s.x)) { start.current = null; return; }  // that's a scroll
+    setDrag(s.open ? Math.max(0, t.clientX - s.x) : Math.min(0, t.clientX - s.x));
+  };
+  const end = () => { if (start.current) { if (drag > 70) setMenu(true); else if (drag < -70) setMenu(false); } start.current = null; setDrag(0); };
+  return {
+    drag,
+    screen: { onTouchStart: (e: React.TouchEvent) => { if (!menu && canOpen && e.touches[0].clientX < 28) begin(e, true); }, onTouchMove: move, onTouchEnd: end },
+    menu: { onTouchStart: (e: React.TouchEvent) => { if (menu) begin(e, false); }, onTouchMove: move, onTouchEnd: end },
+  };
+}
+
 export function App() {
   useFit();
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
@@ -139,6 +158,8 @@ export function App() {
   const rootMap = useMemo(() => new Map(msgs.filter((m) => replies.has(m.id)).map((m) => [m.id, m])), [msgs, replies]);
   const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
   const swipe = useSwipeBack(() => setThread(""));
+  const listSwipe = useSwipeBack(() => setListOpen(false));
+  const menuSwipe = useMenuSwipe(menu, setMenu, !thread && !listOpen);
 
   // New voice notes from wolts play one after another, unless you picked something to hear yourself.
   const playing = useRef<HTMLAudioElement | null>(null);
@@ -188,7 +209,7 @@ export function App() {
   const me = state.members.wolts.find((w) => w.owner === state.me);
   const composer = <Composer wolts={state.members.wolts} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
   return (
-    <div className="h-full flex flex-col relative">
+    <div className="h-full flex flex-col relative" {...menuSwipe.screen}>
       <header className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
         {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
         <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={() => setMenu(!menu)}
@@ -207,7 +228,9 @@ export function App() {
       </header>
       <Feed list={main} ctx={ctx} working={state.working || {}} replies={replies} seen={seen} open={open} stick={stickMain} />
       {!thread && composer}
-      {listOpen && !thread && <ThreadList roots={roots} replies={replies} ctx={ctx} seen={seen} onOpen={open} onClose={() => setListOpen(false)} />}
+      {listOpen && !thread && <div {...listSwipe.handlers} className="absolute inset-0 z-[1500]"
+        style={listSwipe.dx ? { transform: `translateX(${listSwipe.dx}px)`, boxShadow: "-8px 0 24px #18100a22" } : undefined}>
+        <ThreadList roots={roots} replies={replies} ctx={ctx} seen={seen} onOpen={open} onClose={() => setListOpen(false)} /></div>}
       {thread && <div {...swipe.handlers} style={swipe.dx ? { transform: `translateX(${swipe.dx}px)`, boxShadow: "-8px 0 24px #18100a22" } : undefined}
         className={`absolute inset-0 z-[1550] bg-paper flex flex-col ${swipe.dx ? "" : "transition-transform duration-200 animate-[fadein_.18s_ease-out]"}`}>
         <header className="flex-none flex items-center gap-2 px-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line" style={{ boxShadow: `inset 4px 0 0 ${threadColor(thread)}` }}>
@@ -221,7 +244,7 @@ export function App() {
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
       </div>}
-      <Menu open={menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
+      <Menu open={menu} drag={menuSwipe.drag} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onDone={voice} />}
       {viewing && <Viewer url={viewing} close={() => setViewing("")} />}
