@@ -23,6 +23,8 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 @keyframes bob { 50% { translate: 0 -2px; } }
 @keyframes glow { 50% { box-shadow: 0 0 0 1px #c4531e44, 0 2px 12px #c4531e22; } }
 @keyframes step { from { transform: translateY(6px); opacity: 0; } }
+@keyframes landed { from { background: #c4531e26; } }
+.landed { animation: landed 1.6s ease-out; }
 @keyframes slidein { from { transform: translateX(40%); opacity: .6; } }
 @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
 @keyframes rise { from { transform: translateY(40px); opacity: 0; } }

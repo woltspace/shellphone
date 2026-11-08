@@ -75,7 +75,7 @@ function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
       const run = newDay || who !== lastWho;
       lastDay = day; lastWho = thread.length ? "" : who;  // a thread line breaks the run, so the next bubble shows its name
       const side = `px-2.5 ${mine ? "pr-[46px] text-right" : "pl-[46px]"}`;
-      return <div key={m.cid || m.id}>
+      return <div key={m.cid || m.id} data-mid={m.id}>
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
         <div className={open && !m.pending ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
@@ -194,6 +194,37 @@ export function App() {
   const rootMap = useMemo(() => new Map(msgs.filter((m) => replies.has(m.id)).map((m) => [m.id, m])), [msgs, replies]);
   const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
   const swipe = useSwipeBack(() => setThread(""));
+
+  // Where the app opens. A tapped notification lands on its message: inside its thread if it's a reply, or the main
+  // chat scrolled to it. Coming back after a while, or opening it normally, lands on the main chat at the newest.
+  const target = useRef<{ m: string; t: string } | null>(null);
+  const goTo = (url: string) => {
+    const h = new URLSearchParams(new URL(url, location.href).hash.slice(1));
+    if (!h.get("m")) return;
+    target.current = { m: h.get("m")!, t: h.get("t") || "" };
+    history.replaceState(null, "", location.pathname);
+    setMenu(false); setListOpen(false);
+    if (target.current.t) open(target.current.t); else { setThread(""); stickMain.current(); }
+  };
+  useEffect(() => {
+    goTo(location.href);
+    const fromNote = (e: MessageEvent) => { if (e.data?.type === "open") goTo(e.data.url); };
+    navigator.serviceWorker?.addEventListener("message", fromNote);
+    let hidden = 0;
+    const seen = () => {
+      if (document.hidden) { hidden = Date.now(); return; }
+      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(false); setMenu(false); stickMain.current(); }
+    };
+    document.addEventListener("visibilitychange", seen);
+    return () => { navigator.serviceWorker?.removeEventListener("message", fromNote); document.removeEventListener("visibilitychange", seen); };
+  }, []);
+  // once that message is on screen, bring it into view and light it up for a moment
+  useEffect(() => {
+    const t = target.current; if (!t) return;
+    const el = [...document.querySelectorAll<HTMLElement>(`[data-mid="${CSS.escape(t.m)}"]`)].at(-1); if (!el) return;
+    target.current = null;
+    requestAnimationFrame(() => { el.scrollIntoView({ block: "center" }); el.classList.add("landed"); setTimeout(() => el.classList.remove("landed"), 1600); });
+  }, [msgs, thread]);
   const listSwipe = useSwipeBack(() => setListOpen(false));
   const menuSwipe = useMenuSwipe(menu, setMenu, !thread && !listOpen);
 

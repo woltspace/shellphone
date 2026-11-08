@@ -258,7 +258,8 @@ def notify(m):
         people = {r["email"]: r["name"] for r in q("select email, name from people")}
         who = m.get("wolt") or people.get(m.get("email"), "someone")
         who += " 🧵" if m.get("thread") else ""
-        body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['file']['name']}")[:180], "tag": m["id"], "url": "./"})
+        body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['file']['name']}")[:180], "tag": m["id"],
+                           "url": f"./#m={m['id']}" + (f"&t={m['thread']}" if m.get("thread") else "")})  # a tap lands on this message
         for row in q("select * from push"):
             if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
                 continue
