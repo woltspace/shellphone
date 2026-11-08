@@ -336,8 +336,9 @@ export function App() {
   }
   async function files(list: File[], text: string) {
     const t = thread || undefined;
-    for (const [i, f] of list.entries())
-      report(await say(`/api/files?name=${encodeURIComponent(f.name)}&text=${encodeURIComponent(i === 0 ? text : "")}${where(t)}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f }));
+    // all of them in one message, one after another in the body; their sizes tell the room where each ends
+    const q = list.map((f) => `name=${encodeURIComponent(f.name)}&size=${f.size}`).join("&");
+    report(await say(`/api/files?${q}&text=${encodeURIComponent(text)}${where(t)}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: new Blob(list) }));
   }
   function mic() {
     if (!navigator.mediaDevices || !window.MediaRecorder) return setError("This browser can't record here.");

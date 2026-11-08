@@ -195,7 +195,7 @@ def append(**fields):
     with tx() as c:
         n = c.execute("insert into messages (id, at, kind, data) values (?, ?, ?, ?)", (m["id"], m["at"], fields["kind"], json.dumps(rest))).lastrowid
     m = {"n": n, **m}
-    if fields.get("kind") in ("human", "wolt") and (fields.get("text") or fields.get("file")):
+    if fields.get("kind") in ("human", "wolt") and (fields.get("text") or fields.get("files")):
         threading.Thread(target=notify, args=(m,), daemon=True).start()
     if fields.get("text") and fields.get("kind") in ("human", "patch"):
         email = fields.get("email") or (message(fields.get("of")) or {}).get("email")
@@ -289,7 +289,7 @@ def notify(m):
         people = {r["email"]: r["name"] for r in q("select email, name from people")}
         who = m.get("wolt") or people.get(m.get("email"), "someone")
         who += " 🧵" if m.get("thread") else ""
-        body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['file']['name']}")[:180], "tag": m["id"],
+        body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['files'][0]['name']}" + (f" +{len(m['files']) - 1}" if len(m["files"]) > 1 else ""))[:180], "tag": m["id"],
                            "url": f"./#m={m['id']}" + (f"&t={m['thread']}" if m.get("thread") else "")})  # a tap lands on this message
         for row in q("select * from push"):
             if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
@@ -314,6 +314,19 @@ def save_upload(name, blob):
     FILES.mkdir(parents=True, exist_ok=True)
     (FILES / f"{fid}.{ext}").write_bytes(blob)
     return {"name": name, "url": f"files/{fid}.{ext}", "size": len(blob), "type": ext}
+
+
+def save_uploads(q, blob):
+    """One or more files sent as one message: their names, and with more than one their sizes, say where each one ends."""
+    names, sizes = q.get("name", ["file"])[:10], [int(x) for x in q.get("size", []) if x.isdigit()]
+    if len(names) == 1:
+        return [save_upload(names[0], blob)]
+    if len(sizes) != len(names) or sum(sizes) != len(blob):
+        raise ValueError("the files' sizes don't add up")
+    out, at = [], 0
+    for name, size in zip(names, sizes):
+        out.append(save_upload(name, blob[at:at + size])); at += size
+    return out
 
 
 def data_uri(name):
@@ -594,7 +607,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                     thread = thread_of(q.get("thread", [""])[0])
                     m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"),
-                               text=q.get("text", [""])[0].strip()[:8000], file=save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT)), **thread)
+                               text=q.get("text", [""])[0].strip()[:8000], files=[save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT))], **thread)
                     with tx() as c:
                         stop_working(c, l["wolt"])
                     return self.send(200, m)
@@ -675,11 +688,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         seconds = 0
                     extra = {**({"seconds": seconds} if seconds else {}), **({"cid": cid} if named else {})}
                     return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra, **thread))
-            if path == "/api/files":  # a picture, video or file, with the words typed alongside
+            if path == "/api/files":  # pictures, videos or files (up to 10, one message), with the words typed alongside
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 thread = thread_of(q.get("thread", [""])[0])
                 return self.send(200, append(kind="human", email=email, text=q.get("text", [""])[0].strip()[:8000],
-                                             file=save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT)), **thread))
+                                             files=save_uploads(q, self.body(limit=UPLOAD_LIMIT * min(10, len(q.get("name", [""]))))), **thread))
             self.send(404, {"error": "not found"})
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})

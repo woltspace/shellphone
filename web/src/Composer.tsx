@@ -50,10 +50,10 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
     <div className="relative bg-panel border-t border-line px-2.5 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]" data-busy={text || files.length ? "" : undefined}>
       {tagOpts.length > 0 && <div className={menu}>{tagOpts.map((w) => <button key={w.wolt} type="button" className={item} onClick={() => set(text.replace(/@[\w-]*$/, "@" + w.wolt + " "))}>@{w.wolt}</button>)}</div>}
       {slash.length > 0 && <div className={menu}>{slash.map((s) => <button key={s.tag} type="button" className={item} onClick={() => set(s.text)}><b className="text-acc">/{s.tag}</b> <span className="text-dim">{s.text}</span></button>)}</div>}
-      {files.length > 0 && <div className="flex gap-2 overflow-x-auto pb-2 pl-11">{files.map((x, i) => (
+      {files.length > 0 && <div className="flex gap-3 overflow-x-auto pt-2.5 pr-2.5 pb-2 pl-11">{files.map((x, i) => (
         <div key={i} className="relative flex-none">
-          {x.url ? <img src={x.url} alt={x.f.name} className="h-16 w-16 object-cover rounded-lg border border-line" />
-            : <div className="h-16 max-w-40 px-2 rounded-lg border border-line bg-paper flex items-center gap-1 text-[12px] font-mono"><FileIcon size={16} className="flex-none text-acc" /><span className="truncate">{x.f.name}</span></div>}
+          {x.url ? <img src={x.url} alt={x.f.name} className="block h-20 w-auto max-w-48 object-contain rounded-lg border border-line" />
+            : <div className="h-20 max-w-40 px-2 rounded-lg border border-line bg-paper flex items-center gap-1 text-[12px] font-mono"><FileIcon size={16} className="flex-none text-acc" /><span className="truncate">{x.f.name}</span></div>}
           <button type="button" aria-label={"Remove " + x.f.name} onClick={() => unattach(i)} className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-ink grid place-items-center border-0 cursor-pointer"><X size={14} className="text-white" /></button>
         </div>))}</div>}
       <div className="flex items-center gap-2">

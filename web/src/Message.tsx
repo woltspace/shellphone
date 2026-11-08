@@ -2,7 +2,7 @@
 import { useRef, useState } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
-import type { Msg, Person, Wolt } from "./room";
+import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 
 export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (url: string) => void; retry?: (cid: string) => void };
@@ -60,8 +60,19 @@ function Voice({ m, ctx }: { m: Msg; ctx: Ctx }) {
   </div>;
 }
 
-function File({ m, ctx }: { m: Msg; ctx: Ctx }) {
-  const f = m.file!;
+// the pictures sent together sit together: one at its own shape, several as a grid of tiles
+function Files({ m, ctx }: { m: Msg; ctx: Ctx }) {
+  const pics = m.files!.filter((f) => IMAGE.test(f.type)), rest = m.files!.filter((f) => !IMAGE.test(f.type));
+  return <>
+    {pics.length === 1 && <File f={pics[0]} ctx={ctx} />}
+    {pics.length > 1 && <div className="grid grid-cols-2 gap-1 w-[min(260px,68vw)] mb-1">
+      {pics.map((f) => <img key={f.url} src={f.url} alt={f.name} onClick={() => ctx.view(f.url)} className="block w-full aspect-[3/4] object-cover rounded-lg cursor-zoom-in" />)}
+    </div>}
+    {rest.map((f) => <File key={f.url} f={f} ctx={ctx} />)}
+  </>;
+}
+
+function File({ f, ctx }: { f: FileInfo; ctx: Ctx }) {
   if (IMAGE.test(f.type)) return <img src={f.url} alt={f.name} onClick={() => ctx.view(f.url)} className="block max-w-[min(260px,68vw)] max-h-[320px] rounded-lg cursor-zoom-in mb-1" />;
   if (VIDEO.test(f.type)) return <video src={f.url} controls playsInline preload="metadata" className="block max-w-[min(260px,68vw)] rounded-lg mb-1" />;
   return <a href={f.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-2.5 py-2 mb-1 border border-line rounded-[10px] bg-paper no-underline text-ink">
@@ -81,7 +92,7 @@ export function Message({ m, ctx, firstOfRun }: { m: Msg; ctx: Ctx; firstOfRun: 
       <div className={`max-w-[80%] min-w-0 rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
         style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) } : undefined}>
         {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5">[{name}]</div>}
-        {m.file && <File m={m} ctx={ctx} />}
+        {m.files?.length ? <Files m={m} ctx={ctx} /> : null}
         {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
         {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
         <Card msg={m} all={ctx.all} />

@@ -8,7 +8,7 @@ export type CardNode = { type: string; props?: Record<string, any>; children?: C
 export type Msg = {
   n: number; id: string; cid?: string; at: number; kind: "human" | "wolt" | "patch";
   email?: string; wolt?: string; owner?: string; creature?: string;
-  text?: string; audio?: string; seconds?: number; file?: FileInfo; card?: CardNode; of?: string;
+  text?: string; audio?: string; seconds?: number; files?: FileInfo[]; file?: FileInfo; card?: CardNode; of?: string;
   localUrl?: string; pending?: boolean; failed?: boolean; thread?: string;
 };
 export type Tab = { slug: string; title: string; v: number };
@@ -54,7 +54,10 @@ export function useRoom() {
         setState(rest);
         const patches = messages.filter((m) => m.kind === "patch");
         const added = messages.filter((m) => m.kind === "human" || m.kind === "wolt");
-        for (const m of added) if (m.file && !/^(\/|https?:)/.test(m.file.url)) m.file.url = "/" + m.file.url;  // the room gives addresses relative to its root
+        for (const m of added) {
+          if (m.file && !m.files) m.files = [m.file];  // older messages carry one file
+          for (const f of m.files || []) if (!/^(\/|https?:)/.test(f.url)) f.url = "/" + f.url;  // the room gives addresses relative to its root
+        }
         for (const m of messages) after.current = Math.max(after.current, m.n);
         if (messages.length) {
           setMsgs((old) => {
