@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
-import { say, sendText, useRoom, type Msg } from "./room";
+import { say, useRoom, type Msg } from "./room";
 import { LORE, woltAvatar } from "./sprites";
 import { RecentStrip, ThreadLine, ThreadList, threadColor, threadTitle, unread, useRecent, useSeen } from "./Threads";
 import { Menu } from "./Menu";
@@ -278,7 +278,17 @@ export function App() {
     if (!navigator.mediaDevices || !window.MediaRecorder) return setError("This browser can't record here.");
     setListening(null);
   }
-  const text = (t: string) => { stick(); sendText(t, thread || undefined).then(report); };
+  // what you type shows at once, then becomes the room's copy as soon as the room has it (no wait for the next poll)
+  async function text(t: string) {
+    stick();
+    const cid = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), th = thread || undefined;
+    setMsgs((m) => [...m, { id: cid, cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, thread: th }]);
+    const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, ...(th ? { thread: th } : {}) }) }).catch(() => null);
+    const real = r?.ok ? ((await r.json().catch(() => null)) as Msg | null) : null;
+    if (real?.id) return setMsgs((m) => m.some((x) => x.id === real.id) ? m.filter((x) => x.cid !== cid) : m.map((x) => (x.cid === cid ? real : x)));
+    setMsgs((m) => m.map((x) => (x.cid === cid ? { ...x, pending: false, text: t + "\n— didn't send: copy it and try again" } : x)));
+    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
+  }
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
   const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
