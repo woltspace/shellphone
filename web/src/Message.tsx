@@ -1,10 +1,11 @@
 // One bubble: who said it, the words (with @tags), a voice note with its words, a file or picture, a card.
 import { useRef, useState } from "react";
+import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
 import type { Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (url: string) => void };
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (url: string) => void; retry?: (cid: string) => void };
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -40,12 +41,19 @@ function Player({ src, seconds }: { src?: string; seconds?: number }) {
   </div>;
 }
 
-function Voice({ m }: { m: Msg }) {
+// A message the room didn't get: it stays here, and a tap sends the very same one again.
+function Unsent({ m, ctx }: { m: Msg; ctx: Ctx }) {
+  return <button type="button" data-tap onClick={() => m.cid && ctx.retry?.(m.cid)}
+    className="mt-1.5 flex items-center gap-1.5 border-0 bg-transparent p-0 font-mono text-xs text-acc cursor-pointer">
+    <RotateCw className="w-3.5 h-3.5" />didn't send · tap to send again</button>;
+}
+
+function Voice({ m, ctx }: { m: Msg; ctx: Ctx }) {
   const [open, setOpen] = useState(false);
   const src = m.localUrl || (m.audio && m.audio !== "local" ? "/voice/" + m.audio : undefined);
   return <div className="w-[min(260px,68vw)]">
     <Player src={src} seconds={m.seconds} />
-    {m.pending
+    {m.failed ? <Unsent m={m} ctx={ctx} /> : m.pending
       ? <div className="h-5 leading-5 mt-1.5 text-xs text-dim flex items-center gap-1.5 animate-[pulse-soft_1.4s_ease-in-out_infinite]"><i className="w-[11px] h-[11px] border-2 border-line border-t-acc rounded-full animate-spin" />transcribing</div>
       : m.text ? <div data-tap onClick={() => setOpen(!open)} className={`mt-1.5 text-sm leading-snug whitespace-pre-wrap cursor-pointer ${open ? "" : "line-clamp-1 text-dim"}`}>
           <span className="text-acc">{open ? "▾ " : "▸ "}</span>{m.text}</div> : null}
@@ -74,7 +82,8 @@ export function Message({ m, ctx, firstOfRun }: { m: Msg; ctx: Ctx; firstOfRun: 
         style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) } : undefined}>
         {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5">[{name}]</div>}
         {m.file && <File m={m} ctx={ctx} />}
-        {m.audio ? <Voice m={m} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
+        {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
+        {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
         <Card msg={m} all={ctx.all} />
         <div className="flex justify-end items-center gap-1 mt-0.5 font-mono text-[10px] text-dim">
           {time(m.at)}

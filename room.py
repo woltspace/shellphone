@@ -141,6 +141,37 @@ def message(mid):
     return as_message(row[0]) if row else None
 
 
+def sent_before(email, cid):
+    """What this person already sent under the page's own name for it, so sending it again doesn't post it twice."""
+    rows = q("select * from messages where kind = 'human' and json_extract(data, '$.cid') = ? and json_extract(data, '$.email') = ? "
+             "order by n desc limit 1", cid, email)
+    return as_message(rows[0]) if rows else None
+
+
+SENDS, SENDS_LOCK = {}, threading.Lock()
+
+
+@contextlib.contextmanager
+def one_send(email, cid):
+    """One send at a time per person and page name, from checking for an earlier copy until it's saved
+    (a voice note's transcription included), so two overlapping tries can't both post."""
+    if not re.fullmatch(r"[a-z0-9]{4,40}", cid or ""):
+        yield False
+        return
+    key = (email, cid)
+    with SENDS_LOCK:
+        slot = SENDS.setdefault(key, [threading.Lock(), 0])
+        slot[1] += 1
+    try:
+        with slot[0]:
+            yield True
+    finally:
+        with SENDS_LOCK:
+            slot[1] -= 1
+            if not slot[1]:
+                SENDS.pop(key, None)
+
+
 def thread(mid):
     """The message a thread hangs off, then its replies in order."""
     root = message(mid)
@@ -616,28 +647,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not text:
                     return self.send(400, {"error": "empty"})
                 cid = str(data.get("cid", ""))  # the page's own name for it while sending, so its copy is replaced, not doubled
-                return self.send(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread")),
-                                             **({"cid": cid} if re.fullmatch(r"[a-z0-9]{4,40}", cid) else {})))
+                with one_send(email, cid) as named:
+                    if named and (prev := sent_before(email, cid)):  # sent before, but the answer never got back to the page
+                        return self.send(200, prev)
+                    return self.send(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread")),
+                                                 **({"cid": cid} if named else {})))
             if path == "/api/voice":
                 thread = thread_of(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("thread", [""])[0])
                 ext = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp3": "mp3"}.get((self.headers.get("Content-Type") or "").split(";")[0], "webm")
                 audio = self.body(limit=25_000_000)
-                vid = uuid.uuid4().hex
-                VOICE.mkdir(parents=True, exist_ok=True)
-                f = VOICE / f"{vid}.{ext}"
-                f.write_bytes(audio)
-                f = as_mp3(f)
-                try:
-                    text = transcribe(f)
-                except Exception as exc:
-                    return self.send(502, {"error": f"couldn't transcribe: {exc}"})
-                try:
-                    seconds = round(min(3600, max(0, float(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("seconds", ["0"])[0]))), 1)
-                except ValueError:
-                    seconds = 0
                 cid = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("cid", [""])[0]
-                extra = {**({"seconds": seconds} if seconds else {}), **({"cid": cid} if re.fullmatch(r"[a-z0-9]{4,40}", cid) else {})}
-                return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra, **thread))
+                with one_send(email, cid) as named:
+                    if named and (prev := sent_before(email, cid)):
+                        return self.send(200, prev)  # a voice note sent again after its answer was lost: the room already has it
+                    vid = uuid.uuid4().hex
+                    VOICE.mkdir(parents=True, exist_ok=True)
+                    f = VOICE / f"{vid}.{ext}"
+                    f.write_bytes(audio)
+                    f = as_mp3(f)
+                    try:
+                        text = transcribe(f)
+                    except Exception as exc:
+                        return self.send(502, {"error": f"couldn't transcribe: {exc}"})
+                    try:
+                        seconds = round(min(3600, max(0, float(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("seconds", ["0"])[0]))), 1)
+                    except ValueError:
+                        seconds = 0
+                    extra = {**({"seconds": seconds} if seconds else {}), **({"cid": cid} if named else {})}
+                    return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra, **thread))
             if path == "/api/files":  # a picture, video or file, with the words typed alongside
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 thread = thread_of(q.get("thread", [""])[0])
