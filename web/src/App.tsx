@@ -205,11 +205,12 @@ export function App() {
     if (!h.get("m") || (h.get("m") === went.current.m && Date.now() - went.current.at < 10_000)) return;
     went.current = { m: h.get("m")!, at: Date.now() };
     target.current = { m: h.get("m")!, t: h.get("t") || "" };
-    history.replaceState(null, "", location.pathname);
+    // the address says where we're going until we get there, so a reload on the way (a room update) still lands
+    history.replaceState(null, "", location.pathname + "#m=" + encodeURIComponent(h.get("m")!) + (h.get("t") ? "&t=" + encodeURIComponent(h.get("t")!) : ""));
     setMenu(false); setListOpen(false);
     if (target.current.t) open(target.current.t); else setThread("");  // no jump to the bottom: we're going to the message
     setLanding((x) => x + 1);
-    const mine = target.current; setTimeout(() => { if (target.current === mine) target.current = null; }, 8000);  // not here after all: let it go
+    const mine = target.current; setTimeout(() => { if (target.current === mine) { target.current = null; history.replaceState(null, "", location.pathname); } }, 8000);  // not here after all: let it go
   };
   // the note a tapped notification leaves behind (see sw.js), read once and only if it's fresh
   const noted = async () => {
@@ -236,7 +237,7 @@ export function App() {
   useEffect(() => {
     const t = target.current; if (!t) return;
     const el = [...document.querySelectorAll<HTMLElement>(`[data-mid="${CSS.escape(t.m)}"]`)].at(-1); if (!el) return;
-    target.current = null;
+    target.current = null; history.replaceState(null, "", location.pathname);
     // after the feeds have done their own scrolling for this render, so "stay at the bottom" doesn't undo it
     (t.t ? stickThread : stickMain).current(false);  // reading back here: stop following the newest
     // and again as the page settles (voice players, cards and pictures above it take their height after a cold start),
