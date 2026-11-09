@@ -48,21 +48,38 @@ function Gnaw({ ctx, working }: { ctx: Ctx; working: Record<string, unknown> }) 
   </div>;
 }
 
-// A picture full screen. Always a way out: the ✕ (dark, so it shows on any picture), a tap, a swipe down, or Escape.
-// A double tap zooms in; then it scrolls, and the ✕ or a double tap gets you back.
-function Viewer({ url, close }: { url: string; close: () => void }) {
-  const [big, setBig] = useState(false);
-  const tap = useRef(0), from = useRef<{ x: number; y: number } | null>(null);
-  useEffect(() => { const esc = (e: KeyboardEvent) => e.key === "Escape" && close(); addEventListener("keydown", esc); return () => removeEventListener("keydown", esc); }, []);
-  return <div className="fixed inset-0 z-[3000] bg-[#000e] grid place-items-center overflow-auto"
-    onClick={() => { clearTimeout(tap.current); if (!big) tap.current = window.setTimeout(close, 260); }}
+// Pictures full screen, like WhatsApp: swipe left and right through the ones sent together ("2 / 3" up top).
+// Always a way out: the ✕ (dark, so it shows on any picture), a tap, a swipe down, or Escape. A double tap zooms in.
+function Viewer({ urls, at, close }: { urls: string[]; at: number; close: () => void }) {
+  const [big, setBig] = useState(false), [i, setI] = useState(at);
+  const strip = useRef<HTMLDivElement>(null), tap = useRef(0), from = useRef<{ x: number; y: number } | null>(null);
+  const go = (to: number) => { const s = strip.current; if (s) s.scrollTo({ left: Math.max(0, Math.min(urls.length - 1, to)) * s.clientWidth, behavior: "smooth" }); };
+  useLayoutEffect(() => { const s = strip.current; if (s) s.scrollLeft = i * s.clientWidth; }, [big]);  // opening, and back from zoom, on the same picture
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") close(); if (e.key === "ArrowRight") go(i + 1); if (e.key === "ArrowLeft") go(i - 1); };
+    addEventListener("keydown", key); return () => removeEventListener("keydown", key);
+  }, [i]);
+  const btn = "fixed w-11 h-11 grid place-items-center rounded-full bg-[#000c] border-2 border-white text-white text-xl cursor-pointer shadow-[0_2px_8px_#0008]";
+  return <div className="fixed inset-0 z-[3000] bg-[#000e]"
+    onClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; clearTimeout(tap.current); if (!big) tap.current = window.setTimeout(close, 260); }}
     onDoubleClick={() => { clearTimeout(tap.current); setBig(!big); }}
     onTouchStart={(e) => { from.current = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }}
     onTouchEnd={(e) => { const f = from.current, t = e.changedTouches[0]; from.current = null;
       if (f && !big && t.clientY - f.y > 80 && Math.abs(t.clientX - f.x) < 60) close(); }}>
-    <img src={url} alt="" className={big ? "max-w-none w-[250vw]" : "max-w-[94vw] max-h-[86dvh] object-contain rounded-md"} />
-    <button type="button" aria-label="Close" onClick={(e) => { e.stopPropagation(); close(); }}
-      className="fixed top-[calc(12px+env(safe-area-inset-top))] right-3 w-11 h-11 grid place-items-center rounded-full bg-[#000c] border-2 border-white text-white text-xl cursor-pointer shadow-[0_2px_8px_#0008]">✕</button>
+    {big ? <div className="w-full h-full overflow-auto grid place-items-center"><img src={urls[i]} alt="" className="max-w-none w-[250vw]" /></div>
+      : <div ref={strip} onScroll={(e) => setI(Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth))}
+          className="w-full h-full flex overflow-x-auto snap-x snap-mandatory overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {urls.map((u) => <div key={u} className="flex-none w-full h-full grid place-items-center snap-center snap-always">
+            <img src={u} alt="" draggable={false} className="max-w-[94vw] max-h-[86dvh] object-contain rounded-md" /></div>)}
+        </div>}
+    {urls.length > 1 && <>
+      <div className="fixed top-[calc(22px+env(safe-area-inset-top))] left-0 right-0 text-center font-mono text-sm text-white pointer-events-none">{i + 1} / {urls.length}</div>
+      <div className="fixed bottom-[calc(18px+env(safe-area-inset-bottom))] left-0 right-0 flex justify-center gap-1.5 pointer-events-none">
+        {urls.map((u, j) => <i key={u} className={`w-1.5 h-1.5 rounded-full ${j === i ? "bg-white" : "bg-[#fff6]"}`} />)}</div>
+      {!big && i > 0 && <button type="button" aria-label="Previous" onClick={() => go(i - 1)} className={btn + " left-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>‹</button>}
+      {!big && i < urls.length - 1 && <button type="button" aria-label="Next" onClick={() => go(i + 1)} className={btn + " right-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>›</button>}
+    </>}
+    <button type="button" aria-label="Close" onClick={close} className={btn + " top-[calc(12px+env(safe-area-inset-top))] right-3"}>✕</button>
   </div>;
 }
 
@@ -187,11 +204,11 @@ export function App() {
   useFit();
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
   const [listening, setListening] = useState<AudioContext | null | false>(false);
-  const [viewing, setViewing] = useState("");
+  const [viewing, setViewing] = useState<{ urls: string[]; at: number } | null>(null);
   const [thread, setThread] = useState("");  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: setViewing, retry: (cid) => retryRef.current(cid) };
+  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0) => setViewing({ urls, at }), retry: (cid) => retryRef.current(cid) };
 
   // Threads the Matrix way: a reply carries the id of the message its thread hangs off. The main chat shows only the rest.
   const { main, replies } = useMemo(() => {
@@ -414,7 +431,7 @@ export function App() {
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onDone={voice} />}
-      {viewing && <Viewer url={viewing} close={() => setViewing("")} />}
+      {viewing && <Viewer urls={viewing.urls} at={viewing.at} close={() => setViewing(null)} />}
     </div>
   );
 }
