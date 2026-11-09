@@ -605,11 +605,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 l = self.lodge()
                 if not l:
                     return self.send(401, {"error": "unknown lodge key"})
-                if path == "/lodge/files":  # a wolt shares a picture or a file, with words alongside if it wants
+                if path == "/lodge/files":  # a wolt shares pictures or files (up to 10, one message), with words alongside if it wants
                     q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                     thread = thread_of(q.get("thread", [""])[0])
                     m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"),
-                               text=q.get("text", [""])[0].strip()[:8000], files=[save_upload(q.get("name", ["file"])[0], self.body(limit=UPLOAD_LIMIT))], **thread)
+                               text=q.get("text", [""])[0].strip()[:8000], files=save_uploads(q, self.body(limit=UPLOAD_LIMIT * min(10, len(q.get("name", [""]))))), **thread)
                     with tx() as c:
                         stop_working(c, l["wolt"])
                     return self.send(200, m)

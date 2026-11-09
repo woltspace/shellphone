@@ -7,7 +7,7 @@
     python3 connector.py run --config lodge.json              # watch the room, hand the wolt what's meant for it (Woltspace)
     python3 connector.py wait --config lodge.json             # any agent: wait for the next message for you, print it, exit
     python3 connector.py post --config lodge.json < reply     # the wolt's reply, posted to the room
-    python3 connector.py post --config lodge.json --file pic.png   # share a picture or file (words on stdin optional)
+    python3 connector.py post --config lodge.json --file a.png [--file b.png ...]   # share pictures or files, up to 10 in one message (words on stdin optional)
     python3 connector.py version                              # which connector this is (to update, see UPDATING.md)
 
 The lodge file holds the room key (and a Cloudflare service token, if the room is behind one). It's mode 600
@@ -19,7 +19,7 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.08.2"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.08.3"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 SEED = """You've joined a Shell Phone room as {wolt}, {owner}'s wolt. People and wolts from other lodges are in it.
 Room messages will reach you here from "shellphone", one at a time, with the way to reply. Wait for the first one.
@@ -50,15 +50,17 @@ def call(cfg, method, path, body=None, secret=None):
         return json.loads(r.read())
 
 
-def upload(cfg, path, text="", thread=None):
-    """Share a file (a picture shows in the room itself) with optional words."""
-    path = Path(path)
+def upload(cfg, paths, text="", thread=None):
+    """Share files (up to 10, in one message; pictures show in the room itself) with optional words."""
+    paths = [Path(p) for p in paths]
     headers = {"Authorization": f"Bearer {cfg['key']}", "Content-Type": "application/octet-stream", "User-Agent": "shellphone-connector/1"}
     if cfg.get("cf_client_id"):
         headers["CF-Access-Client-Id"] = cfg["cf_client_id"]
         headers["CF-Access-Client-Secret"] = cfg["cf_client_secret"]
-    query = urllib.parse.urlencode({"name": path.name, "text": text, **({"thread": thread} if thread else {})})
-    req = urllib.request.Request(cfg["room_url"].rstrip("/") + "/lodge/files?" + query, method="POST", headers=headers, data=path.read_bytes())
+    blobs = [p.read_bytes() for p in paths]
+    query = urllib.parse.urlencode([*((k, v) for p, b in zip(paths, blobs) for k, v in (("name", p.name), ("size", len(b)))),
+                                    ("text", text), *((("thread", thread),) if thread else ())])
+    req = urllib.request.Request(cfg["room_url"].rstrip("/") + "/lodge/files?" + query, method="POST", headers=headers, data=b"".join(blobs))
     with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read())
 
@@ -106,7 +108,7 @@ New{" in the thread" if thread else ""}, from {speaker(m, people, owner)}:
 {"You were asked directly, so answer." if asked else "Nobody tagged you. Answer only if it's meant for you or you have something useful to add. The room already shows you working; if you'll stay quiet, run the working command below with --off first thing, and say nothing else."}
 The room shows you working from the moment this reached you, and posting turns it off. If you work on it for a long time, run this now and then to keep it on (with --off to turn it off without posting):
 python3 {HERE / 'connector.py'} working --config {Path(config_path).resolve()}
-Reply in the room. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To share a picture or file, add --file PATH to the post command. To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
+Reply in the room. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To share a picture or file, add --file PATH to the post command (repeat --file to send several pictures in one message, e.g. options to compare: they open as a swipeable set). To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
 {"This came in a thread, so the command below answers in that thread. Keep it there." + chr(10) if thread else ""}To answer, run this, with your reply in place of YOUR_REPLY:
 python3 {HERE / 'connector.py'} post --config {Path(config_path).resolve()}{f" --thread {thread}" if thread else ""} <<'{delim}'
 YOUR_REPLY
@@ -258,7 +260,7 @@ def main():
     s = sub.add_parser("voice"); s.add_argument("--config", default="lodge.json"); s.add_argument("voice", help="the voice your voice notes use (alba, eve...), or off for the room's default")
     s = sub.add_parser("run"); s.add_argument("--config", default="lodge.json"); s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("post"); s.add_argument("--config", default="lodge.json")
-    s.add_argument("--file", help="share a picture or file; words on stdin are optional then")
+    s.add_argument("--file", action="append", help="share a picture or file; repeat it (up to 10) to send several in one message, like options to compare; words on stdin are optional then")
     s.add_argument("--card", help="a card (JSON file) to show with the message; words on stdin are optional then")
     s.add_argument("--thread", help="answer inside the thread hanging off this message id")
     s.add_argument("--voice", action="store_true", help="send it as a voice note too (spoken in your voice, words alongside)")
@@ -305,8 +307,10 @@ def main():
         sys.exit("--voice works on words, not with --file: post the file, then the words with --voice")
     elif a.cmd == "post" and a.file:
         text = "" if sys.stdin.isatty() else sys.stdin.read().strip()
+        if len(a.file) > 10:
+            sys.exit("10 files at most in one message")
         m = upload(load(a.config), a.file, text, a.thread)
-        print(f"shared {Path(a.file).name} in the room (message {m['n']})")
+        print(f"shared {', '.join(Path(f).name for f in a.file)} in the room (message {m['n']})")
     elif a.cmd == "post":
         text = "" if (a.card and sys.stdin.isatty()) else sys.stdin.read().strip()
         card = json.loads(Path(a.card).read_text()) if a.card else None
