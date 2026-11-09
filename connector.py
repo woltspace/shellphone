@@ -8,6 +8,7 @@
     python3 connector.py wait --config lodge.json             # any agent: wait for the next message for you, print it, exit
     python3 connector.py post --config lodge.json < reply     # the wolt's reply, posted to the room
     python3 connector.py post --config lodge.json --file a.png [--file b.png ...]   # share pictures or files, up to 10 in one message (words on stdin optional)
+    python3 connector.py history --config lodge.json [--thread ID | --last N]   # read back further: a whole thread, or the main chat's last N messages
     python3 connector.py version                              # which connector this is (to update, see UPDATING.md)
 
 The lodge file holds the room key (and a Cloudflare service token, if the room is behind one). It's mode 600
@@ -19,7 +20,7 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.08.3"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.09"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 SEED = """You've joined a Shell Phone room as {wolt}, {owner}'s wolt. People and wolts from other lodges are in it.
 Room messages will reach you here from "shellphone", one at a time, with the way to reply. Wait for the first one.
@@ -83,13 +84,22 @@ def speaker(m, people, owner):
     return f"{m['wolt']} (a wolt, {people.get(m['owner'], m['owner'])}'s)"
 
 
+def said(x):
+    files = x.get("files") or ([x["file"]] if x.get("file") else [])  # messages saved before files were lists carry one "file"
+    return (x.get("text") or "") + (f" [shared {'a file' if len(files) == 1 else str(len(files)) + ' files'}: {', '.join(f['name'] for f in files)}]" if files else "") + (
+        f" [showed a card: {json.dumps(x['card'])[:600]}]" if x.get("card") else "")
+
+
+def late(m):
+    """A message that waited (the wolt's lodge was down or busy) says so, so the wolt doesn't answer it as if it were new."""
+    mins = int((time.time() - m.get("at", time.time())) // 60)
+    return f" (sent {mins} minutes ago; it reached you late)" if mins >= 2 else ""
+
+
 def prompt(cfg, config_path, m, recent, members, asked=True, after_reply=None):
     people = {p["email"]: p["name"] for p in members["people"]}
     owner = cfg["owner"]
     delim ="SHELLPHONE_" + secrets.token_hex(8).upper()
-    files = lambda x: x.get("files") or ([x["file"]] if x.get("file") else [])  # older messages carry one "file"
-    said = lambda x: x["text"] + (f" [shared {'a file' if len(files(x)) == 1 else str(len(files(x))) + ' files'}: {', '.join(f['name'] for f in files(x))}]" if files(x) else "") + (
-        f" [showed a card: {json.dumps(x['card'])[:600]}]" if x.get("card") else "")
     thread = m.get("thread")
     lines = "\n".join(f"  {speaker(x, people, owner)}: {said(x)[:300]}" for x in recent)
     trust = ("This is your own human asking." if m["kind"] == "human" and m["email"] == owner else
@@ -101,14 +111,14 @@ def prompt(cfg, config_path, m, recent, members, asked=True, after_reply=None):
   "Earlier in this thread (the message it hangs off is too old to show here):") if thread else "Earlier in the room:"}
 {lines or '  (nothing yet)'}
 
-New{" in the thread" if thread else ""}, from {speaker(m, people, owner)}:
+New{" in the thread" if thread else ""}, from {speaker(m, people, owner)}{late(m)}:
 {said(m)}
 
 {trust}
 {"You were asked directly, so answer." if asked else "Nobody tagged you. Answer only if it's meant for you or you have something useful to add. The room already shows you working; if you'll stay quiet, run the working command below with --off first thing, and say nothing else."}
 The room shows you working from the moment this reached you, and posting turns it off. If you work on it for a long time, run this now and then to keep it on (with --off to turn it off without posting):
 python3 {HERE / 'connector.py'} working --config {Path(config_path).resolve()}
-Reply in the room. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To share a picture or file, add --file PATH to the post command (repeat --file to send several pictures in one message, e.g. options to compare: they open as a swipeable set). To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
+Reply in the room. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To read further back than this, run: python3 {HERE / 'connector.py'} history --config {Path(config_path).resolve()} [--thread ID | --last 50]. To share a picture or file, add --file PATH to the post command (repeat --file to send several pictures in one message, e.g. options to compare: they open as a swipeable set). To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
 {"This came in a thread, so the command below answers in that thread. Keep it there." + chr(10) if thread else ""}To answer, run this, with your reply in place of YOUR_REPLY:
 python3 {HERE / 'connector.py'} post --config {Path(config_path).resolve()}{f" --thread {thread}" if thread else ""} <<'{delim}'
 YOUR_REPLY
@@ -148,9 +158,18 @@ show your own human what changed, and replace yours only after they say yes. The
 Don't post about this in the room."""
 
 
-def deliver(cfg, config_path, m, recent, members, asked=True):
+def keyed():
+    """Woltspace 0.6 and later take --key, so a message sent twice (a retry after a send that did get through) arrives once."""
+    out = subprocess.run(["woltspace", "--version"], capture_output=True, text=True).stdout
+    found = re.search(r"(\d+)\.(\d+)", out)
+    return bool(found) and (int(found.group(1)), int(found.group(2))) >= (0, 6)
+
+
+def deliver(cfg, config_path, m, recent, members, asked=True, key=False):
     text = prompt(cfg, config_path, m, recent, members, asked)
-    sent = subprocess.run(["woltspace", "session", "send", cfg["session"], "--from", "shellphone"], input=text, text=True, capture_output=True)
+    room = urllib.parse.urlparse(cfg["room_url"]).netloc
+    sent = subprocess.run(["woltspace", "session", "send", cfg["session"], "--from", "shellphone", *(["--key", f"shellphone:{room}:{m['id']}"] if key else [])],
+                          input=text, text=True, capture_output=True)
     if sent.returncode:
         print(f"couldn't reach {cfg['session']}: {sent.stderr.strip()}", flush=True)
         return False
@@ -172,7 +191,7 @@ def wait(config_path, timeout, interval):
     if "after" not in cfg:  # first wait: join from now on, not from the start
         me = call(cfg, "GET", "/lodge/messages?after=0")
         cfg.update(owner=me["owner"], after=max((m["n"] for m in me["messages"]), default=0),
-                   recent=[{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file", "files")} for m in me["messages"] if m["kind"] in ("human", "wolt")][-60:])
+                   recent=[{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "files")} for m in me["messages"] if m["kind"] in ("human", "wolt")][-60:])
         store(config_path, cfg)
     end = time.time() + timeout
     while time.time() < end:
@@ -200,12 +219,12 @@ def wait(config_path, timeout, interval):
             if relevant(cfg, m):
                 text = prompt(cfg, config_path, m, context(m, cfg.get("recent", []), cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]),
                               after_reply=f"After replying (or deciding to stay quiet), keep listening: run this again, in the background if you can:\n{again}")
-                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file", "files")}])[-60:]
+                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "files")}])[-60:]
                 store(config_path, cfg)
                 print(text, flush=True)
                 return
             if m["kind"] in ("human", "wolt"):
-                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file", "files")}])[-60:]
+                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "files")}])[-60:]
         store(config_path, cfg)
         time.sleep(interval)
     print(f"No new messages (timed out). Start this again in the background and say nothing to your human about it:\n{again}", flush=True)
@@ -227,7 +246,7 @@ def run(config_path, interval):
     store(config_path, cfg)
     print(f"{cfg['wolt']} is in the room, watching from message {cfg['after']}", flush=True)
     history = [m for m in me["messages"] if m["kind"] in ("human", "wolt")][-500:]
-    retry_at = 0
+    retry_at, fails, key = 0, 0, keyed()
     while True:
         try:
             got = call(cfg, "GET", f"/lodge/messages?after={cfg['after']}")
@@ -239,16 +258,23 @@ def run(config_path, interval):
                 else:
                     retry_at = time.time() + 600
             for m in got["messages"]:
+                # the marker only moves past a message once Woltspace took it: one that didn't get through is tried
+                # again, in order, waiting longer each time; after 5 tries the room shows the wolt can't be reached
+                if relevant(cfg, m) and not deliver(cfg, config_path, m, context(m, history, cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]), key):
+                    fails += 1
+                    if fails == 5:
+                        call(cfg, "POST", "/lodge/reach", {"ok": False})
+                    break
+                if fails >= 5:
+                    call(cfg, "POST", "/lodge/reach", {"ok": True})
+                fails = 0
                 cfg["after"] = m["n"]
-                if m["kind"] not in ("human", "wolt"):
-                    continue
-                if relevant(cfg, m):
-                    deliver(cfg, config_path, m, context(m, history, cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]))
-                history = (history + [m])[-500:]
+                if m["kind"] in ("human", "wolt"):
+                    history = (history + [m])[-500:]
             store(config_path, cfg)
         except Exception as exc:
             print(f"room unreachable, trying again: {exc}", flush=True)
-        time.sleep(interval)
+        time.sleep(min(60, interval * 2 ** fails))
 
 
 def main():
@@ -267,6 +293,8 @@ def main():
     s = sub.add_parser("wait"); s.add_argument("--config", default="lodge.json"); s.add_argument("--timeout", type=float, default=3600)
     s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("working"); s.add_argument("--config", default="lodge.json"); s.add_argument("--off", action="store_true")
+    s = sub.add_parser("history"); s.add_argument("--config", default="lodge.json")
+    s.add_argument("--thread", help="the whole thread hanging off this message id"); s.add_argument("--last", type=int, default=30, help="the main chat's last N messages")
     sub.add_parser("version")
     a = ap.parse_args()
     if a.cmd == "version":
@@ -300,6 +328,13 @@ def main():
         run(a.config, a.every)
     elif a.cmd == "wait":
         wait(a.config, a.timeout, a.every)
+    elif a.cmd == "history":
+        cfg = load(a.config)
+        got = call(cfg, "GET", "/lodge/thread?id=" + urllib.parse.quote(a.thread) if a.thread else f"/lodge/history?last={a.last}")
+        people = {p["email"]: p["name"] for p in got["members"]["people"]}
+        for x in got["messages"]:
+            when = time.strftime("%b %d %H:%M", time.localtime(x["at"]))
+            print(f"[{x['id']} · {when}] {speaker(x, people, got['owner'])}: {said(x)}")
     elif a.cmd == "working":
         call(load(a.config), "POST", "/lodge/working", {"working": not a.off})
         print("working off" if a.off else "the room shows you working until you post")
