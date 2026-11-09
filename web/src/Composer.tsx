@@ -82,7 +82,8 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
           // pressing send doesn't take focus from the box: otherwise the keyboard starts closing, the button moves away
           // under the finger, and the tap only closes the keyboard
           ? <button type="button" aria-label="Send" className={round} onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()} onClick={send}><SendHorizontal size={22} className="text-white" /></button>
-          : <button type="button" aria-label="Talk" className={round} onClick={onMic}><Mic size={24} className="text-white" /></button>}
+          : <button type="button" aria-label="Talk" className={round} onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { box.current?.blur(); onMic(); }}><Mic size={24} className="text-white" /></button>}
       </div>
     </div>
   );
