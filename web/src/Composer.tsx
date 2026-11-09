@@ -79,7 +79,9 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
           }}
           className="flex-1 min-w-0 resize-none bg-paper border border-line rounded-[10px] px-3 py-2.5 text-base leading-snug outline-none focus:shadow-[0_0_0_1px_var(--color-acc)] placeholder:font-mono placeholder:text-dim" />
         {text.trim() || files.length
-          ? <button type="button" aria-label="Send" className={round} onClick={send}><SendHorizontal size={22} className="text-white" /></button>
+          // pressing send doesn't take focus from the box: otherwise the keyboard starts closing, the button moves away
+          // under the finger, and the tap only closes the keyboard
+          ? <button type="button" aria-label="Send" className={round} onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()} onClick={send}><SendHorizontal size={22} className="text-white" /></button>
           : <button type="button" aria-label="Talk" className={round} onClick={onMic}><Mic size={24} className="text-white" /></button>}
       </div>
     </div>
