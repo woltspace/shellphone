@@ -247,7 +247,7 @@ def run(config_path, interval):
     print(f"{cfg['wolt']} is in the room, watching from message {cfg['after']}", flush=True)
     history = [m for m in me["messages"] if m["kind"] in ("human", "wolt")][-500:]
     retry_at, fails, key = 0, 0, keyed()
-    held, told = {}, None  # the prompt being retried; what the room last heard about whether we reach the wolt (None: not yet, so say it once)
+    told = None  # what the room last heard about whether we reach the wolt (None: not yet, so say it once)
     while True:
         try:
             got = call(cfg, "GET", f"/lodge/messages?after={cfg['after']}")
@@ -262,12 +262,15 @@ def run(config_path, interval):
                 # the marker only moves past a message once Woltspace took it: one that didn't get through is tried
                 # again, in order, waiting longer each time; after 5 tries the room shows the wolt can't be reached
                 if relevant(cfg, m):
-                    if held.get("id") != m["id"]:
-                        held = {"id": m["id"], "text": prompt(cfg, config_path, m, context(m, history, cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]))}
-                    if not deliver(cfg, held["text"], m, key):
+                    # the prompt is saved before its first send, so a retry (even after a restart) sends the very same one
+                    if cfg.get("held", {}).get("id") != m["id"]:
+                        cfg["held"] = {"id": m["id"], "text": prompt(cfg, config_path, m, context(m, history, cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]))}
+                        store(config_path, cfg)
+                    if not deliver(cfg, cfg["held"]["text"], m, key):
                         fails += 1
                         break
-                    held, fails = {}, 0
+                    cfg.pop("held")
+                    fails = 0
                 cfg["after"] = m["n"]
                 if m["kind"] in ("human", "wolt"):
                     history = (history + [m])[-500:]
