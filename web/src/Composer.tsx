@@ -7,6 +7,8 @@ import type { Wolt } from "./room";
 
 // What you were typing, kept per box (the main chat, each thread) while you go back and forth.
 const drafts = new Map<string, string>();
+const attached = new Map<string, { f: File; url?: string }[]>();  // and the files waiting with it
+const MOST = 10;  // files in one message (the room takes no more)
 
 export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder }: {
   draft: string; wolts: Wolt[]; me: string; onText: (t: string) => void; onFiles: (f: File[], text: string) => void; onMic: () => void; placeholder?: string;
@@ -14,9 +16,15 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
   const [text, setTextNow] = useState(() => drafts.get(draft) || "");
   const setText = (t: string) => { setTextNow(t); if (t) drafts.set(draft, t); else drafts.delete(draft); };
   const box = useRef<HTMLTextAreaElement>(null), pick = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<{ f: File; url?: string }[]>([]);  // attached, not sent yet
-  const attach = (f: File[]) => { setFiles((old) => [...old, ...f.map((x) => ({ f: x, url: x.type.startsWith("image/") ? URL.createObjectURL(x) : undefined }))]); box.current?.focus(); };
-  const unattach = (i: number) => setFiles((old) => { if (old[i].url) URL.revokeObjectURL(old[i].url!); return old.filter((_, j) => j !== i); });
+  const [files, setFilesNow] = useState(() => attached.get(draft) || []);  // attached, not sent yet
+  const setFiles = (f: { f: File; url?: string }[]) => { setFilesNow(f); if (f.length) attached.set(draft, f); else attached.delete(draft); };
+  const [full, setFull] = useState(false);
+  const attach = (f: File[]) => {
+    const room = MOST - files.length, took = f.slice(0, Math.max(0, room));
+    if (took.length < f.length) { setFull(true); setTimeout(() => setFull(false), 3000); }
+    setFiles([...files, ...took.map((x) => ({ f: x, url: x.type.startsWith("image/") ? URL.createObjectURL(x) : undefined }))]); box.current?.focus();
+  };
+  const unattach = (i: number) => { if (files[i].url) URL.revokeObjectURL(files[i].url!); setFiles(files.filter((_, j) => j !== i)); };
   const tag = text.match(/(?:^|\s)@([\w-]*)$/);
   const tagOpts = tag ? wolts.filter((w) => w.wolt.toLowerCase().startsWith(tag[1].toLowerCase())) : [];
   const all = wolts.map((w) => "@" + w.wolt).join(" ");
@@ -50,6 +58,7 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
     <div className="relative bg-panel border-t border-line px-2.5 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]" data-busy={text || files.length ? "" : undefined}>
       {tagOpts.length > 0 && <div className={menu}>{tagOpts.map((w) => <button key={w.wolt} type="button" className={item} onClick={() => set(text.replace(/@[\w-]*$/, "@" + w.wolt + " "))}>@{w.wolt}</button>)}</div>}
       {slash.length > 0 && <div className={menu}>{slash.map((s) => <button key={s.tag} type="button" className={item} onClick={() => set(s.text)}><b className="text-acc">/{s.tag}</b> <span className="text-dim">{s.text}</span></button>)}</div>}
+      {full && <div className="pl-11 pb-1 text-xs text-acc">{MOST} at most in one message</div>}
       {files.length > 0 && <div className="flex gap-3 overflow-x-auto pt-2.5 pr-2.5 pb-2 pl-11">{files.map((x, i) => (
         <div key={i} className="relative flex-none">
           {x.url ? <img src={x.url} alt={x.f.name} className="block h-20 w-auto max-w-48 object-contain rounded-lg border border-line" />

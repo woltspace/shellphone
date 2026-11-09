@@ -48,11 +48,21 @@ function Gnaw({ ctx, working }: { ctx: Ctx; working: Record<string, unknown> }) 
   </div>;
 }
 
+// A picture full screen. Always a way out: the ✕ (dark, so it shows on any picture), a tap, a swipe down, or Escape.
+// A double tap zooms in; then it scrolls, and the ✕ or a double tap gets you back.
 function Viewer({ url, close }: { url: string; close: () => void }) {
   const [big, setBig] = useState(false);
-  return <div className="fixed inset-0 z-[3000] bg-[#000e] grid place-items-center overflow-auto" onClick={(e) => e.target === e.currentTarget && close()}>
-    <img src={url} alt="" onDoubleClick={() => setBig(!big)} className={big ? "max-w-none w-[250vw]" : "max-w-[100vw] max-h-[100dvh] object-contain"} />
-    <button type="button" aria-label="Close" onClick={close} className="fixed top-[calc(14px+env(safe-area-inset-top))] right-3.5 w-10 h-10 border-0 rounded-full bg-[#fff3] text-white text-xl cursor-pointer">✕</button>
+  const tap = useRef(0), from = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => { const esc = (e: KeyboardEvent) => e.key === "Escape" && close(); addEventListener("keydown", esc); return () => removeEventListener("keydown", esc); }, []);
+  return <div className="fixed inset-0 z-[3000] bg-[#000e] grid place-items-center overflow-auto"
+    onClick={() => { clearTimeout(tap.current); if (!big) tap.current = window.setTimeout(close, 260); }}
+    onDoubleClick={() => { clearTimeout(tap.current); setBig(!big); }}
+    onTouchStart={(e) => { from.current = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }}
+    onTouchEnd={(e) => { const f = from.current, t = e.changedTouches[0]; from.current = null;
+      if (f && !big && t.clientY - f.y > 80 && Math.abs(t.clientX - f.x) < 60) close(); }}>
+    <img src={url} alt="" className={big ? "max-w-none w-[250vw]" : "max-w-[94vw] max-h-[86dvh] object-contain rounded-md"} />
+    <button type="button" aria-label="Close" onClick={(e) => { e.stopPropagation(); close(); }}
+      className="fixed top-[calc(12px+env(safe-area-inset-top))] right-3 w-11 h-11 grid place-items-center rounded-full bg-[#000c] border-2 border-white text-white text-xl cursor-pointer shadow-[0_2px_8px_#0008]">✕</button>
   </div>;
 }
 

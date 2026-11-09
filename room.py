@@ -318,7 +318,9 @@ def save_upload(name, blob):
 
 def save_uploads(q, blob):
     """One or more files sent as one message: their names, and with more than one their sizes, say where each one ends."""
-    names, sizes = q.get("name", ["file"])[:10], [int(x) for x in q.get("size", []) if x.isdigit()]
+    names, sizes = q.get("name", ["file"]), [int(x) for x in q.get("size", []) if x.isdigit()]
+    if len(names) > 10:
+        raise ValueError("10 files at most in one message")
     if len(names) == 1:
         return [save_upload(names[0], blob)]
     if len(sizes) != len(names) or sum(sizes) != len(blob):
