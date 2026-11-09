@@ -49,15 +49,21 @@ export function useSeen() {
 }
 export const unread = (list: Msg[], seen: number | undefined, me: string) => list.some((m) => m.n > (seen || 0) && !(m.kind === "human" && m.email === me));
 
-export function ThreadLine({ root, list, fresh, onOpen }: { root: Msg; list: Msg[]; fresh: boolean; onOpen: () => void }) {
-  const color = threadColor(root.id);
-  return <button type="button" onClick={onOpen} style={{ color }}
-    className="mt-1 inline-flex max-w-full items-center gap-1.5 font-mono text-xs bg-transparent border-0 p-0 cursor-pointer text-left">
-    <i className="flex-none w-2 h-2 rounded-full" style={{ background: color }} />
-    <span className={`min-w-0 truncate ${fresh ? "font-bold" : "font-semibold"}`}>{threadTitle(root)}</span>
-    <span className="flex-none text-dim">· {list.length} {list.length === 1 ? "reply" : "replies"} · {ago(list.at(-1)!.at)}</span>
-    {fresh && <i className="flex-none w-2 h-2 rounded-full bg-acc" aria-label="new replies" />}
-    <ChevronRight className="flex-none" size={15} />
+// A message's thread, as a bar along the bottom of its bubble: who replied, how many, a dot when there's something new.
+// It's part of the message, so it reads as "tap to open".
+export function ThreadFooter({ list, fresh, ctx, onOpen }: { list: Msg[]; fresh: boolean; ctx: Ctx; onOpen: () => void }) {
+  const faces: Msg[] = [];
+  for (const m of [...list].reverse()) if (faces.length < 3 && !faces.some((f) => (f.wolt || f.email) === (m.wolt || m.email))) faces.push(m);
+  const face = (m: Msg) => { const p = ctx.person(m.kind === "human" ? m.email : m.owner);
+    return m.kind === "human" ? personAvatar(p.name, p.color) : woltAvatar(m.creature || "raccoon", p.color); };
+  return <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={`Open the thread, ${list.length} ${list.length === 1 ? "reply" : "replies"}`}
+    className={`flex w-[calc(100%+20px)] -mx-2.5 -mb-1.5 mt-1.5 items-center gap-2 border-0 border-t border-line rounded-b-xl px-2.5 py-1.5 cursor-pointer text-left active:opacity-60 ${fresh ? "bg-[#c4531e14]" : "bg-[#18100a06]"}`}>
+    <span className="flex flex-none">{faces.map((m, i) => <img key={m.id} src={face(m)} alt="" className={`pixel w-5 h-5 rounded-full border-2 border-panel bg-panel ${i ? "-ml-1.5" : ""}`} />)}</span>
+    <b className={`text-[13.5px] ${fresh ? "text-acc" : "text-ink"}`}>{list.length} {list.length === 1 ? "reply" : "replies"}</b>
+    {fresh && <i className="flex-none w-[7px] h-[7px] rounded-full bg-acc" aria-label="new replies" />}
+    <span className="flex-1" />
+    <span className="flex-none font-mono text-[11px] text-dim">{ago(list.at(-1)!.at)}</span>
+    <ChevronRight className="flex-none text-dim" size={16} />
   </button>;
 }
 

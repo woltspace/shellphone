@@ -1,5 +1,5 @@
 // One bubble: who said it, the words (with @tags), a voice note with its words, a file or picture, a card.
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
@@ -80,7 +80,7 @@ function File({ f, ctx }: { f: FileInfo; ctx: Ctx }) {
   </a>;
 }
 
-export function Message({ m, ctx, firstOfRun }: { m: Msg; ctx: Ctx; firstOfRun: boolean }) {
+export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firstOfRun: boolean; footer?: ReactNode }) {
   const human = m.kind === "human", mine = human && m.email === ctx.me;
   const owner = human ? m.email : m.owner, who = ctx.person(owner);
   const name = human ? who.name : `${m.wolt} · ${owner === ctx.me ? "yours" : who.name + "'s"}`;
@@ -89,7 +89,7 @@ export function Message({ m, ctx, firstOfRun }: { m: Msg; ctx: Ctx; firstOfRun: 
   return (
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
       <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
-      <div className={`max-w-[80%] min-w-0 rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
+      <div className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
         style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) } : undefined}>
         {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5">[{name}]</div>}
         {m.files?.length ? <Files m={m} ctx={ctx} /> : null}
@@ -102,6 +102,7 @@ export function Message({ m, ctx, firstOfRun }: { m: Msg; ctx: Ctx; firstOfRun: 
             {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltAvatar(w?.creature || "raccoon", ctx.person(w?.owner).color)} />; })}
           </span>}
         </div>
+        {footer}
       </div>
     </div>
   );

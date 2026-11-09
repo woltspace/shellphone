@@ -6,7 +6,7 @@ import { Message, type Ctx } from "./Message";
 import { say, send, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
-import { ThreadLine, ThreadList, threadColor, threadTitle, unread, useSeen } from "./Threads";
+import { ThreadFooter, ThreadList, threadColor, threadTitle, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { ChevronLeft, Menu as MenuIcon, MessagesSquare, X } from "lucide-react";
 import { usePush } from "./push";
@@ -107,21 +107,19 @@ function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
     {list.map((m, i) => {
       const d = new Date(m.at * 1000), day = d.toLocaleDateString([], { day: "numeric", month: "long" });
       const who = m.kind === "human" ? m.email! : "wolt:" + m.wolt, newDay = day !== lastDay;
-      const thread = replies?.get(m.id) || [], mine = m.kind === "human" && m.email === ctx.me;
+      const thread = replies?.get(m.id) || [];
       const run = newDay || who !== lastWho;
-      lastDay = day; lastWho = thread.length ? "" : who;  // a thread line breaks the run, so the next bubble shows its name
-      const side = `px-2.5 ${mine ? "pr-[46px] text-right" : "pl-[46px]"}`;
+      lastDay = day; lastWho = thread.length ? "" : who;  // a thread breaks the run, so the next bubble shows its name
       return <div key={m.cid || m.id} data-mid={m.id}>
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
         <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
           onClick={(e) => { if (open && !m.pending && !m.failed && !(e.target as HTMLElement).closest("button,a,audio,video,img,[data-tap]")) open(m.id); }}>
-          <Message m={m} ctx={ctx} firstOfRun={run} />
+          <Message m={m} ctx={ctx} firstOfRun={run} footer={thread.length > 0 && open ?
+            <ThreadFooter list={thread} fresh={unread(thread, seen?.[m.id], ctx.me)} ctx={ctx} onOpen={() => open(m.id)} /> : undefined} />
         </div>
         {divider !== undefined && i === 0 && <div className="flex items-center gap-2.5 px-3.5 my-3 font-mono text-[11px] text-dim">
           <span>{divider} {divider === 1 ? "reply" : "replies"}</span><span className="flex-1 h-px bg-line" /></div>}
-        {thread.length > 0 && open && <div className={side}>
-          <ThreadLine root={m} list={thread} fresh={unread(thread, seen?.[m.id], ctx.me)} onOpen={() => open(m.id)} /></div>}
       </div>;
     })}
     <Gnaw ctx={ctx} working={working} />
