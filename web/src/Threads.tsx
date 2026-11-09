@@ -20,7 +20,7 @@ export const threadColor = (id: string) => COLORS[[...id].reduce((h, c) => (h * 
 export function threadTitle(m?: Msg) {
   if (!m) return "thread";
   const words = (m.text || "").replace(/\s+/g, " ").replace(/^(@[\w-]+[\s,:]*)+/, "").trim().split(" ").filter(Boolean);
-  if (!words.length) return m.file ? m.file.name : "Voice note";
+  if (!words.length) return m.files?.length ? m.files[0].name : "Voice note";
   return words.slice(0, 6).join(" ") + (words.length > 6 ? "…" : "");
 }
 
@@ -61,7 +61,7 @@ export function ThreadLine({ root, list, fresh, onOpen }: { root: Msg; list: Msg
   </button>;
 }
 
-const preview = (m: Msg) => (m.text || (m.file ? "📎 " + m.file.name : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
+const preview = (m: Msg) => (m.text || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
 
 // Every thread in the room: ones with replies you haven't seen first, then the most recently active.
 export function ThreadList({ roots, replies, ctx, seen, onOpen, onClose }: {

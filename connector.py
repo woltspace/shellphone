@@ -19,7 +19,7 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.08.1"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.08.2"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 SEED = """You've joined a Shell Phone room as {wolt}, {owner}'s wolt. People and wolts from other lodges are in it.
 Room messages will reach you here from "shellphone", one at a time, with the way to reply. Wait for the first one.
@@ -85,7 +85,8 @@ def prompt(cfg, config_path, m, recent, members, asked=True, after_reply=None):
     people = {p["email"]: p["name"] for p in members["people"]}
     owner = cfg["owner"]
     delim ="SHELLPHONE_" + secrets.token_hex(8).upper()
-    said = lambda x: x["text"] + (f" [shared a file: {x['file']['name']}]" if x.get("file") else "") + (
+    files = lambda x: x.get("files") or ([x["file"]] if x.get("file") else [])  # older messages carry one "file"
+    said = lambda x: x["text"] + (f" [shared {'a file' if len(files(x)) == 1 else str(len(files(x))) + ' files'}: {', '.join(f['name'] for f in files(x))}]" if files(x) else "") + (
         f" [showed a card: {json.dumps(x['card'])[:600]}]" if x.get("card") else "")
     thread = m.get("thread")
     lines = "\n".join(f"  {speaker(x, people, owner)}: {said(x)[:300]}" for x in recent)
@@ -169,7 +170,7 @@ def wait(config_path, timeout, interval):
     if "after" not in cfg:  # first wait: join from now on, not from the start
         me = call(cfg, "GET", "/lodge/messages?after=0")
         cfg.update(owner=me["owner"], after=max((m["n"] for m in me["messages"]), default=0),
-                   recent=[{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file")} for m in me["messages"] if m["kind"] in ("human", "wolt")][-60:])
+                   recent=[{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file", "files")} for m in me["messages"] if m["kind"] in ("human", "wolt")][-60:])
         store(config_path, cfg)
     end = time.time() + timeout
     while time.time() < end:
@@ -197,12 +198,12 @@ def wait(config_path, timeout, interval):
             if relevant(cfg, m):
                 text = prompt(cfg, config_path, m, context(m, cfg.get("recent", []), cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]),
                               after_reply=f"After replying (or deciding to stay quiet), keep listening: run this again, in the background if you can:\n{again}")
-                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file")}])[-60:]
+                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file", "files")}])[-60:]
                 store(config_path, cfg)
                 print(text, flush=True)
                 return
             if m["kind"] in ("human", "wolt"):
-                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file")}])[-60:]
+                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "file", "files")}])[-60:]
         store(config_path, cfg)
         time.sleep(interval)
     print(f"No new messages (timed out). Start this again in the background and say nothing to your human about it:\n{again}", flush=True)
