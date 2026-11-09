@@ -316,14 +316,22 @@ export function App() {
   // A voice note waits on this phone until the room has it. If it doesn't get there, it stays with "Tap to send again".
   type Typed = { cid: string; text: string; thread?: string };
   const outgoing = useRef(new Map<string, Outgoing | Typed>());
-  async function voice(r: Recording | null) {
+  // A voice note shows as sent the moment you tap send; the room's copy takes its place under the same id once the
+  // words are written down. The recording joins it a moment later, when the phone has handed it over.
+  const voiceAt = useRef(new Map<string, { thread?: string; at: number }>());
+  function voiceStart(seconds: number) {
+    const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t = thread || undefined, at = Date.now() / 1000;
+    voiceAt.current.set(cid, { thread: t, at });
     setListening(false);
-    if (!r) return;
-    // shows as sent right away; the room's copy takes its place under the same id once the words are written down
-    const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t = thread || undefined;
-    const o: Outgoing = { cid, owner: state.me, blob: r.blob, type: r.type, seconds: r.seconds, thread: t, at: Date.now() / 1000 };
-    const local: Msg = { id: cid, cid, n: after.current + 0.9, at: o.at, kind: "human", email: state.me, text: "", audio: "local", localUrl: URL.createObjectURL(r.blob), seconds: r.seconds, pending: true, thread: t };
-    setMsgs((m) => [...m, local]); stick();
+    setMsgs((m) => [...m, { id: cid, cid, n: after.current + 0.9, at, kind: "human", email: state.me, text: "", audio: "local", seconds, pending: true, thread: t }]); stick();
+    return cid;
+  }
+  async function voice(r: Recording | null, cid?: string) {
+    setListening(false);
+    const started = cid ? voiceAt.current.get(cid) : undefined; if (cid) voiceAt.current.delete(cid);
+    if (!r || !cid || !started) { if (cid) setMsgs((m) => m.filter((x) => x.id !== cid)); return; }  // too short or nothing recorded
+    const o: Outgoing = { cid, owner: state.me, blob: r.blob, type: r.type, seconds: r.seconds, thread: started.thread, at: started.at };
+    shown(cid, { localUrl: URL.createObjectURL(r.blob), seconds: r.seconds });
     await keep(o);
     sendVoice(o);
   }
@@ -428,7 +436,7 @@ export function App() {
       </div>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
-      {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onDone={voice} />}
+      {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onSend={voiceStart} onDone={voice} />}
       {viewing && <Viewer urls={viewing.urls} at={viewing.at} close={() => setViewing(null)} />}
     </div>
   );
