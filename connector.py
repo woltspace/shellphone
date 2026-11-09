@@ -165,10 +165,10 @@ def keyed():
     return bool(found) and (int(found.group(1)), int(found.group(2))) >= (0, 6)
 
 
-def deliver(cfg, config_path, m, recent, members, asked=True, key=False):
-    text = prompt(cfg, config_path, m, recent, members, asked)
+def deliver(cfg, text, m, key=False):
+    """Hand the wolt one message's prompt. A retry sends the very same text (and, on 0.6, the same key: room, wolt, message)."""
     room = urllib.parse.urlparse(cfg["room_url"]).netloc
-    sent = subprocess.run(["woltspace", "session", "send", cfg["session"], "--from", "shellphone", *(["--key", f"shellphone:{room}:{m['id']}"] if key else [])],
+    sent = subprocess.run(["woltspace", "session", "send", cfg["session"], "--from", "shellphone", *(["--key", f"shellphone:{room}:{cfg['wolt']}:{m['id']}"] if key else [])],
                           input=text, text=True, capture_output=True)
     if sent.returncode:
         print(f"couldn't reach {cfg['session']}: {sent.stderr.strip()}", flush=True)
@@ -247,6 +247,7 @@ def run(config_path, interval):
     print(f"{cfg['wolt']} is in the room, watching from message {cfg['after']}", flush=True)
     history = [m for m in me["messages"] if m["kind"] in ("human", "wolt")][-500:]
     retry_at, fails, key = 0, 0, keyed()
+    held, told = {}, None  # the prompt being retried; what the room last heard about whether we reach the wolt (None: not yet, so say it once)
     while True:
         try:
             got = call(cfg, "GET", f"/lodge/messages?after={cfg['after']}")
@@ -260,21 +261,26 @@ def run(config_path, interval):
             for m in got["messages"]:
                 # the marker only moves past a message once Woltspace took it: one that didn't get through is tried
                 # again, in order, waiting longer each time; after 5 tries the room shows the wolt can't be reached
-                if relevant(cfg, m) and not deliver(cfg, config_path, m, context(m, history, cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]), key):
-                    fails += 1
-                    if fails == 5:
-                        call(cfg, "POST", "/lodge/reach", {"ok": False})
-                    break
-                if fails >= 5:
-                    call(cfg, "POST", "/lodge/reach", {"ok": True})
-                fails = 0
+                if relevant(cfg, m):
+                    if held.get("id") != m["id"]:
+                        held = {"id": m["id"], "text": prompt(cfg, config_path, m, context(m, history, cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]))}
+                    if not deliver(cfg, held["text"], m, key):
+                        fails += 1
+                        break
+                    held, fails = {}, 0
                 cfg["after"] = m["n"]
                 if m["kind"] in ("human", "wolt"):
                     history = (history + [m])[-500:]
             store(config_path, cfg)
         except Exception as exc:
             print(f"room unreachable, trying again: {exc}", flush=True)
-        time.sleep(min(60, interval * 2 ** fails))
+        try:  # the room's "can't reach" sign follows the failures, and is set right again after a restart or a lost report
+            if told != (fails < 5):
+                call(cfg, "POST", "/lodge/reach", {"ok": fails < 5})
+                told = fails < 5
+        except Exception as exc:
+            print(f"couldn't tell the room: {exc}", flush=True)
+        time.sleep(min(60, interval * 2 ** min(fails, 6)))
 
 
 def main():
@@ -294,7 +300,7 @@ def main():
     s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("working"); s.add_argument("--config", default="lodge.json"); s.add_argument("--off", action="store_true")
     s = sub.add_parser("history"); s.add_argument("--config", default="lodge.json")
-    s.add_argument("--thread", help="the whole thread hanging off this message id"); s.add_argument("--last", type=int, default=30, help="the main chat's last N messages")
+    s.add_argument("--thread", help="the whole thread hanging off this message id"); s.add_argument("--last", type=lambda v: max(1, min(500, int(v))), default=30, help="the main chat's last N messages")
     sub.add_parser("version")
     a = ap.parse_args()
     if a.cmd == "version":

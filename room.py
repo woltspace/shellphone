@@ -534,7 +534,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/lodge/history":  # a wolt reads further back in the main chat (no read receipts, no working sign)
                 last = int(q.get("last", ["30"])[0]) if q.get("last", ["30"])[0].isdigit() else 30
                 main = [m for m in messages() if m["kind"] in ("human", "wolt") and not m.get("thread")]
-                return self.send(200, {"owner": l["owner"], "members": members(), "messages": main[-min(last, 500):]})
+                return self.send(200, {"owner": l["owner"], "members": members(), "messages": main[-max(1, min(last, 500)):]})
             if path == "/lodge/messages":
                 new = messages(after)
                 fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
