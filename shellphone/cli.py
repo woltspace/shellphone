@@ -84,6 +84,8 @@ def room(a):
     port = free_port(a.port)
     url = f"http://127.0.0.1:{port}"
     os.environ.update(SHELLPHONE_DATA=str(data), SHELLPHONE_URL=url)  # read by room.py when it loads
+    if (HERE / "room.py").is_file():  # installed as a package: there's no checkout to ask git about (and maybe no git)
+        os.environ.setdefault("SHELLPHONE_REF", "main")
     r = part("room")
     with contextlib.redirect_stdout(io.StringIO()):
         r.add_person(HOST_EMAIL, a.name)

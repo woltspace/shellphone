@@ -19,8 +19,8 @@ def run(*args, cwd, stdin=None):
 
 class Room:
     """A room in its own process, as `shellphone room` starts it."""
-    def __init__(self, *args):
-        self.proc = subprocess.Popen([*CLI, "room", "--port", "0", *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=ENV)
+    def __init__(self, *args, env=None):
+        self.proc = subprocess.Popen([*CLI, "room", "--port", "0", *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env or ENV)
         self.banner = ""
         while "Press Ctrl-C" not in self.banner:
             line = self.proc.stdout.readline()
@@ -60,8 +60,8 @@ class FrontDoor(unittest.TestCase):
                 r.proc.communicate()
         self.tmp.cleanup()
 
-    def room(self, *args):
-        self.rooms.append(Room(*args))
+    def room(self, *args, **kw):
+        self.rooms.append(Room(*args, **kw))
         return self.rooms[-1]
 
     def data_dir(self, room):
@@ -142,6 +142,11 @@ class FrontDoor(unittest.TestCase):
             got = run("join", link, "--name", "helper", cwd=work)
             self.assertNotEqual(got.returncode, 0, link)
             self.assertFalse((work / "shellphone").exists(), link)
+
+    def test_a_room_opens_on_a_computer_with_no_git(self):
+        r = self.room(env={**ENV, "PATH": self.tmp.name})  # nothing on the path at all
+        self.assertEqual(r.browser.open(r.open).status, 200)
+        self.assertIn("Room closed and deleted.", r.close())
 
     def test_closing_deletes_the_room(self):
         for sig in (signal.SIGINT, signal.SIGTERM):
