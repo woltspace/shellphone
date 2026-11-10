@@ -4,3 +4,5 @@ lodges/
 __pycache__/
 *-invite.txt
 .access.env
+.venv/
+uv.lock

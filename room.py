@@ -32,6 +32,7 @@ TTS_MODEL = os.environ.get("SHELLPHONE_TTS_MODEL", "pocket")
 SPEECH_KEY = os.environ.get("SHELLPHONE_SPEECH_KEY", "")  # for a hosted speech service; sent as a Bearer token
 LOCK = threading.RLock()
 DEV = False
+LOCAL = {}  # `shellphone room` (a room on this computer only): login token -> email. The token comes in the link the host opens.
 # Behind Cloudflare Access: the team domain and the Access app's audience tag. With both set, people must carry a valid Access login.
 ACCESS_TEAM = os.environ.get("SHELLPHONE_ACCESS_TEAM", "")
 ACCESS_AUD = os.environ.get("SHELLPHONE_ACCESS_AUD", "")
@@ -482,7 +483,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def person(self):
         """Behind Cloudflare Access the email comes from Access. In --dev, ?as= or a cookie picks who you are."""
-        if ACCESS_TEAM and ACCESS_AUD:  # trust the signed login, not a header anyone on this computer could send
+        if LOCAL:  # a room on this computer only: the link's token says who you are, never a header or an address
+            email = LOCAL.get(self.local_token(), "") if self.local_host() else ""
+        elif ACCESS_TEAM and ACCESS_AUD:  # trust the signed login, not a header anyone on this computer could send
             email = access_email(self.headers.get("Cf-Access-Jwt-Assertion") or "")
         else:
             email = (self.headers.get("Cf-Access-Authenticated-User-Email") or "").lower()
@@ -493,6 +496,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.seen = email
         found = find_person(email)
         return (found, people()[found]) if found else (None, None)
+
+    def local_host(self):
+        """Only this computer's own address counts, so another site can't point a name of its own at the room."""
+        return (self.headers.get("Host") or "").rsplit(":", 1)[0] in ("127.0.0.1", "localhost")
+
+    def local_token(self):
+        """The token from the link (?k=), or from the cookie the first visit left. One cookie per port: rooms don't mix."""
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        cookie = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+        return q.get("k", [""])[0] or cookie.get(f"sp{self.server.server_address[1]}", "")
 
     def bearer(self):
         auth = self.headers.get("Authorization") or ""
@@ -537,6 +550,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
                                        "connector": connector_version()})
             return self.send(404, {"error": "not found"})
+        if LOCAL and path == "/" and q.get("k") and self.local_host() and q["k"][0] in LOCAL:
+            self.send_response(303)  # keep the token in a cookie and out of the address bar
+            self.send_header("Set-Cookie", f"sp{self.server.server_address[1]}={q['k'][0]}; Path=/; HttpOnly; SameSite=Strict")
+            self.send_header("Location", "/")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            return self.end_headers()
         email, p = self.person()
         app_files = {"/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript; charset=utf-8",
                      "/icon-180.png": "image/png", "/icon-512.png": "image/png", "/room-icon.png": "image/png"}
