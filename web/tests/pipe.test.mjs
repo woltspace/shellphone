@@ -90,6 +90,29 @@ test("an answer counts once, and only for a request still waiting", async () => 
   pipe.close();
 });
 
+test("the room's news reaches the page, and only the room can send it", async () => {
+  const w = world();
+  const pipe = open(LINK, { WebSocket: w.WebSocket, ...FAST });
+  let news = 0;
+  const off = pipe.onNews(() => news++);
+  await pipe.request("GET", "/a");
+  const sock = w.sockets[0], note = await sock.session.seal({ t: "news" });
+  sock.deliver(note);
+  await tick();
+  assert.equal(news, 1);
+  sock.deliver(note);  // the relay repeats it: dropped, like any frame seen before
+  sock.deliver(JSON.stringify({ t: "news" }));  // or makes one up
+  sock.deliver("news");
+  await tick();
+  assert.equal(news, 1);
+  assert.equal((await pipe.request("GET", "/b")).body.echo, "/b");  // answers still find their requests around a note
+  off();
+  sock.deliver(await sock.session.seal({ t: "news" }));
+  await tick();
+  assert.equal(news, 1);  // no longer listening
+  pipe.close();
+});
+
 test("a long answer arrives in parts and is put back together", async () => {
   const big = { messages: Array.from({ length: 5 }, (_, i) => ({ n: i, text: "héllo 🐚 ".repeat(900) })) };
   const bytes = new TextEncoder().encode(JSON.stringify({ status: 200, body: big })), parts = [];

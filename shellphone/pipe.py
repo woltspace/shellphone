@@ -5,6 +5,9 @@
 
 A request is {"t":"req","id":n,"method","path","body","auth"} and its answer {"t":"res","id":n,"status","body"},
 both sealed (seal.py). The relay only ever sees the sealed form.
+
+The room also tells its clients when something changed, with a sealed {"t":"news"}: a page fetches then, instead of
+asking every other second. A room where nothing happens sends nothing, and the relay can let it sleep.
 """
 import base64, json, threading, time
 
@@ -19,6 +22,7 @@ FRAMES_PER_SECOND = 200       # how fast the host hands frames to the relay, acr
 MAX_BAD = 5            # frames that don't open or make no sense, before the client is turned away
 PER_SECOND = 20        # requests a client may make, on average
 BURST = 40
+NEWS_EVERY = 0.5       # seconds between two "something changed" notes at the least, however much changes
 
 
 class Closed(Exception):
@@ -73,6 +77,17 @@ class HostPipe:
             except seal.SealError:
                 raise Closed("this session has sealed all it may") from None
 
+    def news(self):
+        """A sealed note that something in the room changed, or None for a client that isn't established yet.
+        Raises Closed when this session can't seal any more."""
+        with self._lock:  # sealed in turn with the answers, so the client gets frames in the order they were sealed
+            if self._session is None:
+                return None
+            try:
+                return self._session.seal({"t": "news"})
+            except seal.SealError:
+                raise Closed("this session has sealed all it may") from None
+
     def _frames(self, rid, status, body):
         """The sealed frames for one answer. Every one of them is short enough for the relay, whatever the answer holds."""
         text = json.dumps({"status": status, "body": body}, separators=(",", ":")).encode()  # ASCII: a character is a byte
@@ -104,21 +119,34 @@ class HostPipe:
             return 500, {"error": "the room couldn't answer"}
 
 
-def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, wait=(1, 2, 4, 8, 15, 30)):
+def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, wait=(1, 2, 4, 8, 15, 30), news=None):
     """Keep one connection to the relay (the room's `host` socket at `url`) until `stop` is set, reconnecting when it drops.
 
-    new_pipe() makes a HostPipe for each client the relay announces. on_state gets "up", "down" or "refused: ..."."""
+    new_pipe() makes a HostPipe for each client the relay announces. on_state gets "up", "down" or "refused: ...".
+    news is a threading.Event the room sets when something changed: every established client is then told, once."""
     if connect is None:
         from websockets.sync.client import connect  # only a shared room needs it
     tries = 0
     while not stop.is_set():
         try:
             with connect(url, additional_headers={"Authorization": f"Bearer {key}"} if key else {}, open_timeout=15, max_size=256 * 1024) as ws:
-                tries, pipes = 0, {}
+                tries, pipes, told = 0, {}, 0.0
                 on_state("up")
                 while not stop.is_set():
+                    if news is not None and news.is_set() and time.monotonic() - told >= NEWS_EVERY:
+                        news.clear()  # cleared before telling: a change made meanwhile sets it again and is told next
+                        told = time.monotonic()
+                        for cid, pipe in list(pipes.items()):
+                            try:
+                                note = pipe.news()
+                            except Closed:
+                                pipes.pop(cid, None)
+                                ws.send(json.dumps({"drop": cid}))
+                                continue
+                            if note:
+                                ws.send(json.dumps({"to": cid, "data": note}))
                     try:
-                        raw = ws.recv(timeout=1)
+                        raw = ws.recv(timeout=1 if news is None else 0.2)
                     except TimeoutError:
                         continue
                     try:
@@ -146,6 +174,8 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
                                 time.sleep(1 / FRAMES_PER_SECOND)
         except Exception as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status is None and not stop.is_set():  # why the connection went, for whoever reads the room's log later
+                print(f"the relay connection ended: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
             if status in (401, 409):  # not allowed to open rooms here, or this room already has a host: trying again won't help
                 on_state(f"refused: {'this relay is not open to new rooms yet' if status == 401 else 'this room already has a host'}")
                 return
