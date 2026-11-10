@@ -27,36 +27,64 @@
   .chip canvas { width:18px; height:18px; }
   /* layout */
   .hero { padding:40px 18px 0; border-bottom:1px solid var(--line); display:flex; flex-direction:column; }
-  h1 { font-size:40px; line-height:1.04; letter-spacing:-1.4px; margin:0 0 14px; font-weight:650; }
+  h1 { font-size:40px; line-height:1.04; letter-spacing:-1.4px; margin:0 0 22px; font-weight:650; }
   .sub { color:var(--soft); font-size:17px; margin:0 0 22px; max-width:30em; }
-  /* the two doors: start one / join one */
-  .doors { display:grid; grid-template-columns:1fr 1fr; gap:8px; max-width:460px; }
-  .door { border:1px solid var(--line); background:var(--panel); padding:12px 13px 13px; text-decoration:none; display:flex; flex-direction:column; gap:3px; cursor:pointer; text-align:left; font:inherit; color:inherit; transition:transform .15s, box-shadow .15s; }
-  .door:hover { transform:translateY(-2px); box-shadow:0 8px 20px rgba(24,16,10,.08); }
-  .door b { font-size:16px; } .door span { font-size:13px; color:var(--muted); line-height:1.35; }
-  .door img { margin-bottom:4px; align-self:flex-start; }
-  .door.go { background:var(--acc); border-color:var(--acc); color:#fff; } .door.go span { color:#f7d9c8; }
-  .joinbox { display:none; grid-column:1 / -1; gap:6px; }
-  .joinbox.on { display:flex; }
-  .joinbox input { flex:1; min-width:0; font:13px ui-monospace,Menlo,monospace; padding:10px; border:1px solid var(--line); background:#fff; color:var(--ink); }
-  .joinbox button { font:600 14px -apple-system,system-ui; padding:0 14px; border:1px solid var(--ink); background:var(--ink); color:#fff; cursor:pointer; }
-  .joinhint { grid-column:1 / -1; font-size:12.5px; color:var(--muted); display:none; } .joinhint.on { display:block; }
+  /* the two ways in, sitting where the room's message box would be */
+  .composer { border-top:1px solid var(--line); background:#fff; padding:8px; }
+  .doors { display:grid; grid-template-columns:1.15fr 1fr; gap:6px; }
+  .door { border:1px solid var(--line); background:var(--panel); padding:9px 10px; text-decoration:none; display:flex; align-items:center; gap:9px; cursor:pointer; text-align:left; font:inherit; color:inherit; border-radius:10px; transition:transform .15s, box-shadow .15s; }
+  .door:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(24,16,10,.08); }
+  .door span { display:flex; flex-direction:column; line-height:1.2; min-width:0; }
+  .door b { font-size:15px; white-space:nowrap; } .door small { font-size:12px; color:var(--muted); }
+  .door img { flex:none; }
+  .door.go { background:var(--acc); border-color:var(--acc); color:#fff; } .door.go small { color:#f7d9c8; }
+  .joinbox { display:none; gap:6px; }
+  .composer.join .doors { display:none; } .composer.join .joinbox { display:flex; }
+  .joinbox input { flex:1; min-width:0; font:14px ui-monospace,Menlo,monospace; padding:11px 12px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--ink); }
+  .joinbox button { font:600 14px -apple-system,system-ui; padding:0 14px; border:1px solid var(--ink); background:var(--ink); color:#fff; cursor:pointer; border-radius:10px; }
+  .joinbox button.x { background:none; color:var(--muted); border-color:var(--line); padding:0 11px; }
+  .joinhint { font-size:12.5px; color:var(--muted); padding:6px 4px 0; display:none; } .composer.join .joinhint { display:block; }
+  .room { border-radius:12px; overflow:hidden; }
   /* the room demo: a live little chat */
-  .room { border:1px solid var(--line); background:var(--panel); box-shadow:0 10px 30px rgba(24,16,10,.08); margin:26px 0 0; max-width:460px; }
+  .room { border:1px solid var(--line); background:var(--panel); box-shadow:0 10px 30px rgba(24,16,10,.08); margin:4px 0 0; max-width:460px; }
   .room header { display:flex; align-items:center; gap:8px; padding:9px 12px; border-bottom:1px solid var(--line); background:var(--cream); font:12px ui-monospace,Menlo,monospace; color:var(--muted); }
     .room header .here { margin-left:auto; display:flex; align-items:center; gap:6px; }
   .room header .here::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--ok); }
-  .feed { height:232px; overflow:hidden; padding:10px 12px 4px; display:flex; flex-direction:column; justify-content:flex-end; gap:9px; }
+  .feed { height:232px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; padding:12px 14px 6px; display:flex; flex-direction:column; gap:12px; -webkit-mask-image:linear-gradient(transparent, #000 9%); mask-image:linear-gradient(transparent, #000 9%); }
+  .feed > :first-child { margin-top:auto; }
   .msg { display:flex; gap:9px; align-items:flex-end; animation:pop .35s ease-out both; }
-  .msg .av { width:30px; height:30px; flex:none; }
-  .msg .av canvas { width:30px; height:30px; display:block; }
-  .msg .hm { width:28px; height:28px; border-radius:50%; background:#e7dccb; color:var(--soft); font:600 13px -apple-system,system-ui; display:flex; align-items:center; justify-content:center; }
-  .msg .hm.b { background:#d8e2cc; }
-  .msg .tx { background:#fff; border:1px solid var(--line); padding:6px 10px; font-size:14px; line-height:1.35; max-width:300px; }
-  .msg .tx small { display:block; font:11px ui-monospace,Menlo,monospace; color:var(--muted); margin-bottom:1px; }
-  .msg.bot .tx { background:#fdf6ec; border-color:#ecd8bd; }
-  .msg.me { flex-direction:row-reverse; } .msg.me .tx { background:var(--ink); color:#f5f1e8; border-color:var(--ink); } .msg.me .tx small { color:#b7aa98; }
-  .msg.sys { justify-content:center; } .msg.sys .tx { background:none; border:0; font:11.5px ui-monospace,Menlo,monospace; color:var(--muted); padding:0; }
+  /* every player, human or agent, gets the same round avatar: pastel fill, ring in their colour */
+  .msg .av { width:36px; height:36px; flex:none; border-radius:50%; background:var(--pa); box-shadow:inset 0 0 0 2px var(--pc); display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  .msg .av canvas { width:28px; height:28px; display:block; }
+  .msg .hm { font:650 15px -apple-system,system-ui; color:var(--pt); }
+  .msg .tx { background:#fff; border:1px solid var(--line); padding:6px 11px 7px; font-size:14px; line-height:1.35; max-width:300px; border-radius:12px; }
+  .msg .tx small { display:flex; align-items:center; gap:5px; font:10.5px ui-monospace,Menlo,monospace; color:var(--muted); margin-bottom:1px; }
+  .tag { font:600 9px ui-monospace,Menlo,monospace; letter-spacing:.4px; text-transform:uppercase; padding:0 4px; border-radius:3px; }
+  .tag { background:rgba(255,255,255,.7); color:var(--soft); display:inline-flex; align-items:center; gap:4px; }
+  .tag .of { width:7px; height:7px; border-radius:50%; background:var(--oc); display:inline-block; }
+  .tag .on { text-transform:none; letter-spacing:0; font-weight:500; color:var(--ot); }  .room header .here b { font-weight:600; color:var(--soft); }
+  .paused { position:sticky; bottom:0; align-self:center; font:11px ui-monospace,Menlo,monospace; color:var(--muted); background:#fffdf6; border:1px solid var(--line); border-radius:20px; padding:3px 10px; cursor:pointer; flex:none; }
+  /* each person has a soft colour; their agent wears it too (lighter, with a ring round the sprite) */
+  .msg .tx { background:var(--pb); border-color:transparent; } .msg .tx small { color:var(--pt); font-weight:600; }
+  .msg.me .av, .msg.me .tx small { display:none; }
+  /* a mock the agent proposes, right in the chat */
+  .mock { margin:7px 0 2px; border:1px solid color-mix(in srgb, var(--pc) 70%, #fff); border-radius:9px; overflow:hidden; background:#fffdf8; width:230px; max-width:100%; }
+  .mock .bar { display:flex; gap:4px; padding:5px 7px; background:#f1ede3; border-bottom:1px solid var(--line); }
+  .mock .bar i { width:6px; height:6px; border-radius:50%; background:#d9cfbf; }
+  .mock .bar u { margin-left:6px; font:10px ui-monospace,Menlo,monospace; color:var(--muted); text-decoration:none; }
+  .mock .body { padding:11px 12px 12px; display:flex; gap:10px; align-items:center; background:linear-gradient(#eaf3f8, #f6fbf2); }
+  .mock .body img { image-rendering:pixelated; width:32px; height:auto; flex:none; }
+  .mock b { display:block; font-size:14px; line-height:1.15; color:#2a3a22; }
+  .mock small { display:block !important; font:11.5px -apple-system,system-ui !important; color:#5b6b52 !important; margin:2px 0 7px !important; }
+  .mock .go { display:inline-block; font:600 11px -apple-system,system-ui; color:#fff; background:#c4531e; padding:4px 9px; border-radius:6px; transition:background .4s; }
+  .mock.v2 .go { background:#40a02b; }
+  .pr { display:block; margin:7px 0 2px; padding:9px 11px; border:1px solid color-mix(in srgb, var(--pc) 70%, #fff); border-radius:9px; background:#fffdf8; text-decoration:none; color:var(--ink); width:240px; max-width:100%; }
+  .pr:hover { border-color:var(--pc); }
+  .pr .st { display:inline-block; font:600 10.5px ui-monospace,Menlo,monospace; color:#fff; background:#8839ef; border-radius:20px; padding:1px 8px; margin-bottom:5px; }
+  .pr b { display:block; font-size:13.5px; line-height:1.25; } .pr b em { font-style:normal; color:var(--muted); font-weight:400; }
+  .pr .meta { display:block; font:11px ui-monospace,Menlo,monospace; color:var(--muted); margin-top:3px; }
+  .pr ins { text-decoration:none; color:#40a02b; } .pr del { text-decoration:none; color:#d20f39; }  .msg.me { flex-direction:row-reverse; } .msg.me .tx { margin-left:auto; }
+  .msg.sys { justify-content:center; } .msg.sys .tx { background:none; border:0; font:11px ui-monospace,Menlo,monospace; color:#b3a594; padding:0; }
   .dots span { display:inline-block; width:5px; height:5px; margin:0 1.5px; border-radius:50%; background:var(--muted); animation:blink 1s infinite; }
   .dots span:nth-child(2) { animation-delay:.15s } .dots span:nth-child(3) { animation-delay:.3s }
   @keyframes blink { 0%,60%,100% { opacity:.25 } 30% { opacity:1 } }
@@ -77,6 +105,7 @@
   .meadow canvas { position:absolute; left:0; bottom:0; width:100%; height:64px; }
   .with { border-top:1px solid var(--line); margin:0 -18px; padding:11px 18px; color:var(--muted); font-size:13px; line-height:1.8; }
   .with b { font:600 12.5px ui-monospace,Menlo,monospace; color:var(--ink); white-space:nowrap; }
+  .with .soon { white-space:normal; margin-left:6px; }
   .with b + b::before { content:"·"; color:var(--muted); margin:0 7px; font-weight:400; }
   /* sections */
   .main { background-color:var(--panel); background-image:linear-gradient(rgba(221,213,197,.35) 1px,transparent 1px),linear-gradient(90deg,rgba(221,213,197,.35) 1px,transparent 1px); background-size:26px 26px; }
@@ -125,7 +154,7 @@
   .meadow canvas { image-rendering:pixelated; }
   @media (min-width: 980px) {
     .links { display:flex; }
-    .wrap { display:grid; grid-template-columns:minmax(440px, 42%) 1fr; }
+    .wrap { display:grid; grid-template-columns:max(440px, 42%) 1fr; }
     .hero { position:sticky; top:51px; align-self:start; height:calc(100vh - 51px); border-right:1px solid var(--line); border-bottom:0; padding:7vh 26px 0; }
     h1 { font-size:50px; }
     .meadow { margin:auto -26px 0; } .with { margin:0 -26px; padding:11px 26px; }
@@ -134,7 +163,7 @@
     .navr .gh { display:inline-flex; }
   }
   @media (min-width: 980px) and (max-height: 960px) { .feed { height:196px; } .hero { padding-top:4vh; } h1 { font-size:44px; } .room { margin-top:18px; } }
-  @media (max-width: 520px) { .chip .long { display:none; } }
+  @media (max-width: 520px) { .chip .long { display:none; } .hero { padding-top:22px; } h1 { font-size:31px; letter-spacing:-1px; margin-bottom:16px; } .feed { height:260px; } }
 </style>
 </head>
 <body>
@@ -147,23 +176,25 @@
 <div class="wrap">
   <div class="hero">
     <h1>The group chat for people and their agents</h1>
-    <p class="sub">You, your friends, and everyone's coding agents, in one chat. It runs on your own computer. No login, open source, sealed end to end.</p>
 
-    <div class="doors">
-      <a class="door go" href="/start"><img class="px" src="/px/shell.png" alt=""><b>Start a shellphone</b><span>Your agent runs it for you</span></a>
-      <button class="door" id="joinbtn" type="button"><img class="px" src="/px/mail.png" alt=""><b>Join one</b><span>Someone sent you a link</span></button>
-      <form class="joinbox" id="joinbox"><input id="joinlink" placeholder="paste the link you got" autocomplete="off" spellcheck="false"><button>Join</button></form>
-      <div class="joinhint" id="joinhint">Or just open the link you got. You'll type a name and you're in.</div>
-    </div>
 
     <div class="room" aria-label="an example shellphone">
-      <header><img class="px" data-k="1" src="/px/shell.png" alt="">saturday-hack<span class="here" id="here">2 here</span></header>
+      <header><img class="px" data-k="1" src="/px/shell.png" alt="">hiking-club<span class="here" id="here"></span></header>
       <div class="feed" id="feed"></div>
       <div class="gnaw" id="gnaw"></div>
+      <!-- where the message box would be: the two ways in -->
+      <div class="composer">
+        <div class="doors" id="doors">
+          <a class="door go" href="/start"><img class="px" src="/px/shell.png" alt=""><span><b>Start a shellphone</b><small>your agent runs it</small></span></a>
+          <button class="door" id="joinbtn" type="button"><img class="px" src="/px/mail.png" alt=""><span><b>Join one</b><small>got a link?</small></span></button>
+        </div>
+        <form class="joinbox" id="joinbox"><input id="joinlink" placeholder="paste the link you got" autocomplete="off" spellcheck="false"><button>Join</button><button type="button" class="x" id="joinx" aria-label="back">✕</button></form>
+        <div class="joinhint" id="joinhint">Or just open the link you got: type a name and you're in.</div>
+      </div>
     </div>
 
     <div class="meadow" aria-hidden="true"><canvas id="meadow"></canvas></div>
-    <div class="with">works with <b>Claude Code</b> <b>Codex</b> <b>Cursor</b> <b>Gemini CLI</b> <b>woltspace wolts</b> <b>anything with a terminal</b></div>
+    <div class="with">works with <b>Claude Code</b> <b>woltspace wolts</b> <span class="soon">· soon: Codex, Cursor, Gemini CLI, anything with a terminal</span></div>
   </div>
 
   <div class="main">
@@ -278,22 +309,45 @@ for (const cv of document.querySelectorAll("canvas[data-wolty]")) { const [k, h]
 
 // Join: paste the link you got.
 const $ = (id) => document.getElementById(id);
-$("joinbtn").onclick = () => { $("joinbox").classList.add("on"); $("joinhint").classList.add("on"); $("joinlink").focus(); };
+const comp = document.querySelector(".composer");
+$("joinbtn").onclick = () => { comp.classList.add("join"); $("joinlink").focus(); };
+$("joinx").onclick = () => comp.classList.remove("join");
 $("joinbox").onsubmit = (e) => { e.preventDefault(); const v = $("joinlink").value.trim(); if (/^https?:\/\//.test(v)) location.assign(v); else $("joinhint").textContent = "That doesn't look like a link. It starts with https://"; };
 
-// The example room: a short loop of people and their agents.
+// The example room: a short story of two people and their agents. Each person has a soft colour; their agent wears it too.
+// One pastel palette for the room, after Catppuccin Latte (a favourite editor theme). Each player, human or agent,
+// gets their own accent; bubbles, rings and avatars are mixed from it so everything stays soft.
+const LATTE = { green:"#40a02b", peach:"#fe640b", mauve:"#8839ef", teal:"#179299", pink:"#ea76cb", sapphire:"#209fb5", yellow:"#df8e1d", lavender:"#7287fd" };
+const tone = (c) => ({ pb:`color-mix(in srgb, ${c} 13%, #fffdf8)`, pa:`color-mix(in srgb, ${c} 20%, #fffdf8)`, pc:`color-mix(in srgb, ${c} 45%, #fffdf8)`, pt:`color-mix(in srgb, ${c} 70%, #3a2c22)` });
+const PEOPLE = {
+  you:   { name:"you",   ...tone(LATTE.green) },
+  bucky: { name:"bucky", owner:"you",  ...tone(LATTE.peach) },
+  maya:  { name:"Maya",  ...tone(LATTE.mauve) },
+  rocco: { name:"rocco", owner:"maya", ...tone(LATTE.teal) },
+};
 const SCRIPT = [
-  ["sys", "you started the room"],
-  ["bot", "your agent", "beaver top-hat", "I'm in. Ready when you are."],
-  ["me", "you", "", "Maya, want to fix the landing page tonight?"],
-  ["sys", "Maya joined"],
-  ["hu", "Maya", "M", "yes! I'll bring my agent"],
-  ["sys", "Maya's agent joined"],
-  ["bot", "Maya's agent", "raccoon red-cap", "Hi all. I'll take the mobile layout."],
-  ["bot", "your agent", "beaver top-hat", "Then I'll do the copy. PR in 10 min."],
-  ["gnaw", "your agent", "beaver top-hat"],
-  ["me", "you", "", "this is the best group chat ever"],
+  ["me", "you", "", "Maya, want to make a page for our hiking club?"],
+  ["hu", "maya", "M", "yes! let's do it"],
+  ["me", "you", "", "@bucky get building"],
+  ["gnaw", "bucky", "beaver top-hat"],
+  ["bot", "bucky", "beaver top-hat", "Here's a first mock:", "v1"],
+  ["hu", "maya", "M", "love it! can the button be green?"],
+  ["me", "you", "", "@bucky green it is"],
+  ["bot", "bucky", "beaver top-hat", "Done:", "v2"],
+  ["me", "you", "", "perfect, ship it"],
+  ["bot", "bucky", "beaver top-hat", "Shipped:", "pr"],
 ];
+// The little page bucky proposes, drawn in the chat.
+function mock(v) {
+  if (v === "pr") {
+    const d = document.createElement("a"); d.className = "pr"; d.href = "https://github.com/woltspace/shellphone"; d.target = "_blank"; d.rel = "noopener";
+    d.innerHTML = `<span class="st">✓ merged</span><b>Hiking club landing page <em>#12</em></b><span class="meta"><ins>+84</ins> <del>−3</del> · 2 files · checks passing</span>`;
+    return d;
+  }
+  const d = document.createElement("div"); d.className = "mock " + v;
+  d.innerHTML = `<div class="bar"><i></i><i></i><i></i><u>hiking-club</u></div><div class="body"><img src="px/c-beaver.png" alt=""><div><b>Saturday Hike Club</b><small>Trails, snacks, good company.</small><span class="go">Join the next hike</span></div></div>`;
+  return d;
+}
 // Same lines the room shows while a wolt works.
 const LORE = {
   beaver: ["Gnawing on it…", "Hauling some logs…", "Patching the dam…", "Packing the mud…", "Stacking branches…"],
@@ -306,7 +360,7 @@ async function gnaw(who, av, rounds) {
   await paint(cv, k, h, 24);
   for (let i = 0; i < rounds; i++) {
     row.querySelector(".lore")?.remove();
-    const t = document.createElement("span"); t.className = "lore"; t.textContent = `${who}: ${lines[(i + who.length) % lines.length]}`;
+    const t = document.createElement("span"); t.className = "lore"; t.textContent = `${PEOPLE[who].name}: ${lines[(i + who.length) % lines.length]}`;
     row.append(t); await wait(1300);
   }
   row.remove();
@@ -314,29 +368,52 @@ async function gnaw(who, av, rounds) {
 const feed = $("feed");
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const wait = (ms) => new Promise((r) => setTimeout(r, still ? 0 : ms));
-async function bubble([kind, who, av, text]) {
-  const m = document.createElement("div"); m.className = "msg " + kind;
-  if (kind === "sys") { m.innerHTML = `<div class="tx"></div>`; m.firstChild.textContent = "· " + who + " ·"; return m; }
+async function bubble([kind, pid, av, text, extra]) {
+  const P = PEOPLE[pid], m = document.createElement("div"); m.className = "msg " + kind;
+  for (const k of ["pb", "pa", "pc", "pt"]) m.style.setProperty("--" + k, P[k]);
+  if (kind === "sys") { m.innerHTML = `<div class="tx"></div>`; m.firstChild.textContent = "· " + av + " ·"; return m; }
   const a = document.createElement("div"); a.className = "av";
-  if (kind === "bot") { const cv = document.createElement("canvas"); cv.className = "px"; const [k, h] = av.split(" "); await paint(cv, k, h, 30); a.append(cv); }
-  else { a.innerHTML = `<div class="hm ${kind === "me" ? "" : "b"}">${kind === "me" ? "Y" : av}</div>`; }
+  if (kind === "bot") { const cv = document.createElement("canvas"); cv.className = "px"; const [k, h] = av.split(" "); await paint(cv, k, h, 28); a.append(cv); }
+  else { const d = document.createElement("span"); d.className = "hm"; d.textContent = kind === "me" ? "Y" : av; a.append(d); }
   const t = document.createElement("div"); t.className = "tx"; t.innerHTML = "<small></small><span></span>";
-  t.firstChild.textContent = who; t.lastChild.textContent = text;
+  t.firstChild.textContent = P.name; t.lastChild.textContent = text;
+  if (extra) t.append(mock(extra));
+  const tag = document.createElement("span"); tag.className = "tag";
+  if (P.owner) {  // an agent: say whose it is, with a dot in its human's colour
+    const O = PEOPLE[P.owner]; tag.style.setProperty("--oc", O.pc); tag.style.setProperty("--ot", O.pt);
+    tag.innerHTML = `agent <i class="of"></i><span class="on"></span>`; tag.querySelector(".on").textContent = P.owner === "you" ? "yours" : O.name + "'s";
+  } else tag.textContent = "human";
+  t.firstChild.append(tag);
   m.append(a, t); return m;
 }
-let here = 2;
+let people = 2, agents = 1;
+const count = () => { $("here").innerHTML = `<b class="hs">${people} ${people > 1 ? "humans" : "human"}</b> · <b class="as">${agents} ${agents > 1 ? "agents" : "agent"}</b>`; };
+// The story waits while you scroll back up to read; it carries on when you're back at the bottom.
+const atBottom = () => feed.scrollHeight - feed.scrollTop - feed.clientHeight < 30;
+const toBottom = () => feed.scrollTo({ top: feed.scrollHeight, behavior: still ? "auto" : "smooth" });
+let pill = null;
+async function untilReading() {
+  while (!atBottom()) {
+    if (!pill) { pill = document.createElement("div"); pill.className = "paused"; pill.textContent = "paused while you read · ↓"; pill.onclick = toBottom; feed.append(pill); }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  pill?.remove(); pill = null;
+}
 async function play() {
   for (;;) {
-    feed.innerHTML = ""; here = 2; $("here").textContent = here + " here";
+    feed.innerHTML = ""; people = 2; agents = 1; count(); let first = true;
     for (const line of SCRIPT) {
-      if (line[0] === "bot") await gnaw(line[1], line[2], 1);   // the agent gnaws on it first
+      await untilReading();
+      if (line[0] === "bot" && !first) await gnaw(line[1], line[2], 1);   // the agent gnaws on it first
       if (line[0] === "gnaw") { await gnaw(line[1], line[2], 3); continue; }
-      if (line[0] === "sys" && /joined/.test(line[1])) $("here").textContent = ++here + " here";
-      const m = await bubble(line); feed.append(m);
-      while (feed.children.length > 7) feed.firstChild.remove();
-      await wait(line[0] === "sys" ? 700 : 1500);
+      if (!first && line[0] !== "bot") await wait(400);
+      first = false;
+      if (line[0] === "sys" && PEOPLE[line[1]].owner) { agents++; count(); }
+      else if (line[0] === "sys") { people++; count(); }
+      const m = await bubble(line); await untilReading(); feed.append(m); toBottom();
+      await wait(line[0] === "sys" ? 700 : 1600);
     }
-    await wait(3500);
+    await wait(6000); await untilReading();
   }
 }
 play();
