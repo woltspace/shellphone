@@ -179,6 +179,29 @@ class HostSide(unittest.TestCase):
         self.assertLess(len(notes), 5)  # set eight times in a row, told far fewer: no faster than NEWS_EVERY
         self.assertLess(max(turns), 1)  # with news to watch for, the host looks up often
 
+    def test_a_full_relay_is_asked_again_later_and_a_closed_door_is_not(self):
+        def turned_away(status):
+            class No(Exception):
+                response = type("R", (), {"status_code": status})
+            states, waits, knocks = [], [], []
+
+            class Stop:  # the host's stop signal, standing in: it notes each wait, and ends the third
+                def is_set(self): return False
+                def wait(self, seconds):
+                    waits.append(seconds)
+                    return len(waits) >= 3
+
+            def connect(*a, **k):
+                knocks.append(1)
+                raise No()
+            pipe.serve("ws://relay.test/r/x/host", "", lambda: None, Stop(), on_state=states.append, connect=connect)
+            return states, waits, len(knocks)
+        states, waits, knocks = turned_away(429)
+        self.assertEqual((states[:3], waits, knocks), (["full"] * 3, [pipe.FULL_WAIT] * 3, 3))  # no place: it keeps asking, minutes apart
+        for status in (401, 409):
+            states, waits, knocks = turned_away(status)
+            self.assertEqual((states[0][:8], waits, knocks), ("refused:", [], 1))  # not allowed, or already hosted: once is enough
+
     def test_an_answer_too_long_to_send_is_refused_plainly(self):
         c = Client(self.make(lambda *_: (200, {"blob": "x" * (pipe.MAX_ANSWER + 1)})))
         self.assertEqual(c.ask(), {"t": "res", "id": 1, "status": 502, "body": {"error": "too much to send at once"}})
@@ -246,7 +269,7 @@ def free_port():
 def start_relay(*variables):
     """The relay on this computer, in Cloudflare's local simulator, with these settings (NAME:value)."""
     port, fresh = free_port(), tempfile.mkdtemp()  # nothing the relay kept from an earlier run: the desk's counts start at zero
-    proc = subprocess.Popen([NPX, "-y", "wrangler@latest", "dev", "--local", "--port", str(port), "--persist-to", fresh, *[x for v in variables for x in ("--var", v)]],
+    proc = subprocess.Popen([NPX, "-y", "wrangler@4", "dev", "--local", "--port", str(port), "--persist-to", fresh, *[x for v in variables for x in ("--var", v)]],
                             cwd=REPO / "relay", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
     proc.fresh = fresh
     base, end = f"http://127.0.0.1:{port}", time.time() + 90
@@ -263,7 +286,10 @@ def start_relay(*variables):
 
 
 def stop_relay(proc):
-    os.killpg(proc.pid, signal.SIGTERM)
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass  # already gone: whatever went wrong before this is the thing to report
     proc.communicate(timeout=20)
     shutil.rmtree(proc.fresh, ignore_errors=True)
 
@@ -380,7 +406,9 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(texts, ["through the relay 🐚"])
         # nothing readable crossed the relay
         for frame in ask(cmd="wire")["wire"]:
-            for plain in ("through the relay", self.token, "/api/", "Sam", seal.b64e(self.secret)):
+            # (each of these holds a character sealed frames never do, or is long: a short plain word like Sam turns up
+            # in random sealed text by chance, about one run in six)
+            for plain in ("through the relay", self.token, "/api/", '"Sam"', '"name"', seal.b64e(self.secret)):
                 self.assertNotIn(plain, frame)
         # what the relay doesn't offer isn't reachable
         self.assertEqual(ask(cmd="request", method="GET", path="/api/push")["status"], 404)
@@ -410,7 +438,7 @@ class ThroughTheRelay(unittest.TestCase):
         got = ask(cmd="request", method="GET", path="/api/state?after=0")["body"]["messages"]
         self.assertEqual([m["text"] for m in got if m["kind"] == "human"], ["said at home"])
         for frame in ask(cmd="wire")["wire"]:
-            self.assertNotIn("news", frame)  # the note is sealed like everything else
+            self.assertNotIn('"news"', frame)  # the note is sealed like everything else
 
     def test_a_room_full_of_long_messages_still_loads(self):
         link = self.link()
@@ -535,8 +563,14 @@ class RoomCap(unittest.TestCase):
         return got["open_rooms"], today
 
     def close(self, host):
+        """Stop a host, and wait until the desk has heard: the relay learns of it a moment after the process is gone."""
+        before = self.stats()[0]
         host.send_signal(signal.SIGINT)
         self.assertIn("Room closed", host.communicate(timeout=15)[0])
+        end = time.time() + 10
+        while self.stats()[0] != before - 1 and time.time() < end:
+            time.sleep(0.1)
+        self.assertEqual(self.stats()[0], before - 1)
 
     def test_rooms_are_capped_places_come_back_and_the_counts_say_what_happened(self):
         for key in ("", "wrong"):  # the counts are for the key's holder only

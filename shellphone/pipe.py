@@ -19,6 +19,7 @@ PART = 24_000          # a longer one goes out in parts of this many bytes, each
 MAX_FRAME = 60_000     # no sealed frame may be longer than this: the relay carries 65,536 with its own wrapping
 MAX_ANSWER = 4 * 1024 * 1024  # and an answer longer than this isn't sent at all
 FRAMES_PER_SECOND = 200       # how fast the host hands frames to the relay, across all clients (the relay allows a host 400)
+FULL_WAIT = 120        # seconds before asking a full relay again for a place
 MAX_BAD = 5            # frames that don't open or make no sense, before the client is turned away
 PER_SECOND = 20        # requests a client may make, on average
 BURST = 40
@@ -122,7 +123,8 @@ class HostPipe:
 def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, wait=(1, 2, 4, 8, 15, 30), news=None):
     """Keep one connection to the relay (the room's `host` socket at `url`) until `stop` is set, reconnecting when it drops.
 
-    new_pipe() makes a HostPipe for each client the relay announces. on_state gets "up", "down" or "refused: ...".
+    new_pipe() makes a HostPipe for each client the relay announces. on_state gets "up", "down", "full" (the
+    relay has no place for this room for now: asked again every FULL_WAIT seconds) or "refused: ..." (and it stops).
     news is a threading.Event the room sets when something changed: every established client is then told, once."""
     if connect is None:
         from websockets.sync.client import connect  # only a shared room needs it
@@ -176,10 +178,14 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status is None and not stop.is_set():  # why the connection went, for whoever reads the room's log later
                 print(f"the relay connection ended: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
-            if status in (401, 409, 429):  # not allowed to open rooms here, this room already has a host, or the relay is full: trying again right away won't help
-                on_state("refused: " + {401: "this relay is not open to new rooms yet", 409: "this room already has a host",
-                                        429: "the relay has no place for another room right now: try again later"}[status])
+            if status in (401, 409):  # not allowed to open rooms here, or this room already has a host: trying again won't help
+                on_state(f"refused: {'this relay is not open to new rooms yet' if status == 401 else 'this room already has a host'}")
                 return
+            if status == 429:  # the relay is carrying all the rooms it may: a place comes free when one closes
+                on_state("full")
+                if stop.wait(FULL_WAIT):
+                    break
+                continue
             on_state("down")
         if stop.wait(wait[min(tries, len(wait) - 1)]):
             break

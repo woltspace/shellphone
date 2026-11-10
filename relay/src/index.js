@@ -63,7 +63,8 @@ const desk = (env) => env.DESK.get(env.DESK.idFromName("desk"));
 // moment are answered one after the other and can't both take the last place.
 //   rooms_opened   rooms that came up (a host coming back within ten minutes is the same room)
 //   connections    client sockets accepted: a page that reconnects counts again, so this is not people
-//   frames         sealed frames carried, both ways: several per request, so this is not chat messages
+//   frames         sealed frames that came in, from either side: several per request, so this is not chat messages
+//                  (one thrown away for coming too fast is counted too: it is what the relay had to handle)
 //   refused        hosts turned away because the relay was full, or had opened all the rooms it may that day
 //
 // A place is a lease. Every admission of a host gets a number (gen) that is never given twice, whatever the desk
