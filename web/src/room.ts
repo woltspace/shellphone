@@ -1,5 +1,6 @@
 // The room's log, as the page sees it. The room server is the only truth: this file only reads /api/state and posts back.
 import { useEffect, useRef, useState } from "react";
+import { call, relayRoom } from "./relay";
 
 export type Person = { email: string; name: string; color: string };
 export type Wolt = { wolt: string; owner: string; creature: string; voice?: string | null };
@@ -22,7 +23,7 @@ export type State = {
 export const sending = { n: 0 };
 export async function send(url: string, init: RequestInit) {
   sending.n++;
-  try { return await fetch(url, init).catch(() => null); } finally { sending.n--; }
+  try { return await (relayRoom ? call(url, init) : fetch(url, init)).catch(() => null); } finally { sending.n--; }
 }
 export async function say(url: string, init: RequestInit): Promise<string | null> {
   const r = await send(url, init);
@@ -31,7 +32,7 @@ export async function say(url: string, init: RequestInit): Promise<string | null
   return null;
 }
 export const sendText = (text: string, thread?: string) =>
-  say("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, ...(thread ? { thread } : {}) }) });
+  say("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, cid: Math.random().toString(36).slice(2, 12), ...(thread ? { thread } : {}) }) });  // a cid: sent twice, it lands once
 
 export function useRoom() {
   const [state, setState] = useState<State>({ title: "shell", me: "", members: { people: [], wolts: [] }, working: {}, seen: {}, tabs: [] });
@@ -44,11 +45,13 @@ export function useRoom() {
     let stop = false, timer = 0;
     async function poll() {
       try {
-        const r = await fetch(`/api/state?after=${after.current}${document.visibilityState === "visible" ? "&here=1" : ""}`, { cache: "no-store" });
+        const url = `/api/state?after=${after.current}${document.visibilityState === "visible" ? "&here=1" : ""}`;
+        const r = await (relayRoom ? call(url) : fetch(url, { cache: "no-store" }));
         if (r.status === 403) { setError("You're not on this room's list."); return; }
         const s = (await r.json()) as State & { messages: Msg[] };
         // a new version of the page: reload, but not in the middle of recording, typing or sending (it waits, then reloads)
-        if (version.current && s.version && s.version !== version.current) { if (!document.querySelector("[data-busy]") && !sending.n) return location.reload(); }
+        // (through the relay the page comes from the relay, not the room: the room's version says nothing about it)
+        if (!relayRoom && version.current && s.version && s.version !== version.current) { if (!document.querySelector("[data-busy]") && !sending.n) return location.reload(); }
         else version.current = s.version;
         const { messages, ...rest } = s;
         setState(rest);

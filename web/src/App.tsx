@@ -1,4 +1,5 @@
 // Shell Phone, our own page. Same room, same look as the classic page, but every piece is ours to change.
+import { relayKeyMissing, relayRoom, onRelayState, type PipeState } from "./relay";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
@@ -200,9 +201,26 @@ function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: 
   };
 }
 
+// Through the relay the room lives on its host's computer. When that computer sleeps or the room is closed, say so
+// plainly (the pipe keeps trying by itself); a link without its key can't work at all.
+function Offline({ missing, state }: { missing: boolean; state: PipeState }) {
+  const [title, text] = missing ? ["This link is missing its key", "Open the full link you were sent, including everything after the #."]
+    : state === "connecting" ? ["Connecting to the room…", "It runs on its host's computer, sealed through shellphone.woltspace.app."]
+    : ["This room is offline", "Its host's computer is asleep, or the room was closed. It comes back here by itself when the room is up again."];
+  return <div className="absolute inset-0 z-[1700] bg-paper/95 grid place-items-center px-8 text-center">
+    <div>
+      <div className="font-mono font-semibold text-acc text-lg mb-2">{title}</div>
+      <p className="text-sm text-dim leading-snug mb-4">{text}</p>
+      {state === "offline" && !missing && <button type="button" onClick={() => location.reload()} className="font-mono text-sm px-4 py-2 rounded-lg border border-acc text-acc bg-transparent cursor-pointer">Try again now</button>}
+    </div>
+  </div>;
+}
+
 export function App() {
   useFit();
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
+  const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
+  useEffect(() => (relayRoom ? onRelayState(setLink) : undefined), []);
   const [listening, setListening] = useState<AudioContext | null | false>(false);
   const [viewing, setViewing] = useState<{ urls: string[]; at: number } | null>(null);
   const [thread, setThread] = useState("");  // the message whose thread is open
@@ -298,7 +316,7 @@ export function App() {
     if (playing.current || !fresh.length) return;
     const [next, ...rest] = fresh;
     const m = msgs.find((x) => x.id === next.id);
-    if (!m || m.kind !== "wolt" || !m.audio) { setFresh(rest); return; }
+    if (!m || m.kind !== "wolt" || !m.audio || relayRoom) { setFresh(rest); return; }
     const a = new Audio("/voice/" + m.audio); playing.current = a;
     const done = () => { playing.current = null; setFresh(rest); };
     a.onended = done; a.onerror = done;
@@ -437,6 +455,7 @@ export function App() {
         {composer}
       </div>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
+      {relayRoom && (relayKeyMissing || link !== "open") && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onSend={voiceStart} onDone={voice} />}
       {viewing && <Viewer urls={viewing.urls} at={viewing.at} close={() => setViewing(null)} />}
