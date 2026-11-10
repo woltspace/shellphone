@@ -3,7 +3,7 @@
     uv run --with cryptography --with websockets python -m unittest tests.test_pipe
     RELAY_E2E=1 …   also starts the relay with `npx wrangler dev --local` and a shared room, and talks through them
 """
-import http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, time, unittest, urllib.request
+import http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -21,13 +21,16 @@ class Client:
     """A client as the page would be: handshake, then numbered requests."""
     def __init__(self, hostpipe, secret=SECRET):
         self.pipe, c = hostpipe, seal.Client(ROOM, secret)
-        hello = hostpipe.feed(c.hi())
+        (hello,) = hostpipe.feed(c.hi())
         self.session, self.n = c.hello(hello), 0
 
     def ask(self, method="GET", path="/api/state", body=None, auth="tok", **fields):
         self.n += 1
-        out = self.pipe.feed(self.session.seal({"t": "req", "id": self.n, "method": method, "path": path, "body": body, "auth": auth, **fields}))
-        return None if out is None else self.session.open(out)
+        out = [self.session.open(f) for f in self.pipe.feed(self.session.seal({"t": "req", "id": self.n, "method": method, "path": path, "body": body, "auth": auth, **fields}))]
+        if len(out) > 1:  # a long answer in parts: put it back together as the page does
+            assert [(p["t"], p["id"], p["part"], p["of"]) for p in out] == [("res", self.n, i, len(out)) for i in range(len(out))], out
+            return {"t": "res", "id": self.n, **json.loads("".join(p["chunk"] for p in out))}
+        return out[0] if out else None
 
 
 class HostSide(unittest.TestCase):
@@ -65,25 +68,45 @@ class HostSide(unittest.TestCase):
         self.assertEqual(self.calls, [])
         for junk in ({"t": "res", "id": 99}, {"id": 100}, ["req"], "req", {"t": "req", "id": "101"}, {"t": "req", "id": True}):
             fresh = Client(self.make())  # each on its own connection: a few of these in a row get a client turned away
-            self.assertIsNone(fresh.pipe.feed(fresh.session.seal(junk)))
+            self.assertEqual(fresh.pipe.feed(fresh.session.seal(junk)), [])
             self.assertEqual(self.calls, [])
+
+    def test_a_long_answer_goes_out_in_parts_that_each_fit_the_relay(self):
+        history = [{"n": i, "text": ("héllo 🐚 " * 1000)[:8000]} for i in range(7)]  # a room with seven long messages
+        c = Client(self.make(lambda *_: (200, {"messages": history})))
+        frames = c.pipe.feed(c.session.seal({"t": "req", "id": 1, "method": "GET", "path": "/api/state", "body": None, "auth": "tok"}))
+        self.assertGreater(len(frames), 1)
+        for frame in frames:
+            self.assertLess(len(json.dumps({"to": "0123456789abcdef", "data": frame})), 64 * 1024)  # what the relay carries
+        c2 = Client(self.make(lambda *_: (200, {"messages": history})))
+        self.assertEqual(c2.ask(), {"t": "res", "id": 1, "status": 200, "body": {"messages": history}})
+        small = Client(self.make(lambda *_: (200, {"ok": True})))
+        self.assertEqual(len(small.pipe.feed(small.session.seal({"t": "req", "id": 1, "method": "GET", "path": "/", "body": None, "auth": "t"}))), 1)
+
+    def test_an_answer_too_long_to_send_is_refused_plainly(self):
+        c = Client(self.make(lambda *_: (200, {"blob": "x" * (pipe.MAX_ANSWER + 1)})))
+        self.assertEqual(c.ask(), {"t": "res", "id": 1, "status": 502, "body": {"error": "too much to send at once"}})
+
+    def test_a_full_length_message_in_any_script_fits_a_request(self):
+        c = Client(self.make())
+        self.assertEqual(c.ask("POST", "/api/messages", {"text": "🐚" * 8000, "cid": "c1"})["status"], 200)
 
     def test_a_client_sending_rubbish_is_turned_away(self):
         hp = self.make()
         for _ in range(pipe.MAX_BAD - 1):
-            self.assertIsNone(hp.feed("h.AAAA"))
+            self.assertEqual(hp.feed("h.AAAA"), [])
         with self.assertRaises(pipe.Closed):
             hp.feed("not even a frame")
         c = Client(self.make())
         for _ in range(pipe.MAX_BAD - 1):
-            self.assertIsNone(c.pipe.feed("AAAA"))
+            self.assertEqual(c.pipe.feed("AAAA"), [])
         with self.assertRaises(pipe.Closed):
             c.pipe.feed(c.session.seal({"t": "req", "id": 1}) + "x")
 
     def test_a_key_the_room_doesnt_know_gets_no_answer(self):
         hp = self.make()
-        self.assertIsNone(hp.feed(seal.Client(ROOM, bytes(32)).hi()))
-        self.assertIsNone(hp.feed(seal.Client(ROOM, SECRET, "i").hi()))  # this room has no invite link
+        self.assertEqual(hp.feed(seal.Client(ROOM, bytes(32)).hi()), [])
+        self.assertEqual(hp.feed(seal.Client(ROOM, SECRET, "i").hi()), [])  # this room has no invite link
         self.assertEqual(Client(hp).ask()["status"], 200)  # the real one still gets in on the same connection
 
     def test_a_client_asking_too_fast_is_told_to_slow_down(self):
@@ -117,29 +140,79 @@ def free_port():
         return s.getsockname()[1]
 
 
-@unittest.skipUnless(NODE and NPX and os.environ.get("RELAY_E2E"), "set RELAY_E2E=1 (needs node and npx) to run the relay on this computer and talk through it")
+def start_relay(*variables):
+    """The relay on this computer, in Cloudflare's local simulator, with these settings (NAME:value)."""
+    port = free_port()
+    proc = subprocess.Popen([NPX, "-y", "wrangler@latest", "dev", "--local", "--port", str(port), *[x for v in variables for x in ("--var", v)]],
+                            cwd=REPO / "relay", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    base, end = f"http://127.0.0.1:{port}", time.time() + 90
+    while time.time() < end:
+        try:
+            urllib.request.urlopen(base + "/r/" + "A" * 22 + "/up", timeout=2)
+            return proc, base
+        except urllib.error.HTTPError:
+            return proc, base  # it answers, even if only to say it's switched off
+        except OSError:
+            time.sleep(1)
+    stop_relay(proc)
+    raise AssertionError("the relay didn't start")
+
+
+def stop_relay(proc):
+    os.killpg(proc.pid, signal.SIGTERM)
+    proc.communicate(timeout=20)
+
+
+E2E = unittest.skipUnless(NODE and NPX and os.environ.get("RELAY_E2E"), "set RELAY_E2E=1 (needs node and npx) to run the relay on this computer and talk through it")
+
+
+def host_status(base, key=""):
+    """What the relay says to a host trying to open a room (the HTTP status of the websocket request)."""
+    from websockets.sync.client import connect
+    try:
+        with connect(base.replace("http", "ws", 1) + "/r/" + seal.b64e(os.urandom(16)) + "/host", additional_headers={"Authorization": f"Bearer {key}"} if key else {}, open_timeout=10):
+            return 101
+    except Exception as exc:
+        return getattr(getattr(exc, "response", None), "status_code", repr(exc))
+
+
+@E2E
+class RelaySettings(unittest.TestCase):
+    def relay(self, *variables):
+        proc, base = start_relay(*variables)
+        self.addCleanup(stop_relay, proc)
+        return base
+
+    def test_with_no_key_set_nobody_can_host(self):
+        base = self.relay()
+        self.assertEqual(host_status(base), 401)
+        self.assertEqual(host_status(base, "anything"), 401)
+        self.assertEqual(host_status(base, ""), 401)
+
+    def test_hosting_is_opened_to_everyone_only_on_purpose(self):
+        self.assertEqual(host_status(self.relay("OPEN_HOSTING:1")), 101)
+
+    def test_switched_off_means_nothing_is_served_or_carried(self):
+        base = self.relay("RELAY_OFF:1", "HOST_KEY:k")
+        self.assertEqual(host_status(base, "k"), 503)
+        for path in ("/r/" + "A" * 22 + "/up", "/r/" + "A" * 22):
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                urllib.request.urlopen(base + path)
+            self.assertEqual(refused.exception.code, 503)
+
+
+@E2E
 class ThroughTheRelay(unittest.TestCase):
     """A real relay (Cloudflare's local simulator), a real shared room, and the page's pipe under node."""
     @classmethod
     def setUpClass(cls):
         cls.port, cls.tmp = free_port(), tempfile.TemporaryDirectory()
-        cls.relay = subprocess.Popen([NPX, "-y", "wrangler@latest", "dev", "--local", "--port", str(cls.port), "--var", "HOST_KEY:test-host-key"],
-                                     cwd=REPO / "relay", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
-        cls.base = f"http://127.0.0.1:{cls.port}"
-        end = time.time() + 90
-        while time.time() < end:
-            try:
-                urllib.request.urlopen(cls.base + "/", timeout=2)
-                return
-            except OSError:
-                time.sleep(1)
-        cls.tearDownClass()
-        raise AssertionError("the relay didn't start")
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.relay, cls.base = start_relay("HOST_KEY:test-host-key")
 
     @classmethod
     def tearDownClass(cls):
-        os.killpg(cls.relay.pid, signal.SIGTERM)
-        cls.relay.communicate(timeout=20)
+        stop_relay(cls.relay)
         cls.tmp.cleanup()
 
     def setUp(self):
@@ -212,6 +285,18 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(ask(cmd="wait", state="offline")["state"], "offline")
         self.assertFalse(self.up())
         self.assertEqual(ask(cmd="states")["states"][:3], ["connecting", "open", "offline"])
+
+    def test_a_room_full_of_long_messages_still_loads(self):
+        link = self.link()
+        self.host(link)
+        ask = self.page(link)
+        long = [(f"message {i} " + "héllo 🐚 " * 1000)[:7990] + "." for i in range(7)]  # more than one relay frame can carry
+        for i, text in enumerate(long):
+            self.assertEqual(ask(cmd="request", method="POST", path="/api/messages", body={"text": text, "cid": f"long{i:04d}"})["status"], 200)
+        for _ in range(2):  # and again: nothing was knocked over by the first long answer
+            state = ask(cmd="request", method="GET", path="/api/state?after=0")
+            self.assertEqual([m["text"] for m in state["body"]["messages"] if m["kind"] == "human"], long)
+        self.assertEqual(ask(cmd="states")["states"], ["connecting", "open"])  # the room never dropped
 
     def test_the_room_comes_back_after_the_host_restarts(self):
         link = self.link()

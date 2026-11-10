@@ -69,6 +69,7 @@ export function open(link, options = {}) {
     session = null;
     for (const [id, entry] of sent) {
       sent.delete(id);
+      entry.parts = null;
       if (repeatable(entry)) waiting.unshift(entry);
       else fail(entry, new PipeError("the connection dropped before the room answered: it may or may not have gone through", "unknown"));
     }
@@ -105,9 +106,17 @@ export function open(link, options = {}) {
         try { msg = await session.open(frame.data); } catch { return; }  // doesn't open, or seen before: dropped
         const entry = msg && msg.t === "res" ? sent.get(msg.id) : null;
         if (!entry) return;  // only an answer to a request still waiting counts, and only once
+        let answer = msg;
+        if (typeof msg.chunk === "string") {  // a long answer comes in numbered parts, in order
+          entry.parts = entry.parts || [];
+          if (msg.part !== entry.parts.length || !Number.isInteger(msg.of) || msg.of < 2 || msg.of > 4096 || msg.part >= msg.of) return;
+          entry.parts.push(msg.chunk);
+          if (entry.parts.length < msg.of) return;
+          try { answer = JSON.parse(entry.parts.join("")); } catch { return; }
+        }
         sent.delete(msg.id);
         clearTimeout(entry.timer);
-        entry.resolve({ status: msg.status, body: msg.body });
+        entry.resolve({ status: answer.status, body: answer.body });
       }).catch(() => {});
     };
     const gone = () => {

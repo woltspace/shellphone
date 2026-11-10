@@ -20,11 +20,12 @@ function same(a, b) {  // compare without leaking where two strings differ
   return diff === 0;
 }
 
+const off = (env) => env.RELAY_OFF === "1";
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 export default {
   async fetch(request, env) {
-    if (env.RELAY_OFF === "1") return new Response("shellphone is switched off for now", { status: 503 });
+    if (off(env)) return new Response("shellphone is switched off for now", { status: 503 });
     const url = new URL(request.url), m = url.pathname.match(ROOM);
     if (!m) return new Response("not found", { status: 404 });  // the pages themselves are static files, served before this runs
     const [, room, , what] = m;
@@ -32,8 +33,10 @@ export default {
     const stub = env.ROOM.get(env.ROOM.idFromName(room));
     if (what === "up") return stub.fetch(request);
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected a websocket", { status: 426 });
-    if (what === "host" && env.HOST_KEY) {  // while a key is set, only hosts that know it can open rooms
-      if (!same(request.headers.get("Authorization") || "", "Bearer " + env.HOST_KEY)) return new Response("this relay isn't open to new rooms yet", { status: 401 });
+    if (what === "host" && env.OPEN_HOSTING !== "1") {
+      // Only hosts that know the key can open rooms. With no key set, nobody can: opening the relay to every host
+      // is a decision of its own (OPEN_HOSTING), never what a missing setting gives you.
+      if (!env.HOST_KEY || !same(request.headers.get("Authorization") || "", "Bearer " + env.HOST_KEY)) return new Response("this relay isn't open to new rooms yet", { status: 401 });
     }
     return stub.fetch(request);
   },
@@ -43,7 +46,14 @@ export class Room extends DurableObject {
   host() { return this.ctx.getWebSockets("host")[0]; }
   clients() { return this.ctx.getWebSockets("client"); }
 
+  shut() {  // the relay was switched off: nothing is carried any more, for sockets that were already open too
+    if (!off(this.env)) return false;
+    for (const ws of this.ctx.getWebSockets()) { try { ws.close(1013, "shellphone is switched off for now"); } catch { /* already closed */ } }
+    return true;
+  }
+
   async fetch(request) {
+    if (this.shut()) return new Response("shellphone is switched off for now", { status: 503 });
     const what = new URL(request.url).pathname.split("/").pop();
     if (what === "up") return json(200, { up: !!this.host() });
     const role = what === "host" ? "host" : "client";
@@ -59,8 +69,12 @@ export class Room extends DurableObject {
   }
 
   webSocketMessage(ws, data) {
+    if (this.shut()) return;
     const who = ws.deserializeAttachment();
-    if (typeof data !== "string" || data.length > LIMITS.frame) return ws.close(1009, "frame too big or not text");
+    if (typeof data !== "string" || data.length > LIMITS.frame) {
+      // A client that sends too much is dropped. The host's socket is the whole room, so its frame is only thrown away.
+      return who.role === "host" ? undefined : ws.close(1009, "frame too big or not text");
+    }
     const now = Math.floor(Date.now() / 1000);  // a simple cap per socket: so many frames in any one second
     who.n = who.at === now ? who.n + 1 : 1; who.at = now;
     ws.serializeAttachment(who);

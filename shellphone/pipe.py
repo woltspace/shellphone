@@ -10,7 +10,9 @@ import json, threading, time
 
 from . import seal
 
-MAX_BODY = 32 * 1024   # a request's body, as JSON
+MAX_BODY = 32 * 1024   # a request's body, as JSON, in bytes
+PART = 30_000          # an answer longer than this goes out in parts, so no frame outgrows what the relay carries
+MAX_ANSWER = 4 * 1024 * 1024  # and an answer longer than this isn't sent at all
 MAX_BAD = 5            # frames that don't open or make no sense, before the client is turned away
 PER_SECOND = 20        # requests a client may make, on average
 BURST = 40
@@ -33,6 +35,7 @@ class HostPipe:
         self._bad += 1
         if self._bad >= MAX_BAD:
             raise Closed("too many frames that don't open")
+        return []
 
     def _allowed(self):
         now = self._clock()
@@ -44,14 +47,15 @@ class HostPipe:
         return True
 
     def feed(self, data):
-        """One frame from this client -> the frame to send back, or None for nothing. Raises Closed to drop the client."""
+        """One frame from this client -> the frames to send back, in order (often one, sometimes none).
+        Raises Closed to drop the client."""
         with self._lock:  # one frame at a time per client: answers go back in the order the requests came
             if self._session is None:
                 try:
                     hello, self._session, self._kind = self._host.hi(data)
                 except seal.SealError:
                     return self._strike()
-                return hello
+                return [hello]
             try:
                 msg = self._session.open(data)
             except seal.SealError:
@@ -61,8 +65,16 @@ class HostPipe:
                 return self._strike()  # not a request, or one whose number was already used
             self._last_id = rid
             status, body = self._reply(msg)
+            # ASCII only, so a character is a byte and the answer can be cut anywhere into parts of a known size
+            text = json.dumps({"status": status, "body": body}, separators=(",", ":"))
+            if len(text) > MAX_ANSWER:
+                status, body = 502, {"error": "too much to send at once"}
+                text = json.dumps({"status": status, "body": body}, separators=(",", ":"))
             try:
-                return self._session.seal({"t": "res", "id": rid, "status": status, "body": body})
+                if len(text) <= PART:
+                    return [self._session.seal({"t": "res", "id": rid, "status": status, "body": body})]
+                parts = [text[i:i + PART] for i in range(0, len(text), PART)]
+                return [self._session.seal({"t": "res", "id": rid, "part": i, "of": len(parts), "chunk": part}) for i, part in enumerate(parts)]
             except seal.SealError:
                 raise Closed("this session has sealed all it may") from None
 
@@ -72,7 +84,7 @@ class HostPipe:
             return 400, {"error": "not a request the room understands"}
         if not isinstance(auth, str) or len(auth) > 200:
             return 403, {"error": "not on this room's list"}
-        if len(json.dumps(body)) > MAX_BODY:
+        if len(json.dumps(body, ensure_ascii=False).encode()) > MAX_BODY:
             return 413, {"error": "too big"}
         if not self._allowed():
             return 429, {"error": "slow down"}
@@ -119,8 +131,8 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
                             pipes.pop(cid, None)
                             ws.send(json.dumps({"drop": cid}))
                             continue
-                        if out is not None:
-                            ws.send(json.dumps({"to": cid, "data": out}))
+                        for frame in out:
+                            ws.send(json.dumps({"to": cid, "data": frame}))
         except Exception as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status in (401, 409):  # not allowed to open rooms here, or this room already has a host: trying again won't help

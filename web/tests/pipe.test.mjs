@@ -90,6 +90,29 @@ test("an answer counts once, and only for a request still waiting", async () => 
   pipe.close();
 });
 
+test("a long answer arrives in parts and is put back together", async () => {
+  const big = { messages: Array.from({ length: 5 }, (_, i) => ({ n: i, text: "héllo 🐚 ".repeat(900) })) };
+  const text = JSON.stringify({ status: 200, body: big }), parts = text.match(/[\s\S]{1,9000}/g);
+  const w = world({ answer: async (req, sock) => {
+    for (const [i, chunk] of parts.entries()) sock.deliver(await sock.session.seal({ t: "res", id: req.id, part: i, of: parts.length, chunk }));
+  } });
+  const pipe = open(LINK, { WebSocket: w.WebSocket, ...FAST });
+  assert.ok(parts.length > 2);
+  assert.deepEqual(await pipe.request("GET", "/api/state"), { status: 200, body: big });
+  assert.deepEqual((await pipe.request("GET", "/again")).body, big);
+  pipe.close();
+});
+
+test("parts out of order or left unfinished never become an answer", async () => {
+  const w = world({ answer: async (req, sock) => {
+    sock.deliver(await sock.session.seal({ t: "res", id: req.id, part: 1, of: 2, chunk: '"x"}' }));  // the second part first
+    sock.deliver(await sock.session.seal({ t: "res", id: req.id, part: 0, of: 2, chunk: '{"status":200,"body":' }));
+  } });
+  const pipe = open(LINK, { WebSocket: w.WebSocket, ...FAST, timeout: 60 });
+  await assert.rejects(pipe.request("GET", "/api/state"), (e) => e.code === "timeout");
+  pipe.close();
+});
+
 test("after the connection drops: a GET and a named POST go again, an unnamed POST doesn't", async () => {
   let dropped = false;
   const w = world({ answer: (req, sock) => { if (!dropped) { dropped = req.path === "/third"; if (dropped) sock.drop(); return; } return { status: 200, body: req.path }; } });
