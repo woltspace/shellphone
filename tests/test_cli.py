@@ -1,25 +1,26 @@
 """The front door, end to end on one computer: open a room, log in with the link, bring an agent, talk, close.
 
-    python3 -m unittest discover tests
+    python3 -m unittest discover tests                                  # the code in this folder
+    SHELLPHONE_CLI=/some/venv/bin/shellphone python3 -m unittest discover tests   # an installed package, e.g. a built wheel
 """
-import http.cookiejar, json, os, re, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.request
+import http.cookiejar, json, os, re, shlex, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
-CLI = [sys.executable, "-m", "shellphone.cli"]
+INSTALLED = os.environ.get("SHELLPHONE_CLI")  # test this command (an installed package) instead of the code in this folder
+CLI = shlex.split(INSTALLED) if INSTALLED else [sys.executable, "-m", "shellphone.cli"]
+ENV = {**os.environ, "PYTHONUNBUFFERED": "1", **({} if INSTALLED else {"PYTHONPATH": str(REPO)})}
 
 
 def run(*args, cwd, stdin=None):
-    return subprocess.run([*CLI, *args], cwd=cwd, input=stdin, capture_output=True, text=True, timeout=30,
-                          env={**os.environ, "PYTHONPATH": str(REPO)})
+    return subprocess.run([*CLI, *args], cwd=cwd, input=stdin, capture_output=True, text=True, timeout=30, env=ENV)
 
 
 class Room:
     """A room in its own process, as `shellphone room` starts it."""
     def __init__(self, *args):
-        self.proc = subprocess.Popen([*CLI, "room", "--port", "0", *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                     env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONUNBUFFERED": "1"})
+        self.proc = subprocess.Popen([*CLI, "room", "--port", "0", *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=ENV)
         self.banner = ""
         while "Press Ctrl-C" not in self.banner:
             line = self.proc.stdout.readline()
