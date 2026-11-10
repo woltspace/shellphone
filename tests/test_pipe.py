@@ -643,9 +643,10 @@ class RoomCap(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as no:
             urllib.request.urlopen(urllib.request.Request(self.base + "/live", method="POST", data=b"{}"))
         self.assertEqual(no.exception.code, 404)
-        numbers = urllib.request.urlopen(self.base + "/numbers").read().decode()  # the page for whoever holds the key: it carries no key itself
-        self.assertIn("The relay's numbers", numbers)
-        self.assertNotIn("test-host-key", numbers)
+        for gone in ("/numbers", "/numbers.html"):  # the site has no page for the private counts: whoever runs the relay reads /stats themselves
+            with self.assertRaises(urllib.error.HTTPError) as no:
+                urllib.request.urlopen(self.base + gone)
+            self.assertEqual(no.exception.code, 404)
 
     def test_two_hosts_at_the_same_moment_cant_both_take_the_last_place(self):
         import concurrent.futures, contextlib
