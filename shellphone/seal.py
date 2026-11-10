@@ -129,49 +129,67 @@ class Client:
         if kind not in KINDS:
             raise SealError("unknown link kind")
         self._room, self._secret, self._kind, self._roots = room, secret, kind, root_keys(secret, room)
-        self._cn, self._state = None, "new"
+        self._cn, self._state, self._lock = None, "new", threading.Lock()
 
     def hi(self, _cn=None, _nonce=None):
-        if self._state != "new":
-            raise SealError("hi is sent once per connection")
-        self._cn, self._state = _cn or secrets.token_bytes(16), "sent"  # a new challenge for every connection
+        with self._lock:
+            if self._state != "new":
+                raise SealError("hi is sent once per connection")
+            self._cn, self._state = _cn or secrets.token_bytes(16), "sent"  # a new challenge for every connection
         sealed = _seal(self._roots["c2h"], f"{VERSION}|{b64e(self._room)}|c2h|hi", {"t": "hi", "cn": b64e(self._cn)}, _nonce)
         return self._kind + "." + b64e(sealed)
 
     def hello(self, frame):
-        if self._state != "sent":  # only while waiting for it, and only once: a replayed hello can never reset a session
-            raise SealError("no hello expected now")
-        kind, raw = _split(frame)
-        if kind != self._kind:
-            raise SealError("answered under another link")
-        got = _open(self._roots["h2c"], f"{VERSION}|{b64e(self._room)}|h2c|hello", raw)
-        if got.get("t") != "hello" or got.get("cn") != b64e(self._cn):
-            raise SealError("not the answer to this connection")
-        sid = b64d(got.get("sid"), 16)
-        self._state = "established"
-        return Session(self._room, session_keys(self._secret, self._room, sid, self._cn), send="c2h", recv="h2c")
+        with self._lock:  # only while waiting for it, and only once: a replayed hello can never reset a session
+            if self._state != "sent":
+                raise SealError("no hello expected now")
+            self._state = "checking"  # one hello is looked at at a time; a second arriving meanwhile is refused
+        try:
+            kind, raw = _split(frame)
+            if kind != self._kind:
+                raise SealError("answered under another link")
+            got = _open(self._roots["h2c"], f"{VERSION}|{b64e(self._room)}|h2c|hello", raw)
+            if not isinstance(got, dict) or got.get("t") != "hello" or got.get("cn") != b64e(self._cn):
+                raise SealError("not the answer to this connection")
+            session = Session(self._room, session_keys(self._secret, self._room, b64d(got.get("sid"), 16), self._cn), send="c2h", recv="h2c")
+        except BaseException:
+            with self._lock:
+                self._state = "sent"  # a bad hello doesn't use up the wait for the real one
+            raise
+        with self._lock:
+            self._state = "established"
+        return session
 
 
 class Host:
     """The host's side of one connection. secrets maps a link kind ("h", "i") to its 32-byte secret."""
 
     def __init__(self, room, secrets_by_kind):
-        self._room, self._secrets, self._state = room, dict(secrets_by_kind), "new"
+        self._room, self._secrets, self._state, self._lock = room, dict(secrets_by_kind), "new", threading.Lock()
 
     def hi(self, frame, _sid=None, _nonce=None):
         """The client's hi -> (the hello to send back, the session, which link it holds). Once per connection."""
-        if self._state != "new":
-            raise SealError("this connection is already established")
-        kind, raw = _split(frame)
-        secret = self._secrets.get(kind)
-        if secret is None:
-            raise SealError("this room has no such link")
-        roots = root_keys(secret, self._room)
-        got = _open(roots["c2h"], f"{VERSION}|{b64e(self._room)}|c2h|hi", raw)
-        if got.get("t") != "hi":
-            raise SealError("not a hi")
-        cn = b64d(got.get("cn"), 16)
-        sid = _sid or secrets.token_bytes(16)  # fresh for every connection, so an old session's frames never open here
-        hello = _seal(roots["h2c"], f"{VERSION}|{b64e(self._room)}|h2c|hello", {"t": "hello", "sid": b64e(sid), "cn": b64e(cn)}, _nonce)
-        self._state = "established"
-        return kind + "." + b64e(hello), Session(self._room, session_keys(secret, self._room, sid, cn), send="h2c", recv="c2h"), kind
+        with self._lock:
+            if self._state != "new":
+                raise SealError("this connection is already established")
+            self._state = "checking"  # one hi is looked at at a time, so two can never both establish
+        try:
+            kind, raw = _split(frame)
+            secret = self._secrets.get(kind)
+            if secret is None:
+                raise SealError("this room has no such link")
+            roots = root_keys(secret, self._room)
+            got = _open(roots["c2h"], f"{VERSION}|{b64e(self._room)}|c2h|hi", raw)
+            if not isinstance(got, dict) or got.get("t") != "hi":
+                raise SealError("not a hi")
+            cn = b64d(got.get("cn"), 16)
+            sid = _sid or secrets.token_bytes(16)  # fresh for every connection, so an old session's frames never open here
+            hello = _seal(roots["h2c"], f"{VERSION}|{b64e(self._room)}|h2c|hello", {"t": "hello", "sid": b64e(sid), "cn": b64e(cn)}, _nonce)
+            session = Session(self._room, session_keys(secret, self._room, sid, cn), send="h2c", recv="c2h")
+        except BaseException:
+            with self._lock:
+                self._state = "new"  # a bad hi doesn't use up the connection's one handshake
+            raise
+        with self._lock:
+            self._state = "established"
+        return kind + "." + b64e(hello), session, kind

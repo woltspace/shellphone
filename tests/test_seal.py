@@ -163,6 +163,59 @@ class Handshake(unittest.TestCase):
         with self.assertRaises(seal.SealError):
             host.hi(seal.Client(ROOM, SECRET).hi())
 
+    def together(self, call, n=8):
+        """Run call() from n threads that are all inside the decryption at the same moment, if the code lets them in."""
+        inside, real, passed, failed = threading.Barrier(n), seal._open, [], []
+
+        def slow_open(*args):
+            try:
+                inside.wait(timeout=0.5)  # filled only if every thread got this far
+            except threading.BrokenBarrierError:
+                pass
+            return real(*args)
+
+        def one():
+            try:
+                passed.append(call())
+            except seal.SealError as refused:
+                failed.append(refused)
+        seal._open = slow_open
+        try:
+            threads = [threading.Thread(target=one) for _ in range(n)]
+            [t.start() for t in threads], [t.join() for t in threads]
+        finally:
+            seal._open = real
+        return passed, failed
+
+    def test_hellos_arriving_together_establish_one_session(self):
+        client, host = seal.Client(ROOM, SECRET), seal.Host(ROOM, {"h": SECRET})
+        hello, hs, _ = host.hi(client.hi())
+        passed, failed = self.together(lambda: client.hello(hello))
+        self.assertEqual((len(passed), len(failed)), (1, 7))
+        frame = hs.seal({"once": True})
+        self.assertEqual(passed[0].open(frame), {"once": True})
+        with self.assertRaises(seal.SealError):
+            client.hello(hello)
+
+    def test_his_arriving_together_establish_one_session(self):
+        client, host = seal.Client(ROOM, SECRET), seal.Host(ROOM, {"h": SECRET})
+        hi = client.hi()
+        passed, failed = self.together(lambda: host.hi(hi))
+        self.assertEqual((len(passed), len(failed)), (1, 7))
+        self.assertEqual(passed[0][1].open(client.hello(passed[0][0]).seal({"n": 1})), {"n": 1})
+
+    def test_a_bad_frame_among_good_ones_doesnt_block_the_handshake(self):
+        client, host = seal.Client(ROOM, SECRET), seal.Host(ROOM, {"h": SECRET, "i": INVITE})
+        hi = client.hi()
+        for junk in ("h.AAAA", "x.AAAA", seal.Client(bytes(16), SECRET).hi(), None):
+            with self.assertRaises(seal.SealError):
+                host.hi(junk)
+        hello, hs, _ = host.hi(hi)  # the connection's one handshake is still there
+        for junk in ("h.AAAA", "i." + hello[2:], hello[:-2] + "AA", None):
+            with self.assertRaises(seal.SealError):
+                client.hello(junk)
+        self.assertEqual(hs.open(client.hello(hello).seal({"ok": 1})), {"ok": 1})
+
     def test_a_new_connection_doesnt_open_the_old_ones_frames(self):
         _, _, old_cs, old_hs, old_hi, _, _ = pair()
         old_c2h, old_h2c = old_cs.seal({"n": 1}), old_hs.seal({"n": 1})
