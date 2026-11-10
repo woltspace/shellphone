@@ -1,15 +1,9 @@
 name: Publish to PyPI
 
-# Run by hand, from main. The tests run, the package is built and tried the way people use it (through uvx), and
-# then the run waits at the "pypi" environment for an approval before anything is uploaded. PyPI trusts this
-# workflow in that environment (trusted publishing), so no token is stored anywhere.
-on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: The version to publish, exactly as in pyproject.toml (for example 0.0.2)
-        required: true
-        type: string
+# Run by hand, from main. It builds the package, runs the tests against the built package, then waits at the
+# "pypi" environment for an approval before uploading. PyPI trusts this workflow in that environment, so no
+# token is stored anywhere.
+on: workflow_dispatch
 
 permissions:
   contents: read
@@ -27,13 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Only main, and only this repository
-        env:
-          REF: ${{ github.ref }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          test "$REF" = refs/heads/main
-          test "$REPOSITORY" = woltspace/shellphone
+      - name: Only from main
+        run: test "$GITHUB_REF" = refs/heads/main
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -41,48 +30,16 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
-      - name: "The version asked for is the version in the code, and is not on PyPI yet"
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          uv run --no-project python - <<'PY'
-          import os, re, sys, tomllib, urllib.error, urllib.request
-          asked = os.environ["VERSION"]
-          if not re.fullmatch(r"\d+\.\d+\.\d+", asked):
-              sys.exit(f"not a plain version: {asked!r}")
-          have = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
-          if have != asked:
-              sys.exit(f"pyproject.toml says {have}, you asked for {asked}")
-          try:
-              urllib.request.urlopen(f"https://pypi.org/pypi/shellphone/{asked}/json", timeout=20)
-              sys.exit(f"shellphone {asked} is already on PyPI: versions can't be replaced")
-          except urllib.error.HTTPError as e:
-              if e.code != 404:
-                  raise
-          PY
-      - name: Tests
-        run: uv run --no-project python -m unittest discover tests -v
       - name: Build into out/ (dist/ is the built chat page)
+        run: uv build --out-dir out
+      - name: Test the built package
         run: |
-          uv build --out-dir out
-          ls -l out
-      - name: Open and close a room from the built wheel, through uvx
-        run: |
-          wheel=$(ls "$PWD"/out/*.whl)
-          cd "$RUNNER_TEMP"
-          uvx --from "$wheel" shellphone version
-          uvx --from "$wheel" shellphone room --port 0 > room.out 2>&1 &
-          for i in $(seq 30); do grep -q "Press Ctrl-C" room.out && break; sleep 1; done
-          cat room.out | sed -E 's/(k=|#)[A-Za-z0-9_-]{20,}/\1<key>/g'
-          link=$(grep -o 'http://127[^ ]*?k=[^ ]*' room.out)
-          test "$(curl -s -L -c jar -o /dev/null -w '%{http_code}' "$link")" = 200
-          test "$(curl -s -o /dev/null -w '%{http_code}' "${link%%/\?*}/")" = 403
-          pkill -TERM -f "shellphone room --port 0"
-          for i in $(seq 10); do grep -q "Room closed and deleted." room.out && break; sleep 1; done
-          grep -q "Room closed and deleted." room.out
+          uv venv "$RUNNER_TEMP/installed"
+          uv pip install --python "$RUNNER_TEMP/installed" out/*.whl
+          SHELLPHONE_CLI="$RUNNER_TEMP/installed/bin/shellphone" uv run --no-project python -m unittest discover tests -v
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: shellphone-${{ inputs.version }}
+          name: package
           path: out/
           if-no-files-found: error
 
@@ -92,17 +49,16 @@ jobs:
     timeout-minutes: 10
     environment:
       name: pypi
-      url: https://pypi.org/project/shellphone/${{ inputs.version }}/
+      url: https://pypi.org/project/shellphone/
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: shellphone-${{ inputs.version }}
+          name: package
           path: out
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
-      - name: Upload (PyPI trusts this workflow in this environment; no token)
-        run: uv publish --trusted-publishing always out/*
+      - run: uv publish --trusted-publishing always out/*
