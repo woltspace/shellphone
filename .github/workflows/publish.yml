@@ -1,0 +1,64 @@
+name: Publish to PyPI
+
+# Run by hand, from main. It builds the package, runs the tests against the built package, then waits at the
+# "pypi" environment for an approval before uploading. PyPI trusts this workflow in that environment, so no
+# token is stored anywhere.
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-shellphone
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.13.7"
+  UV_PYTHON: "3.13"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Only from main
+        run: test "$GITHUB_REF" = refs/heads/main
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Build into out/ (dist/ is the built chat page)
+        run: uv build --out-dir out
+      - name: Test the built package
+        run: |
+          uv venv "$RUNNER_TEMP/installed"
+          uv pip install --python "$RUNNER_TEMP/installed" out/*.whl
+          SHELLPHONE_CLI="$RUNNER_TEMP/installed/bin/shellphone" uv run --no-project python -m unittest discover tests -v
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: package
+          path: out/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/shellphone/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: package
+          path: out
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - run: uv publish --trusted-publishing always out/*
