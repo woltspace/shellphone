@@ -466,7 +466,7 @@ class ThroughTheRelay(unittest.TestCase):
         ask = self.page(link)
         for _ in range(2):
             state = ask(cmd="request", method="GET", path="/api/state?after=0")
-            self.assertEqual(state["status"], 200)
+            self.assertEqual(state.get("status"), 200, {**state, "states": ask(cmd="states")["states"]} if "body" not in state else state["status"])  # if it fails, say how
             texts = [m["text"] for m in state["body"]["messages"] if m["kind"] == "human"]
             self.assertEqual((len(texts), texts[0], texts[-1]), (170, '"' * 7990 + " 0", '"' * 7990 + " 169"))
         self.assertGreater(sum(len(f) for f in ask(cmd="wire")["wire"]), 2_500_000)  # it really was that much
@@ -563,6 +563,10 @@ class RoomCap(unittest.TestCase):
         today = got["days"][0] if got["days"] else {"rooms_opened": 0, "connections": 0, "frames": 0, "refused": 0}
         return got["open_rooms"], today
 
+    def taps(self):
+        got = json.load(urllib.request.urlopen(urllib.request.Request(self.base + "/stats", headers={"Authorization": "Bearer test-host-key"})))
+        return {t["what"]: t["n"] for t in got["taps"]}
+
     def close(self, host):
         """Stop a host, and wait until the desk has heard: the relay learns of it a moment after the process is gone."""
         before = self.stats()[0]
@@ -643,6 +647,19 @@ class RoomCap(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as no:
             urllib.request.urlopen(urllib.request.Request(self.base + "/live", method="POST", data=b"{}"))
         self.assertEqual(no.exception.code, 404)
+        def tap(query, method="POST"):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(self.base + "/tap" + query, method=method, data=b"" if method == "POST" else None)) as r:
+                    return r.status, r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, None
+        self.assertEqual([tap("?what=mic"), tap("?what=mic"), tap("?what=file")], [(204, b"")] * 3)  # counted, and nothing comes back
+        self.assertEqual([tap("?what=camera")[0], tap("")[0], tap("?what=mic", "GET")[0]], [404, 404, 404])  # only the things it knows, only by POST
+        end = time.time() + 5  # the count is written after the answer is given
+        while time.time() < end and len(self.taps()) < 2:
+            time.sleep(0.1)
+        self.assertEqual(self.taps(), {"file": 1, "mic": 2})
+        self.assertNotIn("taps", json.load(urllib.request.urlopen(self.base + "/live")))  # the public number stays one number
         for gone in ("/numbers", "/numbers.html"):  # the site has no page for the private counts: whoever runs the relay reads /stats themselves
             with self.assertRaises(urllib.error.HTTPError) as no:
                 urllib.request.urlopen(self.base + gone)

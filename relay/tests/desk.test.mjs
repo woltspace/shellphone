@@ -95,6 +95,17 @@ test("the public count only reads, and leaves out a room that went silent", () =
   assert.equal(writes, 0);        // and all that asking wrote nothing
 });
 
+test("taps are counted by day and by thing, up to a day's limit, and nothing else is taken", () => {
+  const desk = newDesk();
+  desk.tap("mic"); desk.tap("mic"); desk.tap("file"); desk.tap("camera"); desk.tap(undefined);
+  assert.deepEqual(desk.stats().taps.map((t) => [t.what, t.n]), [["file", 1], ["mic", 2]]);  // only the things it knows
+  for (let i = 0; i < 5100; i++) desk.tap("mic");
+  assert.equal(desk.stats().taps.find((t) => t.what === "mic").n, 5000);  // a day's count stops at its limit
+  later(86400 * 1000);
+  desk.tap("mic");
+  assert.deepEqual(desk.stats().taps.filter((t) => t.what === "mic").map((t) => t.n), [1, 5000]);  // a new day, a new count
+});
+
 test("a number is never given twice, even to a room the desk had forgotten", () => {
   const desk = newDesk();
   const old = desk.open("a");

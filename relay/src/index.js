@@ -21,6 +21,10 @@ const stale = (env) => 3 * beat(env);  // a room the desk hasn't heard from for 
 const REOPEN = 10 * 60 * 1000;         // a host back within this long is the same room coming back, not a new one
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
+const TAPS = ["mic", "file"];   // things the page shows as "coming soon": a tap on one is counted, to learn what people want
+const TAPS_PER_DAY = 5000;      // of each, at the most: past that a day's taps aren't counted (or written) any more
+const TAPS_PER_SECOND = 20;     // and this many a second is all one copy of the Worker passes on to the desk
+let tapped = { at: 0, n: 0 };
 const LIVE_FOR = 30;  // seconds the public count of live rooms is kept before the desk is asked again
 const PAGES = { "/": "/index.html", "/start": "/start.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
 
@@ -53,6 +57,15 @@ export default {
       }
       return answer;
     }
+    if (url.pathname === "/tap") {
+      // A tap on something that isn't built yet. All that arrives is which thing: no room, no person, no words.
+      const what = url.searchParams.get("what");
+      if (request.method !== "POST" || !TAPS.includes(what)) return new Response("not found", { status: 404 });
+      const now = Math.floor(Date.now() / 1000);
+      tapped = tapped.at === now ? { at: now, n: tapped.n + 1 } : { at: now, n: 1 };
+      if (tapped.n <= TAPS_PER_SECOND) ctx.waitUntil(desk(env).tap(what).catch(() => {}));  // a flood is answered the same, and not counted
+      return new Response(null, { status: 204 });
+    }
     if (url.pathname === "/stats") {  // the relay's counts, for whoever holds the host key
       if (!env.HOST_KEY || !same(request.headers.get("Authorization") || "", "Bearer " + env.HOST_KEY)) return new Response("not found", { status: 404 });
       return json(200, await desk(env).stats());
@@ -81,6 +94,7 @@ const desk = (env) => env.DESK.get(env.DESK.idFromName("desk"));
 //   frames         sealed frames that came in, from either side: several per request, so this is not chat messages
 //                  (one thrown away for coming too fast is counted too: it is what the relay had to handle)
 //   refused        hosts turned away because the relay was full, or had opened all the rooms it may that day
+//   taps_mic, taps_file   taps on a "coming soon" button in a room's page: taps, not people, and not tied to any room
 //
 // A place is a lease. Every admission of a host gets a number (gen) that is never given twice, whatever the desk
 // has forgotten since, and an open room must report in time to keep its place: one that didn't is forgotten
@@ -91,6 +105,7 @@ export class Desk extends DurableObject {
     this.sql = ctx.storage.sql;
     this.sql.exec("create table if not exists rooms (id text primary key, open integer not null, at integer not null, gen integer not null)");
     this.sql.exec("create table if not exists counters (name text primary key, n integer not null)");
+    this.sql.exec("create table if not exists taps (day text not null, what text not null, n integer not null, primary key (day, what))");
     this.sql.exec("create table if not exists days (day text primary key, rooms_opened integer not null default 0, connections integer not null default 0, frames integer not null default 0, refused integer not null default 0)");
   }
 
@@ -102,6 +117,7 @@ export class Desk extends DurableObject {
   tidy(now) {
     this.sql.exec("delete from rooms where (open = 1 and at < ?) or (open = 0 and at < ?)", now - stale(this.env), now - REOPEN);
     this.sql.exec("delete from days where day < ?", this.day(now - 90 * 86400 * 1000));
+    this.sql.exec("delete from taps where day < ?", this.day(now - 90 * 86400 * 1000));
   }
   count() { return this.sql.exec("select count(*) as n from rooms where open = 1").one().n; }
   full() { return this.count() >= number(this.env.MAX_ROOMS, 20); }
@@ -153,6 +169,13 @@ export class Desk extends DurableObject {
     this.sql.exec("update rooms set open = 0, at = ? where id = ? and gen = ?", now, id, gen);
   }
 
+  tap(what) {  // one more tap on a "coming soon" button, up to a day's limit
+    if (!TAPS.includes(what)) return;
+    const day = this.day(Date.now()), had = this.sql.exec("select n from taps where day = ? and what = ?", day, what).toArray()[0];
+    if (had && had.n >= TAPS_PER_DAY) return;
+    this.sql.exec("insert into taps (day, what, n) values (?, ?, 1) on conflict (day, what) do update set n = n + 1", day, what);
+  }
+
   live() {  // the one number anyone may have. It only reads: a room that went silent isn't counted, and is cleared away by the next host or report
     return this.sql.exec("select count(*) as n from rooms where open = 1 and at >= ?", Date.now() - stale(this.env)).one().n;
   }
@@ -160,7 +183,8 @@ export class Desk extends DurableObject {
   stats() {
     this.tidy(Date.now());
     return { open_rooms: this.count(), max_rooms: number(this.env.MAX_ROOMS, 20), max_rooms_per_day: number(this.env.MAX_ROOMS_PER_DAY, 200),
-      days: this.sql.exec("select * from days order by day desc limit 30").toArray() };
+      days: this.sql.exec("select * from days order by day desc limit 30").toArray(),
+      taps: this.sql.exec("select day, what, n from taps order by day desc, what limit 60").toArray() };
   }
 }
 
