@@ -19,6 +19,7 @@ const number = (text, otherwise) => (/^\d+$/.test(text || "") ? Number(text) : o
 const beat = (env) => number(env.BEAT_SECONDS, 30 * 60) * 1000;  // an open room tells the desk so this often, with its counts
 const stale = (env) => 3 * beat(env);  // a room the desk hasn't heard from for this long has gone without saying: its place is free
 const REOPEN = 10 * 60 * 1000;         // a host back within this long is the same room coming back, not a new one
+const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
 const PAGES = { "/": "/index.html", "/start": "/start.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
 
@@ -64,17 +65,20 @@ const desk = (env) => env.DESK.get(env.DESK.idFromName("desk"));
 //   connections    client sockets accepted: a page that reconnects counts again, so this is not people
 //   frames         sealed frames carried, both ways: several per request, so this is not chat messages
 //   refused        hosts turned away because the relay was full, or had opened all the rooms it may that day
+//
+// A place is a lease. Every admission of a host gets a number (gen), and an open room must report in time to keep
+// its place: one that didn't is forgotten here, and is told so when it next reports (see Room.alarm).
 export class Desk extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    this.sql.exec("create table if not exists rooms (id text primary key, open integer not null, at integer not null)");
+    this.sql.exec("create table if not exists rooms (id text primary key, open integer not null, at integer not null, gen integer not null)");
     this.sql.exec("create table if not exists days (day text primary key, rooms_opened integer not null default 0, connections integer not null default 0, frames integer not null default 0, refused integer not null default 0)");
   }
 
   day(now) { return new Date(now).toISOString().slice(0, 10); }
   add(now, what, n) {
-    if (!n) return;
+    if (!(n > 0)) return;
     this.sql.exec(`insert into days (day, ${what}) values (?, ?) on conflict (day) do update set ${what} = ${what} + ?`, this.day(now), n, n);
   }
   tidy(now) {
@@ -82,30 +86,51 @@ export class Desk extends DurableObject {
     this.sql.exec("delete from days where day < ?", this.day(now - 90 * 86400 * 1000));
   }
   count() { return this.sql.exec("select count(*) as n from rooms where open = 1").one().n; }
+  full() { return this.count() >= number(this.env.MAX_ROOMS, 20); }
 
-  // A room's host is connecting: may it? { ok } or { ok: false, why }.
+  // A room's host is connecting: may it? { ok, gen } or { ok: false, why }.
   open(id) {
     const now = Date.now();
     this.tidy(now);
     const known = this.sql.exec("select open from rooms where id = ?", id).toArray()[0];
-    if (!known || !known.open) {  // it needs a place
-      if (this.count() >= number(this.env.MAX_ROOMS, 20)) { this.add(now, "refused", 1); return { ok: false, why: "the relay is carrying all the rooms it can right now" }; }
+    if ((!known || !known.open) && this.full()) {  // it needs a place, and there is none
+      this.add(now, "refused", 1);
+      return { ok: false, why: "the relay is carrying all the rooms it can right now" };
     }
-    if (!known) {  // and it is a new room, not one coming back
+    if (!known) {  // a new room, not one coming back
       const today = this.sql.exec("select rooms_opened as n from days where day = ?", this.day(now)).toArray()[0];
       if ((today ? today.n : 0) >= number(this.env.MAX_ROOMS_PER_DAY, 200)) { this.add(now, "refused", 1); return { ok: false, why: "the relay has opened all the rooms it may today" }; }
       this.add(now, "rooms_opened", 1);
     }
-    this.sql.exec("insert into rooms (id, open, at) values (?, 1, ?) on conflict (id) do update set open = 1, at = ?", id, now, now);
+    this.sql.exec("insert into rooms (id, open, at, gen) values (?, 1, ?, 1) on conflict (id) do update set open = 1, at = ?, gen = gen + 1", id, now, now);
+    return { ok: true, gen: this.sql.exec("select gen from rooms where id = ?", id).one().gen };
+  }
+
+  // An open room reports: what it carried since it last said, and does it still hold its place? { ok }.
+  // A room the desk forgot (it reported too late) gets its place back only if one is free.
+  report(id, gen, connections, frames) {
+    const now = Date.now();
+    this.tidy(now);
+    this.add(now, "connections", connections);
+    this.add(now, "frames", frames);
+    const known = this.sql.exec("select open, gen from rooms where id = ?", id).toArray()[0];
+    if (known && known.gen !== gen) return { ok: false };  // a later host of this room was let in: this one is not the room any more
+    if (!known || !known.open) {
+      if (this.full()) return { ok: false };
+      this.sql.exec("insert into rooms (id, open, at, gen) values (?, 1, ?, ?) on conflict (id) do update set open = 1, at = ?", id, now, gen, now);
+      return { ok: true };
+    }
+    this.sql.exec("update rooms set at = ? where id = ?", now, id);
     return { ok: true };
   }
 
-  // Still open, or (open = false) its host has gone. Either way, what it carried since it last said.
-  tell(id, open, connections, frames) {
+  // A room's host has gone: its last counts, and its place is free. Only for the admission that is leaving: a
+  // goodbye that arrives after the room's next host was let in changes nothing.
+  leave(id, gen, connections, frames) {
     const now = Date.now();
-    this.sql.exec("update rooms set open = ?, at = ? where id = ?", open ? 1 : 0, now, id);
     this.add(now, "connections", connections);
     this.add(now, "frames", frames);
+    this.sql.exec("update rooms set open = 0, at = ? where id = ? and gen = ?", now, id, gen);
   }
 
   stats() {
@@ -119,23 +144,53 @@ export class Room extends DurableObject {
   host() { return this.ctx.getWebSockets("host")[0]; }
   clients() { return this.ctx.getWebSockets("client"); }
 
-  // What this room carried since it last told the desk. The numbers live on the sockets, so they survive the
+  // What this room carried that the desk hasn't been told. The numbers live on the sockets, so they survive the
   // object being put to sleep; a client's are moved to the host's socket when the client leaves.
-  async tell(open, host = this.host()) {
-    if (!host) return;
+  untold(host) {
     const who = host.deserializeAttachment();
     const frames = (who.total || 0) + (who.left || 0) + this.clients().reduce((n, c) => n + (c.deserializeAttachment().total || 0), 0);
-    const joined = who.joined || 0;
-    const news = [joined - (who.toldJoined || 0), frames - (who.toldFrames || 0)];
-    who.toldJoined = joined; who.toldFrames = frames;
-    try { host.serializeAttachment(who); } catch { /* the socket is gone: this was its last word */ }
-    try { await desk(this.env).tell(this.ctx.id.toString(), open, ...news); } catch { /* the counts are a courtesy: the room goes on without them */ }
+    return { connections: (who.joined || 0) - (who.toldJoined || 0), frames: frames - (who.toldFrames || 0) };
   }
 
+  // Every so often an open room reports to the desk, and learns whether it still holds its place. One that lost
+  // it, or couldn't reach the desk for two reports running (the desk forgets a room after three), stops serving:
+  // its host is closed and has to ask for a place again.
   async alarm() {
-    if (!this.host()) return;
-    await this.tell(true);
-    await this.ctx.storage.setAlarm(Date.now() + beat(this.env));
+    const host = this.host();
+    if (!host) return;
+    const gen = host.deserializeAttachment().gen, said = this.untold(host), every = beat(this.env);
+    let held = null;  // true: still ours. false: lost. null: the desk couldn't be asked
+    let timer;
+    try {  // an answer that doesn't come is no answer: the room doesn't wait on the desk for ever
+      const late = new Promise((_, no) => { timer = setTimeout(() => no(new Error("the desk didn't answer")), DESK_WAIT); });
+      held = (await Promise.race([desk(this.env).report(this.ctx.id.toString(), gen, said.connections, said.frames), late])).ok === true;
+    } catch { /* asked again sooner, below */ } finally { clearTimeout(timer); }
+    const now = this.host();
+    if (!now || now.deserializeAttachment().gen !== gen) return;  // this host left while the desk was asked: whoever came next has its own alarm
+    const who = now.deserializeAttachment();
+    if (held) {
+      who.toldJoined = (who.toldJoined || 0) + said.connections; who.toldFrames = (who.toldFrames || 0) + said.frames;  // told, so not told again
+      who.lease = Date.now();
+      now.serializeAttachment(who);
+      return this.ctx.storage.setAlarm(Date.now() + every);
+    }
+    if (held === false || this.lapsed(now)) return this.stop(now);
+    return this.ctx.storage.setAlarm(Date.now() + Math.ceil(every / 3));
+  }
+
+  // The place is held until two report times after the desk last confirmed it. Past that, nothing is carried:
+  // checked on every frame too, so it holds even while a report to the desk is still waiting for its answer.
+  lapsed(host) { return Date.now() - (host.deserializeAttachment().lease || 0) >= 2 * beat(this.env); }
+  stop(host) {
+    const keeps = host.deserializeAttachment();
+    for (const c of this.clients()) {  // what each client sent goes on the host's socket first, so the goodbye still counts it (once)
+      const who = c.deserializeAttachment();
+      keeps.left = (keeps.left || 0) + (who.total || 0);
+      c.serializeAttachment({ ...who, total: 0 });
+      c.close(4404, "room is offline");
+    }
+    host.serializeAttachment(keeps);
+    host.close(4429, "this room lost its place on the relay");
   }
 
   shut() {  // the relay was switched off: nothing is carried any more, for sockets that were already open too
@@ -152,16 +207,19 @@ export class Room extends DurableObject {
     if (role === "host" && this.host()) return new Response("this room already has a host", { status: 409 });
     if (role === "client" && !this.host()) return new Response("room is offline", { status: 404 });
     if (role === "client" && this.clients().length >= LIMITS.clients) return new Response("room is full", { status: 429 });
+    let place = null;
     if (role === "host") {
-      const place = await desk(this.env).open(this.ctx.id.toString());
+      if (this.admitting) return new Response("this room already has a host", { status: 409 });  // one host at a time asks the desk
+      this.admitting = true;
+      try { place = await desk(this.env).open(this.ctx.id.toString()); } catch { place = null; } finally { this.admitting = false; }
+      if (!place) return new Response("the relay can't open rooms right now", { status: 503 });
       if (!place.ok) return new Response(place.why, { status: 429 });
-      if (this.host()) return new Response("this room already has a host", { status: 409 });  // another got in while the desk was asked
       await this.ctx.storage.setAlarm(Date.now() + beat(this.env));
     }
     const pair = new WebSocketPair();
     const id = role === "host" ? "host" : crypto.randomUUID().replaceAll("-", "").slice(0, 16);  // the relay names clients; they can't
     this.ctx.acceptWebSocket(pair[1], [role]);
-    pair[1].serializeAttachment({ role, id, at: 0, n: 0 });
+    pair[1].serializeAttachment(role === "host" ? { role, id, at: 0, n: 0, gen: place.gen, lease: Date.now() } : { role, id, at: 0, n: 0 });
     if (role === "client") {
       const host = this.host(), who = host.deserializeAttachment();
       who.joined = (who.joined || 0) + 1;
@@ -173,7 +231,8 @@ export class Room extends DurableObject {
 
   webSocketMessage(ws, data) {
     if (this.shut()) return;
-    const who = ws.deserializeAttachment();
+    const who = ws.deserializeAttachment(), holder = who.role === "host" ? ws : this.host();
+    if (holder && this.lapsed(holder)) return this.stop(holder);
     if (typeof data !== "string" || data.length > LIMITS.frame) {
       // A client that sends too much is dropped. The host's socket is the whole room, so its frame is only thrown away.
       return who.role === "host" ? undefined : ws.close(1009, "frame too big or not text");
@@ -205,9 +264,16 @@ export class Room extends DurableObject {
     try { ws.close(code === 1005 || code === 1006 ? 1000 : code, "bye"); } catch { /* already closed */ }  // finish the closing handshake
     const who = ws.deserializeAttachment();
     if (who.role === "host") {
-      await this.tell(false, ws);  // counted while the clients are still here, and the room's place given back
-      for (const c of this.clients()) c.close(4404, "room is offline");
-      return this.ctx.storage.deleteAlarm();
+      const said = this.untold(ws);  // counted while the clients are still here
+      // Everything of this room's is put away before anything is awaited: once this waits for the desk, the room's
+      // next host may already be coming in, and nothing below may touch what is theirs.
+      const next = this.ctx.getWebSockets("host").some((h) => h !== ws && h.deserializeAttachment().gen !== who.gen);
+      if (!next) {
+        for (const c of this.clients()) c.close(4404, "room is offline");
+        await this.ctx.storage.deleteAlarm();  // nothing else runs in this room during a storage call
+      }
+      try { await desk(this.env).leave(this.ctx.id.toString(), who.gen, said.connections, said.frames); } catch { /* the desk forgets a silent room by itself */ }
+      return;
     }
     const host = this.host();
     if (!host) return;

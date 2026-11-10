@@ -229,6 +229,13 @@ class PageSide(unittest.TestCase):
         self.assertEqual(got.returncode, 0, got.stdout[-3000:] + got.stderr[-2000:])
 
 
+@unittest.skipUnless(NODE and subprocess.run([NODE, "-e", "require('node:sqlite')"], capture_output=True).returncode == 0, "needs a node with sqlite built in (22.5 or later)")
+class RelayDesk(unittest.TestCase):
+    def test_the_relays_desk_and_room_pass_their_own_tests(self):
+        got = subprocess.run([NODE, "--test", str(REPO / "relay" / "tests" / "desk.test.mjs")], capture_output=True, text=True, timeout=120)
+        self.assertEqual(got.returncode, 0, got.stdout[-3000:] + got.stderr[-2000:])
+
+
 def free_port():
     import socket
     with socket.socket() as s:
