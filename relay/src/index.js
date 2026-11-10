@@ -12,6 +12,7 @@ import { DurableObject } from "cloudflare:workers";
 
 export const LIMITS = { frame: 64 * 1024, clients: 10, perSecond: 40 };
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
+const PAGES = { "/": "/index.html", "/start": "/start.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
 
 function same(a, b) {  // compare without leaking where two strings differ
   const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
@@ -27,9 +28,10 @@ export default {
   async fetch(request, env) {
     if (off(env)) return new Response("shellphone is switched off for now", { status: 503 });
     const url = new URL(request.url), m = url.pathname.match(ROOM);
-    if (!m) return new Response("not found", { status: 404 });  // the pages themselves are static files, served before this runs
+    const page = (file) => env.ASSETS.fetch(new Request(new URL(file, url), { method: "GET", headers: request.headers }));
+    if (!m) return PAGES[url.pathname] && request.method === "GET" ? page(PAGES[url.pathname]) : new Response("not found", { status: 404 });
     const [, room, , what] = m;
-    if (!what) return env.ASSETS.fetch(new Request(new URL("/room.html", url), request));  // the room page; it reads the link itself
+    if (!what) return page("/room.html");  // the chat page, at the room's own address: it reads the key from the link itself
     const stub = env.ROOM.get(env.ROOM.idFromName(room));
     if (what === "up") return stub.fetch(request);
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected a websocket", { status: 426 });

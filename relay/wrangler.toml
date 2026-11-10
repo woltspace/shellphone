@@ -15,9 +15,13 @@ routes = [{ pattern = "shellphone.woltspace.app", custom_domain = true }]
 RELAY_OFF = ""        # set to "1" to turn the whole relay off: every request and socket is refused
 OPEN_HOSTING = ""     # leave empty: only hosts that know HOST_KEY can open rooms. "1" lets anyone host: a decision, not a default
 
+[build]
+command = "sh build.sh"   # site/ = public/ + the chat page from ../dist
+
 [assets]
-directory = "./public"
+directory = "./site"
 binding = "ASSETS"
+html_handling = "none"    # pages are served at the addresses below, never by a redirect that would drop a room link
 
 [[durable_objects.bindings]]
 name = "ROOM"

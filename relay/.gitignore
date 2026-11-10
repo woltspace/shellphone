@@ -1,5 +1,4 @@
 .wrangler/
 .dev.vars
 node_modules/
-public/room.html
-public/assets/
+site/
