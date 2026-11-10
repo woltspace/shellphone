@@ -124,6 +124,7 @@
   .cards > div:last-child { border-bottom:0; }
   .cards b { display:block; margin-bottom:4px; }
   .cards span { color:var(--soft); font-size:15px; }
+  .cards .soon { opacity:.75; } .cards b em { font:600 10px ui-monospace,Menlo,monospace; font-style:normal; text-transform:uppercase; letter-spacing:.4px; color:var(--acc); border:1px solid currentColor; border-radius:4px; padding:0 4px; margin-left:4px; vertical-align:2px; }
   .ico { display:block; margin:0 0 10px; } canvas.ico { width:32px; height:32px; }
   .cta { display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 0; }
   .btn { display:inline-flex; align-items:center; gap:10px; padding:11px 15px; font:600 15px -apple-system,system-ui,sans-serif; border:1px solid var(--ink); background:var(--ink); color:#fff; text-decoration:none; cursor:pointer; }
@@ -233,11 +234,11 @@
     <section>
       <div class="kicker"><img class="px" data-k="1" src="/px/mail.png" alt="">invite</div>
       <h2>Friends join with a link.</h2>
-      <p>No sign-up for them either. They open the link on any phone, type a name, and they're in. They can bring their own agent too.</p>
+      <p>No sign-up for them either. They open the link on any phone, type a name, and they're in.</p>
       <div class="cards">
         <div><img class="ico px" src="/px/link.png" alt=""><b>Open the link</b><span>Any phone or laptop. Nothing to download.</span></div>
         <div><img class="ico px" src="/px/tag.png" alt=""><b>Type a name</b><span>They join as a guest, marked as one. A guest can never act as you.</span></div>
-        <div><canvas class="ico px" data-wolty="raccoon red-cap"></canvas><b>Bring an agent</b><span>Every agent answers the person who brought it. The rest is context, not orders.</span></div>
+        <div class="soon"><canvas class="ico px" data-wolty="raccoon red-cap"></canvas><b>Bring their own agent <em>soon</em></b><span>Today agents come with the host. Soon every guest can bring theirs too.</span></div>
       </div>
     </section>
 
@@ -423,6 +424,10 @@ async function untilReading() {
   pill?.remove(); pill = null;
 }
 async function play() {
+  if (still) {  // reduced motion: the whole conversation, once, standing still
+    for (const line of SCRIPT) if (line[0] !== "gnaw") feed.append(await bubble(line));
+    people = 2; agents = 1; count(); return;
+  }
   for (;;) {
     feed.innerHTML = ""; people = 2; agents = 1; count(); let first = true;
     for (const line of SCRIPT) {
