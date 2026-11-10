@@ -67,7 +67,7 @@ class FrontDoor(unittest.TestCase):
     def data_dir(self, room):
         """Where the room keeps its data, found from outside: the temp folder holding this room's pid."""
         for d in Path(tempfile.gettempdir()).glob("shellphone-room-*"):
-            if (d / "host.pid").is_file() and (d / "host.pid").read_text() == str(room.proc.pid):
+            if (d / "throwaway.pid").is_file() and (d / "throwaway.pid").read_text() == str(room.proc.pid):
                 return d
 
     def test_the_link_logs_the_host_in_and_nothing_else_does(self):
@@ -178,6 +178,21 @@ class FrontDoor(unittest.TestCase):
         self.assertNotEqual(old.split("#")[1], again.agent.split("#")[1])
         stale = again.url + "/#" + old.split("#")[1]  # last run's agent link no longer opens the room
         self.assertNotEqual(run("join", stale, "--name", "helper", cwd=Path(self.tmp.name)).returncode, 0)
+
+    def test_a_kept_room_is_never_swept_even_when_it_looks_like_a_throwaway_one(self):
+        kept = Path(tempfile.mkdtemp(prefix="shellphone-room-saved-"))  # the worst place and name to keep a room
+        self.addCleanup(__import__("shutil").rmtree, kept, True)
+        r = self.room("--keep", str(kept))
+        r.browser.open(r.open)
+        r.browser.open(urllib.request.Request(r.url + "/api/messages", data=json.dumps({"text": "keep me"}).encode(),
+                                              headers={"Content-Type": "application/json"}))
+        r.proc.kill()  # a crash: nothing gets tidied
+        r.proc.communicate()
+        self.room()  # another room starts and sweeps
+        self.assertTrue((kept / "room.db").is_file())
+        again = self.room("--keep", str(kept))  # and the kept room opens again with what was said
+        again.browser.open(again.open)
+        self.assertIn("keep me", [m.get("text") for m in again.state()["messages"]])
 
     def test_a_crashed_rooms_leftovers_are_swept_and_an_open_room_is_left_alone(self):
         open_room = self.room()

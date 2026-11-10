@@ -11,6 +11,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PREFIX = "shellphone-room-"
+THROWAWAY = "throwaway.pid"  # only in a room made to be deleted: the pid of the command that owns it
 HOST_EMAIL = "host@shellphone.local"  # the room keys people by email; a local room has one person, the host
 CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "version")
 
@@ -48,10 +49,12 @@ def alive(pid):
 
 
 def sweep():
-    """A room that crashed couldn't delete itself: remove what such rooms left behind. Rooms still open are left alone."""
+    """A throwaway room that crashed couldn't delete itself: remove what such rooms left behind. Only folders this
+    command made as throwaway carry the marker; a kept room never does, wherever it is and whatever it's called.
+    Rooms still open are left alone."""
     for d in Path(tempfile.gettempdir()).glob(PREFIX + "*"):
         try:
-            pid = int((d / "host.pid").read_text())
+            pid = int((d / THROWAWAY).read_text())
         except (OSError, ValueError):
             continue  # not clearly ours to delete
         if not alive(pid):
@@ -77,7 +80,7 @@ def room(a):
         os.chmod(data, 0o700)
     else:
         data = Path(tempfile.mkdtemp(prefix=PREFIX))  # mode 700
-    (data / "host.pid").write_text(str(os.getpid()))
+        (data / THROWAWAY).write_text(str(os.getpid()))
     port = free_port(a.port)
     url = f"http://127.0.0.1:{port}"
     os.environ.update(SHELLPHONE_DATA=str(data), SHELLPHONE_URL=url)  # read by room.py when it loads
@@ -117,7 +120,6 @@ Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "E
         if r.CON is not None:
             r.CON.close()
         if a.keep:
-            (data / "host.pid").unlink(missing_ok=True)
             print(f"\nRoom closed. It's kept in {data}.")
         else:
             shutil.rmtree(data, ignore_errors=True)
