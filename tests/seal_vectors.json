@@ -1,0 +1,55 @@
+{
+  "about": "Fixed inputs and what both implementations must produce from them. Nonces are fixed here only.",
+  "secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "room": "ZGVmZ2hpamtsbW5vcHFycw",
+  "cn": "yMnKy8zNzs_Q0dLT1NXW1w",
+  "sid": "2Nna29zd3t_g4eLj5OXm5w",
+  "root": {
+    "c2h": "8e8735a2c35e23673223171c6b0131fa57729a40eda5d8269611dada79f56416",
+    "h2c": "ef5bae58c55367c47b6f347a09c425d73a44806fe3aacc0297626cb984f32290"
+  },
+  "session": {
+    "c2h": "daec0f29d880ec27d171ac73003998285184c6a65cccd2d959fc8db01b74ffd9",
+    "h2c": "f07d44caf9b7b049bc7dda1970a0c3aa8c95a02c5426a59c71570ebc83c4f3f5"
+  },
+  "hi": {
+    "nonce": "AQEBAQEBAQEBAQEB",
+    "frame": "h.AQEBAQEBAQEBAQEBjNw9TFL_Qj0RxjqEYKaox3h-mkLifec5mJA000riRKUf7BPCSmx7qsr68EXfc67CmGaKhWU2lxQ"
+  },
+  "hello": {
+    "nonce": "AgICAgICAgICAgIC",
+    "frame": "h.AgICAgICAgICAgIC9D4eudTaBlQ6GvSichsao8TUieScHgq6wxQ2-vdnuIFBddlYt7wk4lGSM4EFHAMljoCheArdHSiYta075RCJwPhdw_IvFhUcY74A53Uqdj_yEZbPB9JGiEQU"
+  },
+  "frames": [
+    {
+      "dir": "c2h",
+      "seq": 1,
+      "nonce": "AwMDAwMDAwMDAwMD",
+      "obj": {
+        "t": "req",
+        "id": 1,
+        "method": "POST",
+        "path": "/api/messages",
+        "body": {
+          "text": "héllo 🐚",
+          "cid": "abc123"
+        }
+      },
+      "frame": "AAAAAAAAAAEDAwMDAwMDAwMDAwO2Gef7BGH-jF0HkhWoxIE2303fIV0CzAAhHUP32FHl5aMu-WEFCIu4gj77PCcUAudCRC3sLoG28p33F5kuhcLRivwPPc-mv3sEzvapfnsqTg_AB43Vao2onesY3RAt2BJjdu857wXiXb0vbh9bbmGm0TnkzZRu"
+    },
+    {
+      "dir": "h2c",
+      "seq": 1,
+      "nonce": "BAQEBAQEBAQEBAQE",
+      "obj": {
+        "t": "res",
+        "id": 1,
+        "status": 200,
+        "body": {
+          "n": 7
+        }
+      },
+      "frame": "AAAAAAAAAAEEBAQEBAQEBAQEBAQDSJfczVlyE3iRXZafibSjbiY4I5wkknA4AduNz3ijbjFw6DpXm2vlKjJuizgTCVVyWL0US3jRuHL8XqmtXQ"
+    }
+  ]
+}
