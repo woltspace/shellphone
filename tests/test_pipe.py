@@ -628,6 +628,25 @@ class RoomCap(unittest.TestCase):
         rooms, today = self.stats()
         self.assertEqual((rooms, today["connections"], today["frames"]), (0, 1, frames))  # nothing counted twice at the end
 
+    def test_anyone_may_know_how_many_rooms_are_live_and_nothing_else(self):
+        relay, self.base = start_relay("HOST_KEY:test-host-key")
+        self.addCleanup(setattr, self, "base", self.base)
+        self.addCleanup(stop_relay, relay)
+        host = self.host(self.link())[0]
+        self.assertEqual(self.stats()[0], 1)
+        first = urllib.request.urlopen(self.base + "/live")
+        self.assertEqual(json.load(first), {"rooms": 1})  # one number, no key asked for, and nothing beside it
+        self.assertIn("max-age=30", first.headers["cache-control"])
+        self.close(host)
+        self.assertEqual(self.stats()[0], 0)
+        self.assertEqual(json.load(urllib.request.urlopen(self.base + "/live")), {"rooms": 1})  # kept for half a minute: asked again here, the desk isn't
+        with self.assertRaises(urllib.error.HTTPError) as no:
+            urllib.request.urlopen(urllib.request.Request(self.base + "/live", method="POST", data=b"{}"))
+        self.assertEqual(no.exception.code, 404)
+        numbers = urllib.request.urlopen(self.base + "/numbers").read().decode()  # the page for whoever holds the key: it carries no key itself
+        self.assertIn("The relay's numbers", numbers)
+        self.assertNotIn("test-host-key", numbers)
+
     def test_two_hosts_at_the_same_moment_cant_both_take_the_last_place(self):
         import concurrent.futures, contextlib
         from websockets.sync.client import connect

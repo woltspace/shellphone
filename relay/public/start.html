@@ -66,8 +66,9 @@ It needs uv (https://docs.astral.sh/uv/). What it does, and how to behave in the
 Check with me before you run it. Keep the link private: it is the key to my room.`;
 }
 function show() { $("message").textContent = message(); }
-try { $("key").value = localStorage.getItem("shellphone:hostkey") || ""; } catch {}
-$("key").oninput = () => { try { localStorage.setItem("shellphone:hostkey", $("key").value.trim()); } catch {} show(); };
+// The host key is not kept in the browser: this site also shows rooms' pages, and the key opens rooms.
+try { localStorage.removeItem("shellphone:hostkey"); } catch {}  // an earlier version kept it
+$("key").oninput = show;
 show();
 
 $("copy").onclick = async () => { try { await navigator.clipboard.writeText(message()); $("copy").textContent = "Copied"; } catch { $("copy").textContent = "Select it below"; } };
