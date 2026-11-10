@@ -204,6 +204,8 @@ def host(a):
             status, out, _, _ = r.for_person(r.Request(method, target, read), email)
         except (ValueError, json.JSONDecodeError) as exc:
             return 400, {"error": str(exc)}
+        if (method, path) == ("GET", "/api/state") and status == 200 and isinstance(out, dict):
+            out = {**out, "news": True}  # this host says when something changes (pipe.py): a page that reads this needn't keep asking
         return (status, out) if isinstance(out, (dict, list)) else (415, {"error": "not available through the relay yet"})
 
     stop, state, news = threading.Event(), {"now": None, "first": threading.Event()}, threading.Event()

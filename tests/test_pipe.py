@@ -386,7 +386,8 @@ class ThroughTheRelay(unittest.TestCase):
         link = self.link()
         host, banner = self.host(link)
         ask = self.page(link)
-        self.assertEqual(ask(cmd="request", method="GET", path="/api/state?after=0")["status"], 200)
+        first = ask(cmd="request", method="GET", path="/api/state?after=0")
+        self.assertEqual((first["status"], first["body"].get("news")), (200, True))  # the host says it will tell: the page may stop asking
         time.sleep(1.5)
         quiet = len(ask(cmd="wire")["wire"])
         time.sleep(2.5)
