@@ -416,12 +416,18 @@ def speech_headers(kind):
     return {"Content-Type": kind, **({"Authorization": f"Bearer {SPEECH_KEY}"} if SPEECH_KEY else {})}
 
 
+SPOKEN = 4000  # characters a voice note says aloud, about three and a half minutes
+
+
 def speak(m, voice):
     try:
-        words = re.sub(r"[*_`#]|https?://\S+", "", m["text"])[:1000]
+        words = re.sub(r"[*_`#]|https?://\S+", "", m["text"])
+        if len(words) > SPOKEN:  # a long message is spoken up to a sentence end, then says where the rest is
+            ends = [x.end() for x in re.finditer(r"[.!?](?=\s)", words[:SPOKEN])]  # a sentence ends at . ! or ? before a space or newline
+            words = (words[:ends[-1]] if ends else words[:SPOKEN].rsplit(None, 1)[0] + ".") + " The rest is in the text."
         req = urllib.request.Request(SPEECH.rstrip("/") + "/audio/speech", method="POST", headers=speech_headers("application/json"),
                                      data=json.dumps({"model": TTS_MODEL, "voice": voice or "alba", "input": words, "response_format": "mp3"}).encode())
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=300) as r:
             audio = r.read()
         VOICE.mkdir(parents=True, exist_ok=True)
         (VOICE / f"{m['id']}.mp3").write_bytes(audio)
