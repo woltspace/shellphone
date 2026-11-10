@@ -21,7 +21,8 @@ const stale = (env) => 3 * beat(env);  // a room the desk hasn't heard from for 
 const REOPEN = 10 * 60 * 1000;         // a host back within this long is the same room coming back, not a new one
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
-const PAGES = { "/": "/index.html", "/start": "/start.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
+const LIVE_FOR = 30;  // seconds the public count of live rooms is kept before the desk is asked again
+const PAGES = { "/": "/index.html", "/start": "/start.html", "/numbers": "/numbers.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
 
 function same(a, b) {  // compare without leaking where two strings differ
   const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
@@ -34,10 +35,22 @@ const off = (env) => env.RELAY_OFF === "1";
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (off(env)) return new Response("shellphone is switched off for now", { status: 503 });
     const url = new URL(request.url), m = url.pathname.match(ROOM);
     const page = (file) => env.ASSETS.fetch(new Request(new URL(file, url), { method: "GET", headers: request.headers }));
+    if (url.pathname === "/live") {
+      // For everyone, and so only one number: how many rooms are up right now. Nothing about which, whose or where.
+      // Kept for half a minute, so however often it is asked for, the desk hears of it twice a minute at the most.
+      if (request.method !== "GET") return new Response("not found", { status: 404 });
+      const kept = new Request(url.origin + "/live"), cache = caches.default;
+      let answer = await cache.match(kept);
+      if (!answer) {
+        answer = new Response(JSON.stringify({ rooms: await desk(env).live() }), { headers: { "content-type": "application/json", "cache-control": `public, max-age=${LIVE_FOR}` } });
+        ctx.waitUntil(cache.put(kept, answer.clone()));
+      }
+      return answer;
+    }
     if (url.pathname === "/stats") {  // the relay's counts, for whoever holds the host key
       if (!env.HOST_KEY || !same(request.headers.get("Authorization") || "", "Bearer " + env.HOST_KEY)) return new Response("not found", { status: 404 });
       return json(200, await desk(env).stats());
@@ -136,6 +149,11 @@ export class Desk extends DurableObject {
     this.add(now, "connections", connections);
     this.add(now, "frames", frames);
     this.sql.exec("update rooms set open = 0, at = ? where id = ? and gen = ?", now, id, gen);
+  }
+
+  live() {  // the one number anyone may have
+    this.tidy(Date.now());
+    return this.count();
   }
 
   stats() {

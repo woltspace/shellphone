@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>shellphone: the relay's numbers</title>
+<link rel="icon" href="/icon-180.png">
+<style>
+  :root { --bg:#f5f1e8; --panel:#fbf9f3; --ink:#18100a; --soft:#5c4d3c; --muted:#8a7a68; --line:#ddd5c5; --acc:#c4531e; --ok:#5e7a2c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:22px 16px 60px; }
+  a.brand { font:600 21px ui-monospace,Menlo,monospace; letter-spacing:-.5px; text-decoration:none; color:inherit; }
+  a.brand i { color:var(--acc); font-style:normal; }
+  h1 { font-size:24px; letter-spacing:-.6px; margin:22px 0 4px; }
+  p { color:var(--soft); margin:0 0 14px; }
+  label { display:block; font-size:14px; color:var(--soft); margin:0 0 6px; }
+  input { width:100%; padding:11px 12px; font:15px ui-monospace,Menlo,monospace; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
+  .now { display:flex; gap:10px; margin:20px 0; }
+  .now div { flex:1; border:1px solid var(--line); background:var(--panel); padding:14px; }
+  .now b { display:block; font:650 34px/1 -apple-system,system-ui,sans-serif; letter-spacing:-1px; }
+  .now span { font-size:13px; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font:13px ui-monospace,Menlo,monospace; }
+  th, td { text-align:right; padding:8px 6px; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; }
+  .note { font-size:13px; color:var(--muted); margin-top:16px; }
+  #say { color:var(--acc); font-size:14px; min-height:20px; margin:8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/">shellphone<i>.</i></a>
+  <h1>The relay's numbers</h1>
+  <p>For whoever runs this relay. Counts only: no rooms' addresses, no names, no words.</p>
+  <label for="key">Host key</label>
+  <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="host key">
+  <p id="say"></p>
+  <div id="out" hidden>
+    <div class="now">
+      <div><b id="open">0</b><span>rooms live now, of <span id="max"></span> at once</span></div>
+      <div><b id="today">0</b><span>rooms opened today, of <span id="maxday"></span> a day</span></div>
+    </div>
+    <table>
+      <thead><tr><th>day (UTC)</th><th>rooms</th><th>connections</th><th>frames</th><th>refused</th></tr></thead>
+      <tbody id="days"></tbody>
+    </table>
+    <p class="note">Connections are page connections, not people: a page that reconnects counts again. Frames are sealed frames passed along, several per message. A room's traffic is added when it reports, every 30 minutes and when it closes, so today's line runs a little behind.</p>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+async function show() {
+  const key = $("key").value.trim();
+  if (!key) { $("out").hidden = true; $("say").textContent = ""; return; }
+  let res;
+  try { res = await fetch("/stats", { headers: { Authorization: "Bearer " + key }, cache: "no-store" }); } catch { $("say").textContent = "Can't reach the relay."; return; }
+  if (!res.ok) { $("out").hidden = true; $("say").textContent = "That key doesn't open the numbers."; return; }
+  const s = await res.json(), today = new Date().toISOString().slice(0, 10);
+  $("say").textContent = "";
+  $("open").textContent = s.open_rooms; $("max").textContent = s.max_rooms; $("maxday").textContent = s.max_rooms_per_day;
+  $("today").textContent = (s.days.find((d) => d.day === today) || { rooms_opened: 0 }).rooms_opened;
+  $("days").replaceChildren(...s.days.map((d) => {
+    const tr = document.createElement("tr");
+    for (const v of [d.day, d.rooms_opened, d.connections, d.frames, d.refused]) { const td = document.createElement("td"); td.textContent = v; tr.append(td); }
+    return tr;
+  }));
+  $("out").hidden = false;
+}
+try { $("key").value = localStorage.getItem("shellphone:hostkey") || ""; } catch {}
+$("key").oninput = () => { try { localStorage.setItem("shellphone:hostkey", $("key").value.trim()); } catch {} show(); };
+show();
+setInterval(show, 60000);
+</script>
+</body>
+</html>
