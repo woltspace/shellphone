@@ -60,10 +60,11 @@ test("a room that reports too late loses its place, and is told so", () => {
   assert.deepEqual(a, { ok: true, gen: 1 });
   assert.equal(desk.open("b").ok, false);  // full
   later(3 * BEAT + 1);                      // a says nothing for three report times
-  assert.equal(desk.open("b").ok, true);   // its place went to b
+  const b = desk.open("b");
+  assert.equal(b.ok, true);                // its place went to b
   assert.deepEqual(desk.report("a", a.gen, 0, 0), { ok: false });  // and a hears it: no place to come back to
   assert.equal(desk.stats().open_rooms, 1);
-  desk.leave("b", 1, 0, 0);
+  desk.leave("b", b.gen, 0, 0);
   assert.deepEqual(desk.report("a", a.gen, 2, 9), { ok: true });   // with a place free, a late room gets one back
   const s = desk.stats();
   assert.deepEqual([s.open_rooms, s.days[0].rooms_opened, s.days[0].connections, s.days[0].frames], [1, 2, 2, 9]);  // not a new room; its counts kept
@@ -79,6 +80,21 @@ test("a goodbye from an earlier host can't close the room's next one", () => {
   assert.deepEqual(desk.report("a", second.gen, 0, 0), { ok: true });
   desk.leave("a", second.gen, 0, 0);
   assert.equal(desk.stats().open_rooms, 0);
+});
+
+test("a number is never given twice, even to a room the desk had forgotten", () => {
+  const desk = newDesk();
+  const old = desk.open("a");
+  later(3 * BEAT + 1);            // a goes silent and is forgotten,
+  const back = desk.open("a");    // then its host comes back
+  assert.notEqual(back.gen, old.gen);
+  desk.leave("a", old.gen, 0, 0);  // the old host's goodbye arrives only now
+  assert.equal(desk.stats().open_rooms, 1);
+  assert.deepEqual(desk.report("a", old.gen, 0, 0), { ok: false });  // and its report is not the room's
+  assert.deepEqual(desk.report("a", back.gen, 0, 0), { ok: true });
+  assert.equal(desk.open("b").ok, false);  // the place is still taken
+  const other = desk.open("a");            // numbers run across rooms and admissions alike
+  assert.ok(other.gen > back.gen);
 });
 
 test("a room told it lost its place stops serving", async () => {

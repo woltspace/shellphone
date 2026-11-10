@@ -66,13 +66,15 @@ const desk = (env) => env.DESK.get(env.DESK.idFromName("desk"));
 //   frames         sealed frames carried, both ways: several per request, so this is not chat messages
 //   refused        hosts turned away because the relay was full, or had opened all the rooms it may that day
 //
-// A place is a lease. Every admission of a host gets a number (gen), and an open room must report in time to keep
-// its place: one that didn't is forgotten here, and is told so when it next reports (see Room.alarm).
+// A place is a lease. Every admission of a host gets a number (gen) that is never given twice, whatever the desk
+// has forgotten since, and an open room must report in time to keep its place: one that didn't is forgotten
+// here, and is told so when it next reports (see Room.alarm).
 export class Desk extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     this.sql.exec("create table if not exists rooms (id text primary key, open integer not null, at integer not null, gen integer not null)");
+    this.sql.exec("create table if not exists counters (name text primary key, n integer not null)");
     this.sql.exec("create table if not exists days (day text primary key, rooms_opened integer not null default 0, connections integer not null default 0, frames integer not null default 0, refused integer not null default 0)");
   }
 
@@ -102,8 +104,10 @@ export class Desk extends DurableObject {
       if ((today ? today.n : 0) >= number(this.env.MAX_ROOMS_PER_DAY, 200)) { this.add(now, "refused", 1); return { ok: false, why: "the relay has opened all the rooms it may today" }; }
       this.add(now, "rooms_opened", 1);
     }
-    this.sql.exec("insert into rooms (id, open, at, gen) values (?, 1, ?, 1) on conflict (id) do update set open = 1, at = ?, gen = gen + 1", id, now, now);
-    return { ok: true, gen: this.sql.exec("select gen from rooms where id = ?", id).one().gen };
+    this.sql.exec("insert into counters (name, n) values ('gen', 1) on conflict (name) do update set n = n + 1");
+    const gen = this.sql.exec("select n from counters where name = 'gen'").one().n;  // the desk's own count: a forgotten room's number never comes round again
+    this.sql.exec("insert into rooms (id, open, at, gen) values (?, 1, ?, ?) on conflict (id) do update set open = 1, at = ?, gen = ?", id, now, gen, now, gen);
+    return { ok: true, gen };
   }
 
   // An open room reports: what it carried since it last said, and does it still hold its place? { ok }.
