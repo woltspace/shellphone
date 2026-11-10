@@ -141,6 +141,7 @@ Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "E
 
 
 SHARED = {("GET", "/api/state"), ("POST", "/api/messages")}  # what a page may ask through the relay, for now: text chat
+MAX_GUESTS = 50  # people who may come in through one run's invite link
 
 
 def shared_link(link):
@@ -164,12 +165,34 @@ def host(a):
     relay = (a.relay or relay).rstrip("/")
     r, data, url, token, code, server = start(a, token)
 
+    # The invite link has a secret and a token of its own, so nobody holding it can come in as the host. All it can
+    # do is make a guest: a person with the name they typed, the guest mark, and a token only they hold.
+    invite_secret, invite_token, guests = secrets.token_bytes(32), secrets.token_urlsafe(24), {}
+
     def answer(kind, method, target, body, auth):
-        if (method, urllib.parse.urlsplit(target).path) not in SHARED:
-            return 404, {"error": "not found"}
-        email = next((e for t, e in r.LOCAL.items() if hmac.compare_digest(t, auth)), None) if kind == "h" else None
+        path = urllib.parse.urlsplit(target).path
+        if kind == "h":  # the host's link: only the host's own token counts
+            email = HOST_EMAIL if hmac.compare_digest(token, auth) else None
+            if email and (method, path) == ("GET", "/api/invite"):
+                return 200, {"key": f"i.{seal.b64e(invite_secret)}.{invite_token}"}
+        elif hmac.compare_digest(invite_token, auth):  # the invite link itself: it can ask for a place in the room, nothing else
+            if (method, path) != ("POST", "/api/guest"):
+                return 403, {"error": "tell the room your name first"}
+            if len(guests) >= MAX_GUESTS:
+                return 429, {"error": "this room is full"}
+            try:
+                email = r.add_guest(body.get("name") if isinstance(body, dict) else None)
+            except ValueError as exc:
+                return 400, {"error": str(exc)}
+            mine = secrets.token_urlsafe(24)
+            guests[mine] = email
+            return 200, {"token": mine}
+        else:  # a guest's own token
+            email = next((e for t, e in guests.items() if hmac.compare_digest(t, auth)), None)
         if not email:
             return 403, {"error": "not on this room's list"}
+        if (method, path) not in SHARED:
+            return 404, {"error": "not found"}
         raw = b"" if body is None else json.dumps(body).encode()
 
         def read(limit):
@@ -192,7 +215,7 @@ def host(a):
     ws = relay.replace("http", "ws", 1) + f"/r/{seal.b64e(room_id)}/host"
     link = threading.Thread(target=pipe.serve, daemon=True, kwargs=dict(
         url=ws, key=os.environ.get("SHELLPHONE_RELAY_KEY", ""), stop=stop, on_state=on_state,
-        new_pipe=lambda: pipe.HostPipe(room_id, {"h": secret}, answer)))
+        new_pipe=lambda: pipe.HostPipe(room_id, {"h": secret, "i": invite_secret}, answer)))
     link.start()
     state["first"].wait(20)
     if state["now"] != "up":

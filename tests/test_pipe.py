@@ -319,6 +319,42 @@ class ThroughTheRelay(unittest.TestCase):
         thief = self.page(link.rsplit(".", 1)[0] + ".not-the-token-000000000000")  # the right key, someone else's token
         self.assertEqual(thief(cmd="request", method="GET", path="/api/state")["status"], 403)
 
+    def test_an_invite_makes_a_guest_and_never_a_host(self):
+        link = self.link()
+        self.host(link)
+        base, me = link.split("#")[0], self.page(link)
+        key = me(cmd="request", method="GET", path="/api/invite")["body"]["key"]
+        self.assertRegex(key, r"^i\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{20,}$")
+        self.assertNotIn(seal.b64e(self.secret), key)
+        self.assertNotIn(self.token, key)
+        # the invite link itself can only ask for a place
+        door = self.page(f"{base}#{key}")
+        self.assertEqual(door(cmd="request", method="GET", path="/api/state")["status"], 403)
+        self.assertEqual(door(cmd="request", method="POST", path="/api/messages", body={"text": "let me in", "cid": "x0000001"})["status"], 403)
+        self.assertEqual(door(cmd="request", method="GET", path="/api/invite")["status"], 403)
+        self.assertEqual(door(cmd="request", method="POST", path="/api/guest", body={"name": "  "})["status"], 400)
+        got = door(cmd="request", method="POST", path="/api/guest", body={"name": "Ali"})
+        self.assertEqual(got["status"], 200)
+        secret_part = key.split(".")[1]
+        ali = self.page(f"{base}#i.{secret_part}.{got['body']['token']}")
+        state = ali(cmd="request", method="GET", path="/api/state?after=0")["body"]
+        self.assertRegex(state["me"], r"^guest-[0-9a-f]{8}@room\.local$")
+        people = {p["name"]: p for p in state["members"]["people"]}
+        self.assertEqual((sorted(people), bool(people["Ali"].get("guest")), bool(people["Sam"].get("guest"))), (["Ali", "Sam"], True, False))
+        self.assertEqual(ali(cmd="request", method="POST", path="/api/messages", body={"text": "hello from a guest", "cid": "g0000001"})["status"], 200)
+        seen = [(m["email"], m["text"]) for m in me(cmd="request", method="GET", path="/api/state?after=0")["body"]["messages"] if m["kind"] == "human"]
+        self.assertEqual(seen, [(state["me"], "hello from a guest")])
+        # a guest is not the host: no invite of their own, and their token means nothing under the host's link
+        self.assertEqual(ali(cmd="request", method="GET", path="/api/invite")["status"], 404)
+        swapped = self.page(f"{base}#h.{seal.b64e(self.secret)}.{got['body']['token']}")
+        self.assertEqual(swapped(cmd="request", method="GET", path="/api/state")["status"], 403)
+        # and the host's token means nothing under the invite link
+        climb = self.page(f"{base}#i.{secret_part}.{self.token}")
+        self.assertEqual(climb(cmd="request", method="GET", path="/api/state")["status"], 403)
+        # the invite secret offered as the host's link doesn't even connect
+        fake = self.page(f"{base}#h.{secret_part}.{self.token}", helloWait=400)
+        self.assertEqual(fake(cmd="request", method="GET", path="/api/state"), {"failed": "refused"})
+
     def test_a_room_has_one_host_and_the_relay_can_be_locked(self):
         link = self.link()
         self.host(link)
