@@ -653,12 +653,12 @@ class RoomCap(unittest.TestCase):
                     return r.status, r.read()
             except urllib.error.HTTPError as e:
                 return e.code, None
-        self.assertEqual([tap("?what=mic"), tap("?what=mic"), tap("?what=file")], [(204, b"")] * 3)  # counted, and nothing comes back
+        self.assertEqual([tap("?what=mic"), tap("?what=mic"), tap("?what=file"), tap("?what=more")], [(204, b"")] * 4)  # counted, and nothing comes back
         self.assertEqual([tap("?what=camera")[0], tap("")[0], tap("?what=mic", "GET")[0]], [404, 404, 404])  # only the things it knows, only by POST
         end = time.time() + 5  # the count is written after the answer is given
-        while time.time() < end and len(self.taps()) < 2:
+        while time.time() < end and len(self.taps()) < 3:
             time.sleep(0.1)
-        self.assertEqual(self.taps(), {"file": 1, "mic": 2})
+        self.assertEqual(self.taps(), {"file": 1, "mic": 2, "more": 1})
         self.assertNotIn("taps", json.load(urllib.request.urlopen(self.base + "/live")))  # the public number stays one number
         for gone in ("/numbers", "/numbers.html"):  # the site has no page for the private counts: whoever runs the relay reads /stats themselves
             with self.assertRaises(urllib.error.HTTPError) as no:

@@ -21,7 +21,7 @@ const stale = (env) => 3 * beat(env);  // a room the desk hasn't heard from for 
 const REOPEN = 10 * 60 * 1000;         // a host back within this long is the same room coming back, not a new one
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
-const TAPS = ["mic", "file"];   // things the page shows as "coming soon": a tap on one is counted, to learn what people want
+const TAPS = ["more", "mic", "file"];  // "more" is the paperclip that opens the list; "mic" and "file" are its "coming soon" lines. A tap on one is counted, to learn what people want
 const TAPS_PER_DAY = 5000;      // of each, at the most: past that a day's taps aren't counted (or written) any more
 const TAPS_PER_SECOND = 20;     // and this many a second is all one copy of the Worker passes on to the desk
 let tapped = { at: 0, n: 0 };
@@ -94,7 +94,7 @@ const desk = (env) => env.DESK.get(env.DESK.idFromName("desk"));
 //   frames         sealed frames that came in, from either side: several per request, so this is not chat messages
 //                  (one thrown away for coming too fast is counted too: it is what the relay had to handle)
 //   refused        hosts turned away because the relay was full, or had opened all the rooms it may that day
-//   taps_mic, taps_file   taps on a "coming soon" button in a room's page: taps, not people, and not tied to any room
+//   taps (more, mic, file)   taps on the paperclip and its "coming soon" lines in a room's page: taps, not people, not tied to any room
 //
 // A place is a lease. Every admission of a host gets a number (gen) that is never given twice, whatever the desk
 // has forgotten since, and an open room must report in time to keep its place: one that didn't is forgotten

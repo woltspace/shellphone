@@ -97,8 +97,8 @@ test("the public count only reads, and leaves out a room that went silent", () =
 
 test("taps are counted by day and by thing, up to a day's limit, and nothing else is taken", () => {
   const desk = newDesk();
-  desk.tap("mic"); desk.tap("mic"); desk.tap("file"); desk.tap("camera"); desk.tap(undefined);
-  assert.deepEqual(desk.stats().taps.map((t) => [t.what, t.n]), [["file", 1], ["mic", 2]]);  // only the things it knows
+  desk.tap("mic"); desk.tap("mic"); desk.tap("file"); desk.tap("more"); desk.tap("camera"); desk.tap(undefined);
+  assert.deepEqual(desk.stats().taps.map((t) => [t.what, t.n]), [["file", 1], ["mic", 2], ["more", 1]]);  // only the things it knows
   for (let i = 0; i < 5100; i++) desk.tap("mic");
   assert.equal(desk.stats().taps.find((t) => t.what === "mic").n, 5000);  // a day's count stops at its limit
   later(86400 * 1000);
