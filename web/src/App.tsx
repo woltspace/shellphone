@@ -264,6 +264,10 @@ export function App() {
   // an open thread counts as read, including replies that arrive while you're in it
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
   const roots = main.filter((m) => replies.has(m.id));
+  // a room with no threads yet opens on its chat, not on an empty list (a brand-new room, someone's first)
+  const settled = useRef(false);
+  const threadsSeen = useRef(false); threadsSeen.current = replies.size > 0;
+  useEffect(() => { if (!settled.current && state.me) { settled.current = true; if (!replies.size) setListOpen(false); } }, [state.me]);
   const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
   const swipe = useSwipeBack(() => setThread(""));
 
@@ -300,7 +304,7 @@ export function App() {
     const seen = () => {
       if (document.hidden) { hidden = Date.now(); return; }
       noted();
-      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(true); setMenu(false); stickMain.current(); }
+      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(threadsSeen.current); setMenu(false); stickMain.current(); }
     };
     document.addEventListener("visibilitychange", seen);
     return () => { navigator.serviceWorker?.removeEventListener("message", fromNote); document.removeEventListener("visibilitychange", seen); };
