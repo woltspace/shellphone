@@ -32,6 +32,7 @@ TTS_MODEL = os.environ.get("SHELLPHONE_TTS_MODEL", "pocket")
 SPEECH_KEY = os.environ.get("SHELLPHONE_SPEECH_KEY", "")  # for a hosted speech service; sent as a Bearer token
 LOCK = threading.RLock()
 DEV = False
+LOCAL = {}  # `shellphone room` (a room on this computer only): login token -> email. The token comes in the link the host opens.
 # Behind Cloudflare Access: the team domain and the Access app's audience tag. With both set, people must carry a valid Access login.
 ACCESS_TEAM = os.environ.get("SHELLPHONE_ACCESS_TEAM", "")
 ACCESS_AUD = os.environ.get("SHELLPHONE_ACCESS_AUD", "")
@@ -74,6 +75,7 @@ create table if not exists invites(code_hash text primary key, owner text not nu
 create table if not exists messages(n integer primary key autoincrement, id text unique not null, at real not null,
                                     kind text not null, data text not null);
 create table if not exists working(wolt text primary key, until real not null);
+create table if not exists unreachable(wolt text primary key, since real not null);
 create table if not exists seen(msg text not null, wolt text not null, at real not null, primary key(msg, wolt));
 create table if not exists push(endpoint text primary key, email text not null, sub text not null);
 """
@@ -230,6 +232,11 @@ def mark_asked(text, email):
         for l in wolts():
             if asks({"kind": "human", "email": email, "text": text}, l["wolt"], l["owner"]):
                 set_working(c, l["wolt"], ASKED_FOR)
+
+
+def unreachable_now():
+    """Wolts whose connector has failed 5 times in a row to hand them a message: their messages wait, in order, until it gets through."""
+    return {row["wolt"]: row["since"] for row in q("select * from unreachable")}
 
 
 def working_now():
@@ -482,7 +489,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def person(self):
         """Behind Cloudflare Access the email comes from Access. In --dev, ?as= or a cookie picks who you are."""
-        if ACCESS_TEAM and ACCESS_AUD:  # trust the signed login, not a header anyone on this computer could send
+        if LOCAL:  # a room on this computer only: the link's token says who you are, never a header or an address
+            email = LOCAL.get(self.local_token(), "") if self.local_host() else ""
+        elif ACCESS_TEAM and ACCESS_AUD:  # trust the signed login, not a header anyone on this computer could send
             email = access_email(self.headers.get("Cf-Access-Jwt-Assertion") or "")
         else:
             email = (self.headers.get("Cf-Access-Authenticated-User-Email") or "").lower()
@@ -493,6 +502,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.seen = email
         found = find_person(email)
         return (found, people()[found]) if found else (None, None)
+
+    def local_host(self):
+        """Only this computer's own address counts, so another site can't point a name of its own at the room."""
+        return (self.headers.get("Host") or "").rsplit(":", 1)[0] in ("127.0.0.1", "localhost")
+
+    def local_token(self):
+        """The token from the link (?k=), or from the cookie the first visit left. One cookie per port: rooms don't mix."""
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        cookie = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+        return q.get("k", [""])[0] or cookie.get(f"sp{self.server.server_address[1]}", "")
 
     def bearer(self):
         auth = self.headers.get("Authorization") or ""
@@ -524,7 +543,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(200, (HERE / "connector.py").read_bytes(), "text/x-python; charset=utf-8")
             if path == "/lodge/thread":  # a wolt answering in a thread reads it whole, however long ago it started
                 found = thread(q.get("id", [""])[0])
-                return self.send(200, {"messages": found}) if found else self.send(404, {"error": "there's no such thread"})
+                return self.send(200, {"owner": l["owner"], "members": members(), "messages": found}) if found else self.send(404, {"error": "there's no such thread"})
+            if path == "/lodge/history":  # a wolt reads further back in the main chat (no read receipts, no working sign)
+                last = int(q.get("last", ["30"])[0]) if q.get("last", ["30"])[0].isdigit() else 30
+                main = [m for m in messages() if m["kind"] in ("human", "wolt") and not m.get("thread")]
+                return self.send(200, {"owner": l["owner"], "members": members(), "messages": main[-max(1, min(last, 500)):]})
             if path == "/lodge/messages":
                 new = messages(after)
                 fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
@@ -537,6 +560,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
                                        "connector": connector_version()})
             return self.send(404, {"error": "not found"})
+        if LOCAL and path == "/" and q.get("k") and self.local_host() and q["k"][0] in LOCAL:
+            self.send_response(303)  # keep the token in a cookie and out of the address bar
+            self.send_header("Set-Cookie", f"sp{self.server.server_address[1]}={q['k'][0]}; Path=/; HttpOnly; SameSite=Strict")
+            self.send_header("Location", "/")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            return self.end_headers()
         email, p = self.person()
         app_files = {"/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript; charset=utf-8",
                      "/icon-180.png": "image/png", "/icon-512.png": "image/png", "/room-icon.png": "image/png"}
@@ -563,7 +593,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return self.send(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "seen": receipts(), "messages": messages(after)})
+            return self.send(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "messages": messages(after)})
         m = re.fullmatch(r"/voice/([0-9a-f]{32}\.(mp3|webm|mp4|m4a|ogg))", path)
         if m and (VOICE / m.group(1)).is_file():
             kind = "audio/mpeg" if m.group(2) == "mp3" else f"audio/{m.group(2)}"
@@ -617,6 +647,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if path == "/lodge/working":
                     with tx() as c:
                         (set_working(c, l["wolt"], ASKED_FOR) if data.get("working") else stop_working(c, l["wolt"]))
+                    return self.send(200, {"ok": True})
+                if path == "/lodge/reach":  # the connector couldn't hand this wolt its messages ({"ok": false}), or now it could again
+                    with tx() as c:
+                        (c.execute("delete from unreachable where wolt = ?", (l["wolt"],)) if data.get("ok") else
+                         c.execute("insert or ignore into unreachable values (?, ?)", (l["wolt"], time.time())))
                     return self.send(200, {"ok": True})
                 if path == "/lodge/voice":  # a wolt turns its voice notes on (with a voice's name) or off (null)
                     voice = data.get("voice") or None
@@ -758,7 +793,10 @@ def code_ref():
     """The commit this room runs, so strangers' agents fetch exactly this version (not a branch that can move)."""
     if os.environ.get("SHELLPHONE_REF"):
         return os.environ["SHELLPHONE_REF"]
-    got = subprocess.run(["git", "-C", str(HERE), "rev-parse", "HEAD"], capture_output=True, text=True)
+    try:
+        got = subprocess.run(["git", "-C", str(HERE), "rev-parse", "HEAD"], capture_output=True, text=True)
+    except OSError:  # no git on this computer
+        return "main"
     return got.stdout.strip() if got.returncode == 0 else "main"
 
 

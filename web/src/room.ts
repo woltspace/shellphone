@@ -15,7 +15,7 @@ export type Tab = { slug: string; title: string; v: number };
 export type State = {
   version?: string; title: string; me: string;
   members: { people: Person[]; wolts: Wolt[] };
-  working: Record<string, unknown>; seen: Record<string, string[]>; tabs: Tab[];
+  working: Record<string, unknown>; unreachable?: Record<string, number>; seen: Record<string, string[]>; tabs: Tab[];
 };
 
 // How many sends are on their way. The page doesn't reload itself for a new version while one is.

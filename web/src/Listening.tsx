@@ -3,11 +3,13 @@ import { useEffect, useRef, useState } from "react";
 
 export type Recording = { blob: Blob; type: string; seconds: number };
 
-export function Listening({ sprite, audio, onDone }: { sprite: string; audio: AudioContext | null; onDone: (r: Recording | null) => void }) {
+// Tapping send shows the note in the chat at once (onSend); the recording itself follows a moment later (onDone with
+// the same id), when the phone has finished handing it over.
+export function Listening({ sprite, audio, onSend, onDone }: { sprite: string; audio: AudioContext | null; onSend: (seconds: number) => string; onDone: (r: Recording | null, cid?: string) => void }) {
   const [secs, setSecs] = useState(0);
   const [quiet, setQuiet] = useState(false);
   const bars = useRef<HTMLDivElement>(null);
-  const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; parts: Blob[]; start: number; keep: boolean } | null>(null);
+  const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; parts: Blob[]; start: number; keep: boolean; cid?: string; seconds?: number } | null>(null);
 
   useEffect(() => {
     let frame = 0, clock = 0, ctx: AudioContext | null = null, lock: any = null, gone = false;
@@ -17,13 +19,13 @@ export function Listening({ sprite, audio, onDone }: { sprite: string; audio: Au
       catch { onDone(null); return; }
       if (gone) { stream.getTracks().forEach((t) => t.stop()); return; }
       const recorder = new MediaRecorder(stream), parts: Blob[] = [];
-      const r = (rec.current = { recorder, stream, parts, start: Date.now(), keep: true });
+      const r: NonNullable<typeof rec.current> = (rec.current = { recorder, stream, parts, start: Date.now(), keep: true });
       recorder.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        if (!r.keep || !parts.length || Date.now() - r.start < 700) return onDone(null);
+        if (!r.keep || !parts.length || (r.seconds ?? 0) < 0.7) return onDone(null, r.cid);
         const type = (parts[0].type || recorder.mimeType || "audio/mp4").split(";")[0];
-        onDone({ blob: new Blob(parts, { type }), type, seconds: Math.round((Date.now() - r.start) / 100) / 10 });
+        onDone({ blob: new Blob(parts, { type }), type, seconds: r.seconds! }, r.cid);
       };
       recorder.start(1000);
       clock = window.setInterval(() => setSecs(Math.floor((Date.now() - r.start) / 1000)), 250);
@@ -56,7 +58,9 @@ export function Listening({ sprite, audio, onDone }: { sprite: string; audio: Au
   const stop = (keep: boolean) => {
     const r = rec.current;
     if (!r || r.recorder.state === "inactive") return onDone(null);
-    r.keep = keep; r.recorder.stop();
+    r.keep = keep; r.seconds = Math.round((Date.now() - r.start) / 100) / 10;
+    if (keep && r.seconds >= 0.7) r.cid = onSend(r.seconds);  // in the chat now, not when the phone is done
+    r.recorder.stop();
   };
   const round = "w-[72px] h-[72px] rounded-full grid place-items-center cursor-pointer border-0";
   return (
