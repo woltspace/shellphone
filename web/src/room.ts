@@ -1,6 +1,6 @@
 // The room's log, as the page sees it. The room server is the only truth: this file only reads /api/state and posts back.
 import { useEffect, useRef, useState } from "react";
-import { call, relayNeedsName, relayRoom } from "./relay";
+import { call, needsName, relayRoom } from "./relay";
 
 export type Person = { email: string; name: string; color: string; guest?: boolean };  // guest: came in with the invite link, name not checked
 export type Wolt = { wolt: string; owner: string; creature: string; voice?: string | null };
@@ -44,6 +44,7 @@ export function useRoom() {
   useEffect(() => {
     let stop = false, timer = 0;
     async function poll() {
+      if (needsName()) { timer = window.setTimeout(poll, 500); return; }  // a guest picks a name first; until then the room has nothing for them
       try {
         const url = `/api/state?after=${after.current}${document.visibilityState === "visible" ? "&here=1" : ""}`;
         const r = await (relayRoom ? call(url) : fetch(url, { cache: "no-store" }));
@@ -87,7 +88,7 @@ export function useRoom() {
       } catch { setError("Can't reach the room, trying again…"); }
       if (!stop) timer = window.setTimeout(poll, 2000);
     }
-    if (!relayNeedsName) poll();  // a guest picks a name first; until then the room has nothing for them
+    poll();
     return () => { stop = true; clearTimeout(timer); };
   }, []);
 

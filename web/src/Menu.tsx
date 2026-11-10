@@ -47,7 +47,8 @@ function Invite({ row }: { row: string }) {
   const go = async () => {
     const link = await inviteLink();
     if (!link) return setNote("Couldn't get the link from the room. Try again.");
-    try { if (navigator.share) { await navigator.share({ title: "shellphone", text: "Join my shellphone room", url: link }); return; } } catch { return; }
+    try { if (navigator.share) { await navigator.share({ title: "shellphone", text: "Join my shellphone room", url: link }); return; } }
+    catch (e) { if ((e as Error).name === "AbortError") return; }  // only a cancelled sheet ends here; any other failure falls back to copying
     try { await navigator.clipboard.writeText(link); setNote("Link copied"); } catch { setNote(link); }
   };
   return <button type="button" onClick={go} className={row}><UserPlus size={20} className="text-acc" />

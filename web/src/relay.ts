@@ -33,8 +33,9 @@ function saved(): string | null {
 let key = saved();
 export const relayKeyMissing = !!relayRoom && !key;
 export const relayHost = key?.startsWith("h.") || false;  // the host's own link (an invite link starts with i.)
+let joined = false;  // this browser became a guest during this visit (kept here too: storage may be blocked)
 const named = () => { try { return localStorage.getItem(`sp-guest-${relayRoom}`) === key; } catch { return false; } };
-export const relayNeedsName = !!key && key.startsWith("i.") && !named();  // an invite link not yet turned into this guest's own
+export const needsName = () => !!key && key.startsWith("i.") && !joined && !named();  // an invite not yet turned into this guest's own
 
 // A guest names themselves once: the room gives back their own token, kept here in place of the invite's, and from
 // then on this browser is that guest
@@ -43,9 +44,10 @@ export async function becomeGuest(name: string): Promise<string | null> {
   const got = r && (await r.json().catch(() => ({}))) as { token?: string; error?: string };
   if (!r || !r.ok || !got?.token) return got?.error || "Couldn't reach the room. Try again.";
   key = key!.split(".").slice(0, 2).concat(got.token).join(".");
+  joined = true;
   try { localStorage.setItem(`sp-room-${relayRoom}`, key); localStorage.setItem(`sp-guest-${relayRoom}`, key); } catch { /* this visit only */ }
-  location.replace(`${location.pathname}#${key}`);  // reopen as that guest (the key leaves the address again on load)
-  location.reload();
+  const old = pipe; pipe = null;  // the next call opens a new pipe as that guest; no reload, so nothing kept in memory is lost
+  old?.then((p) => p.close()).catch(() => {});
   return null;
 }
 

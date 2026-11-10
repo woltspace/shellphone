@@ -1,5 +1,5 @@
 // Shell Phone, our own page. Same room, same look as the classic page, but every piece is ours to change.
-import { becomeGuest, relayKeyMissing, relayNeedsName, relayRoom, onRelayState, type PipeState } from "./relay";
+import { becomeGuest, needsName, relayKeyMissing, relayRoom, onRelayState, type PipeState } from "./relay";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
@@ -218,9 +218,9 @@ function Offline({ missing, state }: { missing: boolean; state: PipeState }) {
 }
 
 // Someone who came in with the invite link says who they are, once. The name isn't checked: the room marks them "guest".
-function NameFirst() {
+function NameFirst({ done }: { done: () => void }) {
   const [name, setName] = useState(""), [busy, setBusy] = useState(false), [problem, setProblem] = useState("");
-  const go = async () => { if (!name.trim() || busy) return; setBusy(true); setProblem((await becomeGuest(name.trim())) || ""); setBusy(false); };
+  const go = async () => { if (!name.trim() || busy) return; setBusy(true); const problem = await becomeGuest(name.trim()); setBusy(false); if (problem) setProblem(problem); else done(); };
   return <div className="absolute inset-0 z-[1700] bg-paper grid place-items-center px-8 text-center">
     <form onSubmit={(e) => { e.preventDefault(); go(); }} className="w-full max-w-xs">
       <div className="font-mono font-semibold text-acc text-lg mb-2">&gt; you're invited</div>
@@ -237,6 +237,7 @@ function NameFirst() {
 export function App() {
   useFit();
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
+  const [naming, setNaming] = useState(needsName);  // an invite link: who are you, first
   const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
   useEffect(() => (relayRoom ? onRelayState(setLink) : undefined), []);
   const [listening, setListening] = useState<AudioContext | null | false>(false);
@@ -473,8 +474,8 @@ export function App() {
         {composer}
       </div>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
-      {relayNeedsName && <NameFirst />}
-      {relayRoom && (relayKeyMissing || (link !== "open" && !(relayNeedsName && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
+      {naming && <NameFirst done={() => setNaming(false)} />}
+      {relayRoom && (relayKeyMissing || (link !== "open" && !(naming && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onSend={voiceStart} onDone={voice} />}
       {viewing && <Viewer urls={viewing.urls} at={viewing.at} close={() => setViewing(null)} />}
