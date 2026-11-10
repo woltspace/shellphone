@@ -26,11 +26,11 @@ export function Menu({ open, panel, scrim, touch, close, title, me, push, freshC
         </button>
         <div className={`${row} cursor-default text-dim`}><Shell size={20} className="text-dim" /><span className="flex-1 text-sm">All your rooms in one place</span><span className="font-mono text-[10px] border border-line rounded px-1.5">soon</span></div>
         <div className={sec}>This room</div>
-        <button type="button" onClick={push.state === "ask" ? push.turnOn : undefined} className={row}>
+        {!relayRoom && <button type="button" onClick={push.state === "ask" ? push.turnOn : undefined} className={row}>
           {push.state === "on" ? <BellRing size={20} className="text-acc" /> : push.state === "ask" ? <Bell size={20} className="text-acc" /> : <BellOff size={20} className="text-dim" />}
           <span className="flex-1">Notifications<small className="block text-xs text-dim">{push.state === "on" ? "On for this phone" : push.state === "ask" ? "Tap to turn on for this phone" : "Not available here (add the app to your home screen)"}</small></span>
           {push.state === "on" ? <Check size={20} className="text-go" /> : push.state === "ask" ? <span className="font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">turn on</span> : null}
-        </button>
+        </button>}
         {!relayRoom && <a href="/join" className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></a>}
         <button type="button" onClick={() => { close(); onThreads(); }} className={row}><MessagesSquare size={20} className="text-acc" /><span className="flex-1">Threads</span>
           {freshCount > 0 && <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{freshCount}</span>}</button>

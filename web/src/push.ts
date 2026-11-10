@@ -1,5 +1,6 @@
 // Notifications: the home-screen app registers a service worker; "notify me" asks once, then the room pushes new
 // messages to this phone whenever the room isn't on screen.
+import { relayRoom } from "./relay";
 import { useEffect, useState } from "react";
 
 const b64key = (k: string) => Uint8Array.from(atob(k.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(-k.length & 3)), (c) => c.charCodeAt(0));
@@ -21,7 +22,7 @@ async function setup(ask: boolean): Promise<"ask" | "on" | "off"> {
 // "ask" while this phone could turn notifications on; turnOn() is what the bell does.
 export function usePush(report: (e: string) => void) {
   const [state, setState] = useState<"ask" | "on" | "off">("off");
-  useEffect(() => { setup(false).then(setState).catch(() => {}); }, []);
+  useEffect(() => { if (!relayRoom) setup(false).then(setState).catch(() => {}); }, []);  // through the relay: no notifications yet, and nothing outside the sealed pipe
   const turnOn = () => setup(true).then((s) => { setState(s); if (s === "on") report("Notifications on for this phone."); })
     .catch((e) => report("Couldn't turn on notifications: " + e.message));
   return { state, ask: state === "ask", turnOn };

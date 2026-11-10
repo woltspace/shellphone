@@ -16,13 +16,13 @@ function saved(): string | null {
   const store = `sp-room-${relayRoom}`, hash = location.hash.slice(1);
   try {
     if (/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]+$/.test(hash)) {
-      localStorage.setItem(store, hash);  // a home-screen app opens the bare address later: keep the key for it
-      history.replaceState(null, "", location.pathname);  // and keep it out of the address bar and screenshots
-      return hash;
+      history.replaceState(null, "", location.pathname);  // out of the address bar and screenshots, whatever happens next
+      try { localStorage.setItem(store, hash); } catch { /* no storage (private mode): kept for this visit only */ }
+      return hash;  // a home-screen app opens the bare address later: storage keeps the key for it
     }
     return localStorage.getItem(store);
   } catch {
-    return /^[A-Za-z0-9_-]{43}\./.test(hash) ? hash : null;  // no storage (private mode): this visit only
+    return null;
   }
 }
 const key = saved();
@@ -34,15 +34,18 @@ let pipe: Promise<Pipe> | null = null;
 const listeners = new Set<(s: PipeState) => void>();
 let state: PipeState = "connecting";
 
+const tell = (s: PipeState) => { state = s; listeners.forEach((f) => f(s)); };
+
 function connect(): Promise<Pipe> {
   if (!pipe) {
     if (!key) return Promise.reject(new Error("This room's link is missing its key. Open the full link you were sent."));
-    if (!opener) return Promise.reject(new Error("This page can't reach rooms through the relay yet."));
-    pipe = opener().then((m) => {
+    // a pipe that can't even start (no pipe module, a failed load, open() throwing) shows as offline, with its retry,
+    // and the next call tries again from scratch rather than waiting on the failed attempt
+    pipe = (opener ? opener() : Promise.reject(new Error("This page can't reach rooms through the relay yet."))).then((m) => {
       const p = m.open(`${location.origin}${location.pathname}#${key}`);
-      p.onState((s) => { state = s; listeners.forEach((f) => f(s)); });
+      p.onState(tell);
       return p;
-    });
+    }).catch((e) => { pipe = null; tell("offline"); throw e; });
   }
   return pipe;
 }
