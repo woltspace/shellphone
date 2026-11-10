@@ -3,7 +3,7 @@
     uv run --with cryptography --with websockets python -m unittest tests.test_pipe
     RELAY_E2E=1 …   also starts the relay with `npx wrangler dev --local` and a shared room, and talks through them
 """
-import base64, http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.request
+import base64, http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -131,6 +131,53 @@ class HostSide(unittest.TestCase):
         parts = [m for m in sent[1:] if m.get("to") == "c1"]
         self.assertGreater(len(parts), 5)
         self.assertEqual(naps, [1 / pipe.FRAMES_PER_SECOND] * len(parts))  # a pause after every part
+
+    def test_news_is_sealed_for_each_client_and_only_once_it_is_established(self):
+        host = self.make(lambda *_: (200, {}))
+        self.assertIsNone(host.news())  # nobody to tell yet
+        c = Client(host)
+        self.assertEqual(c.session.open(host.news()), {"t": "news"})
+        self.assertEqual(c.ask()["status"], 200)  # answers and news share one counter, in the order they were sealed
+        note = host.news()
+        self.assertEqual(c.session.open(note), {"t": "news"})
+        with self.assertRaises(seal.SealError):
+            c.session.open(note)  # the same note a second time is dropped
+        other = Client(self.make(lambda *_: (200, {})))
+        with self.assertRaises(seal.SealError):
+            other.session.open(host.news())  # and it means nothing to another client
+
+    def test_the_host_tells_established_clients_of_news_once_however_often_it_is_set(self):
+        client, sent, stop, news = seal.Client(ROOM, SECRET), [], threading.Event(), threading.Event()
+        script = iter([json.dumps({"join": "c1"}), json.dumps({"join": "c2"}), json.dumps({"from": "c1", "data": client.hi()})])
+        turns = []
+
+        class Relay:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def send(self, text): sent.append(json.loads(text))
+            def recv(self, timeout=None):
+                turns.append(timeout)
+                try:
+                    return next(script)
+                except StopIteration:
+                    if len(turns) < 12:
+                        news.set()  # set again and again: the room keeps changing
+                    else:
+                        stop.set()
+                    raise TimeoutError
+        clock = iter(i * 0.2 for i in range(1000))
+        real = pipe.time.monotonic
+        pipe.time.monotonic = lambda: next(clock)
+        try:
+            pipe.serve("ws://relay.test/r/x/host", "", lambda: pipe.HostPipe(ROOM, {"h": SECRET}, lambda *_: (200, {})), stop, connect=lambda *a, **k: Relay(), news=news)
+        finally:
+            pipe.time.monotonic = real
+        session = client.hello(sent[0]["data"])
+        notes = sent[1:]
+        self.assertTrue(notes and all(m["to"] == "c1" for m in notes))  # c2 never said hi: it is told nothing
+        self.assertEqual([session.open(m["data"]) for m in notes], [{"t": "news"}] * len(notes))
+        self.assertLess(len(notes), 5)  # set eight times in a row, told far fewer: no faster than NEWS_EVERY
+        self.assertLess(max(turns), 1)  # with news to watch for, the host looks up often
 
     def test_an_answer_too_long_to_send_is_refused_plainly(self):
         c = Client(self.make(lambda *_: (200, {"blob": "x" * (pipe.MAX_ANSWER + 1)})))
@@ -334,6 +381,27 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(ask(cmd="wait", state="offline")["state"], "offline")
         self.assertFalse(self.up())
         self.assertEqual(ask(cmd="states")["states"][:3], ["connecting", "open", "offline"])
+
+    def test_the_room_tells_the_page_when_something_changed_and_is_silent_otherwise(self):
+        link = self.link()
+        host, banner = self.host(link)
+        ask = self.page(link)
+        self.assertEqual(ask(cmd="request", method="GET", path="/api/state?after=0")["status"], 200)
+        time.sleep(1.5)
+        quiet = len(ask(cmd="wire")["wire"])
+        time.sleep(2.5)
+        self.assertEqual(len(ask(cmd="wire")["wire"]), quiet)  # nothing happens in the room: nothing crosses the relay
+        self.assertEqual(ask(cmd="news", atLeast=1, ms=300)["news"], 0)
+        # someone says something at the room's own door: the page hears there is news, and finds it when it asks
+        local = re.search(r"join '(http://127[^#']+)/#", banner).group(1)
+        browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        browser.open(f"{local}/?k={self.token}")
+        browser.open(urllib.request.Request(local + "/api/messages", data=json.dumps({"text": "said at home", "cid": "home0001"}).encode(), headers={"Content-Type": "application/json"}))
+        self.assertGreaterEqual(ask(cmd="news", atLeast=1)["news"], 1)
+        got = ask(cmd="request", method="GET", path="/api/state?after=0")["body"]["messages"]
+        self.assertEqual([m["text"] for m in got if m["kind"] == "human"], ["said at home"])
+        for frame in ask(cmd="wire")["wire"]:
+            self.assertNotIn("news", frame)  # the note is sealed like everything else
 
     def test_a_room_full_of_long_messages_still_loads(self):
         link = self.link()

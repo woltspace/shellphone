@@ -206,7 +206,18 @@ def host(a):
             return 400, {"error": str(exc)}
         return (status, out) if isinstance(out, (dict, list)) else (415, {"error": "not available through the relay yet"})
 
-    stop, state = threading.Event(), {"now": None, "first": threading.Event()}
+    stop, state, news = threading.Event(), {"now": None, "first": threading.Event()}, threading.Event()
+
+    def watch():  # anything a page would be shown differently is news: messages, who is working, who has read, who is here
+        seen = None
+        while not stop.wait(0.25):
+            try:
+                now = json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_now(), r.unreachable_now(), r.receipts()], sort_keys=True, default=str)
+            except Exception:  # the room is closing, or busy for a moment: look again next time
+                continue
+            if seen is not None and now != seen:
+                news.set()
+            seen = now
 
     def on_state(now):
         if now != state["now"] and state["first"].is_set():
@@ -215,9 +226,10 @@ def host(a):
         state["first"].set()
     ws = relay.replace("http", "ws", 1) + f"/r/{seal.b64e(room_id)}/host"
     link = threading.Thread(target=pipe.serve, daemon=True, kwargs=dict(
-        url=ws, key=os.environ.get("SHELLPHONE_RELAY_KEY", ""), stop=stop, on_state=on_state,
+        url=ws, key=os.environ.get("SHELLPHONE_RELAY_KEY", ""), stop=stop, on_state=on_state, news=news,
         new_pipe=lambda: pipe.HostPipe(room_id, {"h": secret, "i": invite_secret}, answer)))
     link.start()
+    threading.Thread(target=watch, daemon=True).start()
     state["first"].wait(20)
     if state["now"] != "up":
         stop.set()

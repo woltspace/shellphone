@@ -3,6 +3,7 @@
 //   const pipe = open(link);                          // the page's own address, or { origin, room, key } saved earlier
 //   const { status, body } = await pipe.request("GET", "/api/state?after=0");
 //   pipe.onState((state) => …);                      // "connecting" | "open" | "offline" | "refused"
+//   pipe.onNews(() => …);                            // the room says something changed: fetch the state again
 //   pipe.close();
 //
 // It reconnects by itself. After a reconnect, a request whose answer never came is sent again only if repeating it
@@ -39,7 +40,7 @@ export function open(link, options = {}) {
 
   let state = "connecting", ws = null, session = null, tries = 0, refusals = 0, nextId = 0, timer = null;
   let chain = Promise.resolve();          // seals and opens happen one after the other, in order
-  const waiting = [], sent = new Map(), listeners = new Set();
+  const waiting = [], sent = new Map(), listeners = new Set(), newsListeners = new Set();
 
   function setState(next) {
     if (state === next || state === "closed") return;
@@ -104,6 +105,10 @@ export function open(link, options = {}) {
         }
         let msg;
         try { msg = await session.open(frame.data); } catch { return; }  // doesn't open, or seen before: dropped
+        if (msg && msg.t === "news") {  // sealed by the room like any answer: the relay can't make one up or repeat one
+          for (const l of newsListeners) { try { l(); } catch { /* a listener's own problem */ } }
+          return;
+        }
         const entry = msg && msg.t === "res" ? sent.get(msg.id) : null;
         if (!entry) return;  // only an answer to a request still waiting counts, and only once
         let answer = msg;
@@ -163,6 +168,7 @@ export function open(link, options = {}) {
       });
     },
     onState(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    onNews(listener) { newsListeners.add(listener); return () => newsListeners.delete(listener); },
     close() {
       setState("closed"); state = "closed";
       clearTimeout(timer);
