@@ -179,6 +179,29 @@ class HostSide(unittest.TestCase):
         self.assertLess(len(notes), 5)  # set eight times in a row, told far fewer: no faster than NEWS_EVERY
         self.assertLess(max(turns), 1)  # with news to watch for, the host looks up often
 
+    def test_a_full_relay_is_asked_again_later_and_a_closed_door_is_not(self):
+        def turned_away(status):
+            class No(Exception):
+                response = type("R", (), {"status_code": status})
+            states, waits, knocks = [], [], []
+
+            class Stop:  # the host's stop signal, standing in: it notes each wait, and ends the third
+                def is_set(self): return False
+                def wait(self, seconds):
+                    waits.append(seconds)
+                    return len(waits) >= 3
+
+            def connect(*a, **k):
+                knocks.append(1)
+                raise No()
+            pipe.serve("ws://relay.test/r/x/host", "", lambda: None, Stop(), on_state=states.append, connect=connect)
+            return states, waits, len(knocks)
+        states, waits, knocks = turned_away(429)
+        self.assertEqual((states[:3], waits, knocks), (["full"] * 3, [pipe.FULL_WAIT] * 3, 3))  # no place: it keeps asking, minutes apart
+        for status in (401, 409):
+            states, waits, knocks = turned_away(status)
+            self.assertEqual((states[0][:8], waits, knocks), ("refused:", [], 1))  # not allowed, or already hosted: once is enough
+
     def test_an_answer_too_long_to_send_is_refused_plainly(self):
         c = Client(self.make(lambda *_: (200, {"blob": "x" * (pipe.MAX_ANSWER + 1)})))
         self.assertEqual(c.ask(), {"t": "res", "id": 1, "status": 502, "body": {"error": "too much to send at once"}})
@@ -229,6 +252,13 @@ class PageSide(unittest.TestCase):
         self.assertEqual(got.returncode, 0, got.stdout[-3000:] + got.stderr[-2000:])
 
 
+@unittest.skipUnless(NODE and subprocess.run([NODE, "-e", "require('node:sqlite')"], capture_output=True).returncode == 0, "needs a node with sqlite built in (22.5 or later)")
+class RelayDesk(unittest.TestCase):
+    def test_the_relays_desk_and_room_pass_their_own_tests(self):
+        got = subprocess.run([NODE, "--test", str(REPO / "relay" / "tests" / "desk.test.mjs")], capture_output=True, text=True, timeout=120)
+        self.assertEqual(got.returncode, 0, got.stdout[-3000:] + got.stderr[-2000:])
+
+
 def free_port():
     import socket
     with socket.socket() as s:
@@ -238,9 +268,10 @@ def free_port():
 
 def start_relay(*variables):
     """The relay on this computer, in Cloudflare's local simulator, with these settings (NAME:value)."""
-    port = free_port()
-    proc = subprocess.Popen([NPX, "-y", "wrangler@latest", "dev", "--local", "--port", str(port), *[x for v in variables for x in ("--var", v)]],
+    port, fresh = free_port(), tempfile.mkdtemp()  # nothing the relay kept from an earlier run: the desk's counts start at zero
+    proc = subprocess.Popen([NPX, "-y", "wrangler@4", "dev", "--local", "--port", str(port), "--persist-to", fresh, *[x for v in variables for x in ("--var", v)]],
                             cwd=REPO / "relay", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    proc.fresh = fresh
     base, end = f"http://127.0.0.1:{port}", time.time() + 90
     while time.time() < end:
         try:
@@ -255,8 +286,12 @@ def start_relay(*variables):
 
 
 def stop_relay(proc):
-    os.killpg(proc.pid, signal.SIGTERM)
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass  # already gone: whatever went wrong before this is the thing to report
     proc.communicate(timeout=20)
+    shutil.rmtree(proc.fresh, ignore_errors=True)
 
 
 E2E = unittest.skipUnless(NODE and NPX and os.environ.get("RELAY_E2E"), "set RELAY_E2E=1 (needs node and npx) to run the relay on this computer and talk through it")
@@ -371,7 +406,9 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(texts, ["through the relay 🐚"])
         # nothing readable crossed the relay
         for frame in ask(cmd="wire")["wire"]:
-            for plain in ("through the relay", self.token, "/api/", "Sam", seal.b64e(self.secret)):
+            # (each of these holds a character sealed frames never do, or is long: a short plain word like Sam turns up
+            # in random sealed text by chance, about one run in six)
+            for plain in ("through the relay", self.token, "/api/", '"Sam"', '"name"', seal.b64e(self.secret)):
                 self.assertNotIn(plain, frame)
         # what the relay doesn't offer isn't reachable
         self.assertEqual(ask(cmd="request", method="GET", path="/api/push")["status"], 404)
@@ -402,7 +439,7 @@ class ThroughTheRelay(unittest.TestCase):
         got = ask(cmd="request", method="GET", path="/api/state?after=0")["body"]["messages"]
         self.assertEqual([m["text"] for m in got if m["kind"] == "human"], ["said at home"])
         for frame in ask(cmd="wire")["wire"]:
-            self.assertNotIn("news", frame)  # the note is sealed like everything else
+            self.assertNotIn('"news"', frame)  # the note is sealed like everything else
 
     def test_a_room_full_of_long_messages_still_loads(self):
         link = self.link()
@@ -506,6 +543,112 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertNotIn("room is up", said)
         _, said = self.host(self.link(), key="wrong", wait_for="not open to new rooms")
         self.assertNotIn("room is up", said)
+
+
+@E2E
+class RoomCap(unittest.TestCase):
+    """The relay's desk: only so many rooms at once and per day, and counts for whoever holds the host key."""
+    link, host, page, setUp, tearDown = (getattr(ThroughTheRelay, n) for n in ("link", "host", "page", "setUp", "tearDown"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.relay, cls.base = start_relay("HOST_KEY:test-host-key", "MAX_ROOMS:2", "MAX_ROOMS_PER_DAY:3")
+
+    @classmethod
+    def tearDownClass(cls):
+        stop_relay(cls.relay)
+
+    def stats(self, key="test-host-key"):
+        got = json.load(urllib.request.urlopen(urllib.request.Request(self.base + "/stats", headers={"Authorization": "Bearer " + key})))
+        today = got["days"][0] if got["days"] else {"rooms_opened": 0, "connections": 0, "frames": 0, "refused": 0}
+        return got["open_rooms"], today
+
+    def close(self, host):
+        """Stop a host, and wait until the desk has heard: the relay learns of it a moment after the process is gone."""
+        before = self.stats()[0]
+        host.send_signal(signal.SIGINT)
+        self.assertIn("Room closed", host.communicate(timeout=15)[0])
+        end = time.time() + 10
+        while self.stats()[0] != before - 1 and time.time() < end:
+            time.sleep(0.1)
+        self.assertEqual(self.stats()[0], before - 1)
+
+    def test_rooms_are_capped_places_come_back_and_the_counts_say_what_happened(self):
+        for key in ("", "wrong"):  # the counts are for the key's holder only
+            with self.assertRaises(urllib.error.HTTPError) as no:
+                self.stats(key)
+            self.assertEqual(no.exception.code, 404)
+        self.assertEqual(self.stats()[0], 0)
+        a_link, b_link = self.link(), self.link()
+        a, b = self.host(a_link)[0], self.host(b_link)[0]
+        # the relay is full: a third room is told so and gives up, without knocking again and again
+        c_link = self.link()
+        refused = self.host(c_link, wait_for="no place for another room")[0]
+        self.assertNotEqual(refused.wait(timeout=15), 0)
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["rooms_opened"], today["refused"]), (2, 2, 1))
+        # a page comes and asks something: one connection, and frames both ways
+        ask = self.page(b_link)
+        self.assertEqual(ask(cmd="request", method="GET", path="/api/state?after=0")["status"], 200)
+        ask(cmd="close")
+        # a room closes: its place is free at once, and what it carried is counted
+        self.close(a)
+        self.close(b)
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["rooms_opened"], today["connections"]), (0, 2, 1))
+        self.assertGreaterEqual(today["frames"], 4)  # hi, hello, the request, its answer
+        self.assertLess(today["frames"], 12)
+        # the same room coming back takes a place but isn't a new room
+        b = self.host(b_link)[0]
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["rooms_opened"]), (1, 2))
+        # a third new room today is the last one allowed: the fourth is refused though there is a place
+        c = self.host(c_link)[0]
+        self.close(c)
+        self.host(self.link(), wait_for="no place for another room")
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["rooms_opened"], today["refused"]), (1, 3, 2))
+        self.close(b)
+
+    def test_an_open_room_keeps_its_place_and_reports_while_it_is_open(self):
+        relay, self.base = start_relay("HOST_KEY:test-host-key", "MAX_ROOMS:1", "BEAT_SECONDS:1")
+        self.addCleanup(setattr, self, "base", self.base)
+        self.addCleanup(stop_relay, relay)
+        link = self.link()
+        host = self.host(link)[0]
+        ask = self.page(link)
+        self.assertEqual(ask(cmd="request", method="GET", path="/api/state?after=0")["status"], 200)
+        time.sleep(5)  # longer than the desk waits before giving a silent room's place away
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["connections"]), (1, 1))  # still there, and counted without waiting for it to close
+        frames = today["frames"]
+        self.assertGreaterEqual(frames, 4)
+        self.host(self.link(), wait_for="no place for another room")
+        self.close(host)
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["connections"], today["frames"]), (0, 1, frames))  # nothing counted twice at the end
+
+    def test_two_hosts_at_the_same_moment_cant_both_take_the_last_place(self):
+        import concurrent.futures, contextlib
+        from websockets.sync.client import connect
+        relay, self.base = start_relay("HOST_KEY:test-host-key", "MAX_ROOMS:2")  # its own relay: the other test uses up the day's rooms
+        self.addCleanup(setattr, self, "base", self.base)
+        self.addCleanup(stop_relay, relay)
+        first = self.host(self.link())[0]  # one place left
+
+        def knock(_):
+            room = seal.b64e(os.urandom(16))
+            try:
+                return stack.enter_context(connect(self.base.replace("http", "ws", 1) + f"/r/{room}/host", additional_headers={"Authorization": "Bearer test-host-key"}, open_timeout=15))
+            except Exception as exc:
+                return exc.response.status_code
+        with contextlib.ExitStack() as stack:
+            with concurrent.futures.ThreadPoolExecutor(6) as pool:
+                got = list(pool.map(knock, range(6)))
+            inside = [g for g in got if not isinstance(g, int)]
+            self.assertEqual((len(inside), sorted(g for g in got if isinstance(g, int))), (1, [429] * 5))
+            self.assertEqual(self.stats()[0], 2)
+        self.close(first)
 
 
 if __name__ == "__main__":

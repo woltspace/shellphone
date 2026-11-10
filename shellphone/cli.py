@@ -223,7 +223,9 @@ def host(a):
 
     def on_state(now):
         if now != state["now"] and state["first"].is_set():
-            print({"up": "Connected to the relay again."}.get(now, "The relay isn't reachable: the room is offline for others until it is. Trying again…" if now == "down" else now), flush=True)
+            print({"up": "Connected to the relay again.",
+                   "down": "The relay isn't reachable: the room is offline for others until it is. Trying again…",
+                   "full": "The relay has no place for this room right now: it is offline for others. Asking again every two minutes…"}.get(now, now), flush=True)
         state["now"] = now
         state["first"].set()
     ws = relay.replace("http", "ws", 1) + f"/r/{seal.b64e(room_id)}/host"
@@ -234,11 +236,13 @@ def host(a):
     threading.Thread(target=watch, daemon=True).start()
     state["first"].wait(20)
     if state["now"] != "up":
+        why = state["now"]  # as it stood: stopping the link below changes it
+        state["first"].clear()  # and nothing more is printed about a room that never came up
         stop.set()
         server.server_close()
         if not a.keep:
             shutil.rmtree(data, ignore_errors=True)
-        sys.exit(f"couldn't bring the room up through {relay}: " + (state["now"] or "no answer").replace("refused: ", "").replace("down", "it isn't reachable"))
+        sys.exit(f"couldn't bring the room up through {relay}: " + {"down": "it isn't reachable", "full": "the relay has no place for another room right now: try again later"}.get(why, (why or "no answer").replace("refused: ", "")))
 
     def closing():
         stop.set()

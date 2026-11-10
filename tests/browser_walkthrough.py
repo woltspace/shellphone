@@ -13,7 +13,7 @@ from pathlib import Path
 REPO, PORT = str(Path(__file__).resolve().parent.parent), 8793
 OUT, EXE = (sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(prefix="shellphone-walkthrough-")), os.environ.get("PLAYWRIGHT_CHROMIUM")
 BASE = f"http://127.0.0.1:{PORT}"
-relay = subprocess.Popen(["npx", "-y", "wrangler@latest", "dev", "--local", "--port", str(PORT), "--var", "HOST_KEY:e2e-key"], cwd=REPO + "/relay", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+relay = subprocess.Popen(["npx", "-y", "wrangler@4", "dev", "--local", "--port", str(PORT), "--var", "HOST_KEY:e2e-key"], cwd=REPO + "/relay", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
 host = None
 def step(name, ok=True, note=""): print(("PASS  " if ok else "FAIL  ") + name + (f"  ({note})" if note else ""), flush=True); assert ok, name
 try:
