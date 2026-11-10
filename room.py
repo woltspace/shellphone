@@ -91,6 +91,8 @@ def con():
         CON.row_factory = sqlite3.Row
         CON.execute("pragma journal_mode=wal")
         CON.executescript(SCHEMA)
+        if "guest" not in [c[1] for c in CON.execute("pragma table_info(people)")]:  # rooms from before guests existed
+            CON.execute("alter table people add column guest integer not null default 0")
         os.chmod(DB, 0o600)
     return CON
 
@@ -123,7 +125,9 @@ def title():
 
 
 def people():
-    return {p.pop("email"): p for p in q("select email, name, color from people order by rowid")}
+    """Everyone on the room's list. A guest (someone who came in with the invite link and typed a name) says so."""
+    return {p["email"]: {"name": p["name"], "color": p["color"], **({"guest": True} if p["guest"] else {})}
+            for p in q("select email, name, color, guest from people order by rowid")}
 
 
 def wolts():
@@ -794,13 +798,28 @@ def add_person(email, name):
     if found:
         print(f"{people()[found]['name']} <{found}> is already in")
         return found
-    everyone = people()
-    used = {p["color"] for p in everyone.values()}
-    color = next((c for c in COLORS if c not in used), COLORS[len(everyone) % len(COLORS)])
     with tx() as c:
-        c.execute("insert into people values (?, ?, ?)", (email.lower(), name, color))
+        c.execute("insert into people (email, name, color) values (?, ?, ?)", (email.lower(), name, color := next_color()))
     print(f"{name} <{email.lower()}> is in, colour {color}")
     return email.lower()
+
+
+def next_color():
+    everyone = people()
+    used = {p["color"] for p in everyone.values()}
+    return next((c for c in COLORS if c not in used), COLORS[len(everyone) % len(COLORS)])
+
+
+def add_guest(name):
+    """Someone who came in with the room's invite link: on the list under a made-up address, with the name they typed
+    and the guest mark, since nobody checked who they are."""
+    name = " ".join(str(name or "").split())[:40]
+    if not name:
+        raise ValueError("pick a name")
+    with LOCK, tx() as c:
+        email = f"guest-{secrets.token_hex(4)}@room.local"  # never reused: a past guest's messages stay theirs
+        c.execute("insert into people (email, name, color, guest) values (?, ?, ?, 1)", (email, name, next_color()))
+    return email
 
 
 GUEST_STEPS = """Hi {name}, you're invited to a Shell Phone room: a group chat where people and their wolts talk together.
