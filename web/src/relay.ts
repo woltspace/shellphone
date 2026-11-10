@@ -17,7 +17,12 @@ function saved(): string | null {
   try {
     if (/^[hi]\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]+$/.test(hash)) {
       history.replaceState(null, "", location.pathname);  // out of the address bar and screenshots, whatever happens next
-      try { localStorage.setItem(store, hash); } catch { /* no storage (private mode): kept for this visit only */ }
+      try {
+        // the same invite opened again by someone who already joined with it: they stay who they are
+        const mine = localStorage.getItem(`sp-guest-${relayRoom}`);
+        if (hash.startsWith("i.") && mine && mine.split(".")[1] === hash.split(".")[1]) return mine;
+        localStorage.setItem(store, hash);
+      } catch { /* no storage (private mode): kept for this visit only */ }
       return hash;  // a home-screen app opens the bare address later: storage keeps the key for it
     }
     return localStorage.getItem(store);
@@ -25,8 +30,31 @@ function saved(): string | null {
     return null;
   }
 }
-const key = saved();
+let key = saved();
 export const relayKeyMissing = !!relayRoom && !key;
+export const relayHost = key?.startsWith("h.") || false;  // the host's own link (an invite link starts with i.)
+const named = () => { try { return localStorage.getItem(`sp-guest-${relayRoom}`) === key; } catch { return false; } };
+export const relayNeedsName = !!key && key.startsWith("i.") && !named();  // an invite link not yet turned into this guest's own
+
+// A guest names themselves once: the room gives back their own token, kept here in place of the invite's, and from
+// then on this browser is that guest
+export async function becomeGuest(name: string): Promise<string | null> {
+  const r = await call("/api/guest", { method: "POST", body: JSON.stringify({ name }) }).catch(() => null);
+  const got = r && (await r.json().catch(() => ({}))) as { token?: string; error?: string };
+  if (!r || !r.ok || !got?.token) return got?.error || "Couldn't reach the room. Try again.";
+  key = key!.split(".").slice(0, 2).concat(got.token).join(".");
+  try { localStorage.setItem(`sp-room-${relayRoom}`, key); localStorage.setItem(`sp-guest-${relayRoom}`, key); } catch { /* this visit only */ }
+  location.replace(`${location.pathname}#${key}`);  // reopen as that guest (the key leaves the address again on load)
+  location.reload();
+  return null;
+}
+
+// The host's invite: a link for people, made from the key the room keeps for it
+export async function inviteLink(): Promise<string | null> {
+  const r = await call("/api/invite").catch(() => null);
+  const got = r && r.ok && (await r.json().catch(() => ({}))) as { key?: string };
+  return got && got.key ? `${location.origin}${location.pathname}#${got.key}` : null;
+}
 
 // the pipe module is the relay's own code; the page only needs open(link) from it
 const opener = Object.values(import.meta.glob<{ open: (link: string) => Pipe }>("./pipe.{js,ts}"))[0];
