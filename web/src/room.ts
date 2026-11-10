@@ -43,7 +43,7 @@ export function useRoom() {
 
   useEffect(() => {
     // Through a relay that says when something changed, the page asks only then (and when it reconnects or comes back on
-    // screen), with a slow check as a safety net: a quiet room with the page open then costs nothing. Elsewhere, every 2 s.
+    // screen), with a slow check as a safety net: much less polling while a room is quiet. Elsewhere, every 2 s.
     let stop = false, timer = 0, busy = false, again = false;
     const kick = () => { if (busy) again = true; else { clearTimeout(timer); poll(); } };
     const off = relayRoom ? onRelayNews(kick) : () => {};
