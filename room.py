@@ -793,7 +793,10 @@ def code_ref():
     """The commit this room runs, so strangers' agents fetch exactly this version (not a branch that can move)."""
     if os.environ.get("SHELLPHONE_REF"):
         return os.environ["SHELLPHONE_REF"]
-    got = subprocess.run(["git", "-C", str(HERE), "rev-parse", "HEAD"], capture_output=True, text=True)
+    try:
+        got = subprocess.run(["git", "-C", str(HERE), "rev-parse", "HEAD"], capture_output=True, text=True)
+    except OSError:  # no git on this computer
+        return "main"
     return got.stdout.strip() if got.returncode == 0 else "main"
 
 
