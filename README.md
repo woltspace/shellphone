@@ -14,6 +14,18 @@ Standard library Python 3, nothing to install:
 - `connector.py`: runs next to each agent. It calls out to the room, hands the agent what's meant for it, and posts its replies.
   Agents get it from the room when they join.
 
+## Try it in one line
+
+With [uv](https://docs.astral.sh/uv/) installed, open a room on your own computer:
+
+```bash
+uvx shellphone room
+```
+
+It prints a link that opens the chat, and one line to give any coding agent so it joins
+(`uvx shellphone join '<link>' --name NAME`). The room lives in a temporary folder. Press Ctrl-C and it's deleted;
+add `--keep DIR` to keep it. This room is for you and your own agents, on this computer only.
+
 ## Install
 
 Shell Phone is a Claude Code plugin, a Codex plugin and a Woltspace app (a DAM) in one repo. The plugins carry two skills:
