@@ -238,9 +238,10 @@ def free_port():
 
 def start_relay(*variables):
     """The relay on this computer, in Cloudflare's local simulator, with these settings (NAME:value)."""
-    port = free_port()
-    proc = subprocess.Popen([NPX, "-y", "wrangler@latest", "dev", "--local", "--port", str(port), *[x for v in variables for x in ("--var", v)]],
+    port, fresh = free_port(), tempfile.mkdtemp()  # nothing the relay kept from an earlier run: the desk's counts start at zero
+    proc = subprocess.Popen([NPX, "-y", "wrangler@latest", "dev", "--local", "--port", str(port), "--persist-to", fresh, *[x for v in variables for x in ("--var", v)]],
                             cwd=REPO / "relay", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    proc.fresh = fresh
     base, end = f"http://127.0.0.1:{port}", time.time() + 90
     while time.time() < end:
         try:
@@ -257,6 +258,7 @@ def start_relay(*variables):
 def stop_relay(proc):
     os.killpg(proc.pid, signal.SIGTERM)
     proc.communicate(timeout=20)
+    shutil.rmtree(proc.fresh, ignore_errors=True)
 
 
 E2E = unittest.skipUnless(NODE and NPX and os.environ.get("RELAY_E2E"), "set RELAY_E2E=1 (needs node and npx) to run the relay on this computer and talk through it")
@@ -505,6 +507,106 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertNotIn("room is up", said)
         _, said = self.host(self.link(), key="wrong", wait_for="not open to new rooms")
         self.assertNotIn("room is up", said)
+
+
+@E2E
+class RoomCap(unittest.TestCase):
+    """The relay's desk: only so many rooms at once and per day, and counts for whoever holds the host key."""
+    link, host, page, setUp, tearDown = (getattr(ThroughTheRelay, n) for n in ("link", "host", "page", "setUp", "tearDown"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.relay, cls.base = start_relay("HOST_KEY:test-host-key", "MAX_ROOMS:2", "MAX_ROOMS_PER_DAY:3")
+
+    @classmethod
+    def tearDownClass(cls):
+        stop_relay(cls.relay)
+
+    def stats(self, key="test-host-key"):
+        got = json.load(urllib.request.urlopen(urllib.request.Request(self.base + "/stats", headers={"Authorization": "Bearer " + key})))
+        today = got["days"][0] if got["days"] else {"rooms_opened": 0, "connections": 0, "frames": 0, "refused": 0}
+        return got["open_rooms"], today
+
+    def close(self, host):
+        host.send_signal(signal.SIGINT)
+        self.assertIn("Room closed", host.communicate(timeout=15)[0])
+
+    def test_rooms_are_capped_places_come_back_and_the_counts_say_what_happened(self):
+        for key in ("", "wrong"):  # the counts are for the key's holder only
+            with self.assertRaises(urllib.error.HTTPError) as no:
+                self.stats(key)
+            self.assertEqual(no.exception.code, 404)
+        self.assertEqual(self.stats()[0], 0)
+        a_link, b_link = self.link(), self.link()
+        a, b = self.host(a_link)[0], self.host(b_link)[0]
+        # the relay is full: a third room is told so and gives up, without knocking again and again
+        c_link = self.link()
+        refused = self.host(c_link, wait_for="no place for another room")[0]
+        self.assertNotEqual(refused.wait(timeout=15), 0)
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["rooms_opened"], today["refused"]), (2, 2, 1))
+        # a page comes and asks something: one connection, and frames both ways
+        ask = self.page(b_link)
+        self.assertEqual(ask(cmd="request", method="GET", path="/api/state?after=0")["status"], 200)
+        ask(cmd="close")
+        # a room closes: its place is free at once, and what it carried is counted
+        self.close(a)
+        self.close(b)
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["rooms_opened"], today["connections"]), (0, 2, 1))
+        self.assertGreaterEqual(today["frames"], 4)  # hi, hello, the request, its answer
+        self.assertLess(today["frames"], 12)
+        # the same room coming back takes a place but isn't a new room
+        b = self.host(b_link)[0]
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["rooms_opened"]), (1, 2))
+        # a third new room today is the last one allowed: the fourth is refused though there is a place
+        c = self.host(c_link)[0]
+        self.close(c)
+        self.host(self.link(), wait_for="no place for another room")
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["rooms_opened"], today["refused"]), (1, 3, 2))
+        self.close(b)
+
+    def test_an_open_room_keeps_its_place_and_reports_while_it_is_open(self):
+        relay, self.base = start_relay("HOST_KEY:test-host-key", "MAX_ROOMS:1", "BEAT_SECONDS:1")
+        self.addCleanup(setattr, self, "base", self.base)
+        self.addCleanup(stop_relay, relay)
+        link = self.link()
+        host = self.host(link)[0]
+        ask = self.page(link)
+        self.assertEqual(ask(cmd="request", method="GET", path="/api/state?after=0")["status"], 200)
+        time.sleep(5)  # longer than the desk waits before giving a silent room's place away
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["connections"]), (1, 1))  # still there, and counted without waiting for it to close
+        frames = today["frames"]
+        self.assertGreaterEqual(frames, 4)
+        self.host(self.link(), wait_for="no place for another room")
+        self.close(host)
+        rooms, today = self.stats()
+        self.assertEqual((rooms, today["connections"], today["frames"]), (0, 1, frames))  # nothing counted twice at the end
+
+    def test_two_hosts_at_the_same_moment_cant_both_take_the_last_place(self):
+        import concurrent.futures, contextlib
+        from websockets.sync.client import connect
+        relay, self.base = start_relay("HOST_KEY:test-host-key", "MAX_ROOMS:2")  # its own relay: the other test uses up the day's rooms
+        self.addCleanup(setattr, self, "base", self.base)
+        self.addCleanup(stop_relay, relay)
+        first = self.host(self.link())[0]  # one place left
+
+        def knock(_):
+            room = seal.b64e(os.urandom(16))
+            try:
+                return stack.enter_context(connect(self.base.replace("http", "ws", 1) + f"/r/{room}/host", additional_headers={"Authorization": "Bearer test-host-key"}, open_timeout=15))
+            except Exception as exc:
+                return exc.response.status_code
+        with contextlib.ExitStack() as stack:
+            with concurrent.futures.ThreadPoolExecutor(6) as pool:
+                got = list(pool.map(knock, range(6)))
+            inside = [g for g in got if not isinstance(g, int)]
+            self.assertEqual((len(inside), sorted(g for g in got if isinstance(g, int))), (1, [429] * 5))
+            self.assertEqual(self.stats()[0], 2)
+        self.close(first)
 
 
 if __name__ == "__main__":

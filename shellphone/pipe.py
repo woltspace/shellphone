@@ -176,8 +176,9 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status is None and not stop.is_set():  # why the connection went, for whoever reads the room's log later
                 print(f"the relay connection ended: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
-            if status in (401, 409):  # not allowed to open rooms here, or this room already has a host: trying again won't help
-                on_state(f"refused: {'this relay is not open to new rooms yet' if status == 401 else 'this room already has a host'}")
+            if status in (401, 409, 429):  # not allowed to open rooms here, this room already has a host, or the relay is full: trying again right away won't help
+                on_state("refused: " + {401: "this relay is not open to new rooms yet", 409: "this room already has a host",
+                                        429: "the relay has no place for another room right now: try again later"}[status])
                 return
             on_state("down")
         if stop.wait(wait[min(tries, len(wait) - 1)]):
