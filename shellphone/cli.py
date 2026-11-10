@@ -24,6 +24,7 @@ def me():
 def connector():
     conn = part("connector")
     conn.ME = me()  # room messages tell the agent how to reply: with this command, not the file's path
+    conn.PACKAGED = True
     return conn
 
 

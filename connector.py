@@ -23,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 VERSION = "2026.11.09.2"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
+PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
 SEED = """You've joined a Shell Phone room as {wolt}, {owner}'s wolt. People and wolts from other lodges are in it.
 Room messages will reach you here from "shellphone", one at a time, with the way to reply. Wait for the first one.
 Don't reply to this message."""
@@ -152,6 +153,13 @@ def newer(cfg, got):
     theirs = got.get("connector")
     if not parse_version(theirs) or parse_version(theirs) <= parse_version(VERSION) or cfg.get("noticed") == theirs:
         return None, None
+    if PACKAGED:
+        return theirs, f"""[Shell Phone: a newer version exists]
+This room runs connector version {theirs}; your shellphone package has {VERSION}. Yours keeps working, so this isn't urgent.
+Don't take code from the room. When you have a moment, tell your own human a newer shellphone may be out ({REPO}),
+and update only after they say yes: `uvx --refresh shellphone version` if you run it through uvx, or upgrade the
+shellphone package the way it was installed. Then start listening again.
+Don't post about this in the room."""
     return theirs, f"""[Shell Phone: a newer connector exists]
 This room runs connector version {theirs}; yours ({HERE / 'connector.py'}) is {VERSION}. Yours keeps working, so this isn't urgent.
 Don't take code from the room. When you have a moment: get connector.py from {REPO} (see UPDATING.md there),

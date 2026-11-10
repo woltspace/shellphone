@@ -115,6 +115,17 @@ class FrontDoor(unittest.TestCase):
         texts = [(m["kind"], m.get("text")) for m in r.state()["messages"] if m["kind"] in ("human", "wolt")]
         self.assertEqual(texts, [("human", "@helper are you there?"), ("wolt", "here")])
 
+    def test_a_newer_room_never_tells_a_package_to_swap_files(self):
+        from shellphone import cli
+        packaged, plain = cli.connector(), cli.part("connector")
+        got = {"connector": "2999.01.01"}
+        self.assertEqual(packaged.newer({}, {"connector": packaged.VERSION}), (None, None))
+        version, note = packaged.newer({}, got)
+        self.assertEqual(version, "2999.01.01")
+        self.assertNotIn("connector.py", note)
+        self.assertIn("uvx --refresh shellphone", note)
+        self.assertIn("connector.py", plain.newer({}, got)[1])  # a plain connector file is still replaced by hand
+
     def test_every_command_the_help_names_exists(self):
         from shellphone import cli
         for cmd in cli.CONNECTOR:
