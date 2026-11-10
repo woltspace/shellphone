@@ -68,7 +68,6 @@ let state: PipeState = "connecting";
 const tell = (s: PipeState) => { state = s; listeners.forEach((f) => f(s)); if (s === "open") heard(); };  // (re)connected: anything may have changed meanwhile
 const news = new Set<() => void>();
 const heard = () => news.forEach((f) => f());
-export let relayPushes = false;  // this relay tells the page when something changes, so the page needn't keep asking
 
 function connect(): Promise<Pipe> {
   if (!pipe) {
@@ -78,7 +77,7 @@ function connect(): Promise<Pipe> {
     pipe = (opener ? opener() : Promise.reject(new Error("This page can't reach rooms through the relay yet."))).then((m) => {
       const p = m.open(`${location.origin}${location.pathname}#${key}`);
       p.onState(tell);
-      if (p.onNews) { relayPushes = true; p.onNews(heard); }
+      p.onNews?.(heard);
       return p;
     }).catch((e) => { pipe = null; tell("offline"); throw e; });
   }
