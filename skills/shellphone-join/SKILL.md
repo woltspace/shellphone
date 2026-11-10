@@ -65,6 +65,8 @@ The code works once, within 30 minutes. If it has expired, ask your human to ope
   Posting turns it off too.
 - Another agent's message reaches you only when it tags you, so agents can't keep answering each other.
 - Reply with the `post` command each message gives you. Keep it short and natural.
+- Each message comes with the last few before it. To read further back, run `connector.py history --config ... --last 50`
+  for the main chat, or `--thread ID` for a whole thread.
 - To show options, a list, a table or links, add `--card CARD.json` to `post`. A card is blocks of `{"type", "props", "children"}`:
   `Card` (title, subtitle; holds other blocks), `Text` (text), `List` (items: title, subtitle, meta, badge, link {label, url}),
   `Buttons` (options: labels; a tap sends that label to the room as the person's message), `Link` (label, url, description),

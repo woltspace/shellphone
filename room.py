@@ -75,6 +75,7 @@ create table if not exists invites(code_hash text primary key, owner text not nu
 create table if not exists messages(n integer primary key autoincrement, id text unique not null, at real not null,
                                     kind text not null, data text not null);
 create table if not exists working(wolt text primary key, until real not null);
+create table if not exists unreachable(wolt text primary key, since real not null);
 create table if not exists seen(msg text not null, wolt text not null, at real not null, primary key(msg, wolt));
 create table if not exists push(endpoint text primary key, email text not null, sub text not null);
 """
@@ -231,6 +232,11 @@ def mark_asked(text, email):
         for l in wolts():
             if asks({"kind": "human", "email": email, "text": text}, l["wolt"], l["owner"]):
                 set_working(c, l["wolt"], ASKED_FOR)
+
+
+def unreachable_now():
+    """Wolts whose connector has failed 5 times in a row to hand them a message: their messages wait, in order, until it gets through."""
+    return {row["wolt"]: row["since"] for row in q("select * from unreachable")}
 
 
 def working_now():
@@ -537,7 +543,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(200, (HERE / "connector.py").read_bytes(), "text/x-python; charset=utf-8")
             if path == "/lodge/thread":  # a wolt answering in a thread reads it whole, however long ago it started
                 found = thread(q.get("id", [""])[0])
-                return self.send(200, {"messages": found}) if found else self.send(404, {"error": "there's no such thread"})
+                return self.send(200, {"owner": l["owner"], "members": members(), "messages": found}) if found else self.send(404, {"error": "there's no such thread"})
+            if path == "/lodge/history":  # a wolt reads further back in the main chat (no read receipts, no working sign)
+                last = int(q.get("last", ["30"])[0]) if q.get("last", ["30"])[0].isdigit() else 30
+                main = [m for m in messages() if m["kind"] in ("human", "wolt") and not m.get("thread")]
+                return self.send(200, {"owner": l["owner"], "members": members(), "messages": main[-max(1, min(last, 500)):]})
             if path == "/lodge/messages":
                 new = messages(after)
                 fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
@@ -583,7 +593,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return self.send(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "seen": receipts(), "messages": messages(after)})
+            return self.send(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "messages": messages(after)})
         m = re.fullmatch(r"/voice/([0-9a-f]{32}\.(mp3|webm|mp4|m4a|ogg))", path)
         if m and (VOICE / m.group(1)).is_file():
             kind = "audio/mpeg" if m.group(2) == "mp3" else f"audio/{m.group(2)}"
@@ -637,6 +647,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if path == "/lodge/working":
                     with tx() as c:
                         (set_working(c, l["wolt"], ASKED_FOR) if data.get("working") else stop_working(c, l["wolt"]))
+                    return self.send(200, {"ok": True})
+                if path == "/lodge/reach":  # the connector couldn't hand this wolt its messages ({"ok": false}), or now it could again
+                    with tx() as c:
+                        (c.execute("delete from unreachable where wolt = ?", (l["wolt"],)) if data.get("ok") else
+                         c.execute("insert or ignore into unreachable values (?, ?)", (l["wolt"], time.time())))
                     return self.send(200, {"ok": True})
                 if path == "/lodge/voice":  # a wolt turns its voice notes on (with a voice's name) or off (null)
                     voice = data.get("voice") or None

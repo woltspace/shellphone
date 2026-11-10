@@ -35,15 +35,17 @@ function useFit() {
 }
 
 // Who's working: a fixed one-line slot under the last message, wolts side by side, chewing on a line of lore.
-function Gnaw({ ctx, working }: { ctx: Ctx; working: Record<string, unknown> }) {
+// A wolt its connector can't reach shows that instead: its messages wait, in order, and arrive once it's back.
+function Gnaw({ ctx, working, away = {} }: { ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number> }) {
   const [tick, setTick] = useState(0);
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 2400); return () => clearInterval(t); }, []);
-  const on = ctx.wolts.filter((w) => working[w.wolt]);
+  const on = ctx.wolts.filter((w) => working[w.wolt] || away[w.wolt]);
   return <div className="flex items-center gap-1.5 h-[38px] px-3 pb-2 overflow-hidden">
     {on.map((w) => { const lines = LORE[w.creature] || LORE.beaver;
       return <div key={w.wolt} className="gnaw-row flex-[0_1_auto] min-w-0 flex items-center gap-1.5 pl-[3px] pr-[9px] py-[3px] bg-[#fffdf6ee] border border-line rounded-lg font-mono font-semibold text-xs whitespace-nowrap">
         <img src={woltAvatar(w.creature, ctx.person(w.owner).color)} alt="" className="gnaw-img pixel flex-none w-6 h-6" />
-        <span key={tick} className="lore new overflow-hidden text-ellipsis">{w.wolt}: {lines[(tick + w.wolt.length) % lines.length]}</span>
+        {away[w.wolt] ? <span className="overflow-hidden text-ellipsis text-dim">can't reach {w.wolt} · messages wait</span>
+          : <span key={tick} className="lore new overflow-hidden text-ellipsis">{w.wolt}: {lines[(tick + w.wolt.length) % lines.length]}</span>}
       </div>; })}
   </div>;
 }
@@ -85,8 +87,8 @@ function Viewer({ urls, at, close }: { urls: string[]; at: number; close: () => 
 
 // A list of messages that stays at the bottom while you're there, and leaves you alone if you scrolled up to read.
 // Used for the main chat and for a thread alike.
-function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
-  list: Msg[]; ctx: Ctx; working: Record<string, unknown>; replies?: Map<string, Msg[]>; seen?: Record<string, number>;
+function Feed({ list, ctx, working, away, replies, seen, open, divider, stick }: {
+  list: Msg[]; ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number>; replies?: Map<string, Msg[]>; seen?: Record<string, number>;
   open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<(on?: boolean) => void>;
 }) {
   const scroller = useRef<HTMLDivElement>(null), stuck = useRef(true);
@@ -122,7 +124,7 @@ function Feed({ list, ctx, working, replies, seen, open, divider, stick }: {
           <span>{divider} {divider === 1 ? "reply" : "replies"}</span><span className="flex-1 h-px bg-line" /></div>}
       </div>;
     })}
-    <Gnaw ctx={ctx} working={working} />
+    <Gnaw ctx={ctx} working={working} away={away} />
   </div>;
 }
 // Swipes move the screen itself, frame by frame, without redrawing the chat: smooth under your finger.
@@ -316,14 +318,22 @@ export function App() {
   // A voice note waits on this phone until the room has it. If it doesn't get there, it stays with "Tap to send again".
   type Typed = { cid: string; text: string; thread?: string };
   const outgoing = useRef(new Map<string, Outgoing | Typed>());
-  async function voice(r: Recording | null) {
+  // A voice note shows as sent the moment you tap send; the room's copy takes its place under the same id once the
+  // words are written down. The recording joins it a moment later, when the phone has handed it over.
+  const voiceAt = useRef(new Map<string, { thread?: string; at: number }>());
+  function voiceStart(seconds: number) {
+    const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t = thread || undefined, at = Date.now() / 1000;
+    voiceAt.current.set(cid, { thread: t, at });
     setListening(false);
-    if (!r) return;
-    // shows as sent right away; the room's copy takes its place under the same id once the words are written down
-    const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t = thread || undefined;
-    const o: Outgoing = { cid, owner: state.me, blob: r.blob, type: r.type, seconds: r.seconds, thread: t, at: Date.now() / 1000 };
-    const local: Msg = { id: cid, cid, n: after.current + 0.9, at: o.at, kind: "human", email: state.me, text: "", audio: "local", localUrl: URL.createObjectURL(r.blob), seconds: r.seconds, pending: true, thread: t };
-    setMsgs((m) => [...m, local]); stick();
+    setMsgs((m) => [...m, { id: cid, cid, n: after.current + 0.9, at, kind: "human", email: state.me, text: "", audio: "local", seconds, pending: true, thread: t }]); stick();
+    return cid;
+  }
+  async function voice(r: Recording | null, cid?: string) {
+    setListening(false);
+    const started = cid ? voiceAt.current.get(cid) : undefined; if (cid) voiceAt.current.delete(cid);
+    if (!r || !cid || !started) { if (cid) setMsgs((m) => m.filter((x) => x.id !== cid)); return; }  // too short or nothing recorded
+    const o: Outgoing = { cid, owner: state.me, blob: r.blob, type: r.type, seconds: r.seconds, thread: started.thread, at: started.at };
+    shown(cid, { localUrl: URL.createObjectURL(r.blob), seconds: r.seconds });
     await keep(o);
     sendVoice(o);
   }
@@ -411,7 +421,7 @@ export function App() {
           <MessagesSquare size={22} />{freshCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{freshCount}</span>}
         </button>
       </header>
-      <Feed list={main} ctx={ctx} working={state.working || {}} replies={replies} seen={seen} open={open} stick={stickMain} />
+      <Feed list={main} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
       {!thread && composer}
       {listOpen && !thread && <div ref={listSwipe.el} {...listSwipe.handlers} className="absolute inset-0 z-[1500] will-change-transform">
         <ThreadList roots={roots} replies={replies} ctx={ctx} seen={seen} onOpen={open} onClose={listSwipe.back} /></div>}
@@ -423,12 +433,12 @@ export function App() {
             <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · started by {root ? (root.kind === "human" ? person(root.email).name : root.wolt) : ""}</div>
           </div>
         </header>
-        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} divider={(replies.get(thread) || []).length} stick={stickThread} />
+        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
       </div>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
-      {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onDone={voice} />}
+      {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onSend={voiceStart} onDone={voice} />}
       {viewing && <Viewer urls={viewing.urls} at={viewing.at} close={() => setViewing(null)} />}
     </div>
   );
