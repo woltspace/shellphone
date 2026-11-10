@@ -1,4 +1,5 @@
 // Shell Phone, our own page. Same room, same look as the classic page, but every piece is ours to change.
+import { becomeGuest, needsName, relayKeyMissing, relayRoom, onRelayState, type PipeState } from "./relay";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
@@ -200,9 +201,45 @@ function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: 
   };
 }
 
+// Through the relay the room lives on its host's computer. When that computer sleeps or the room is closed, say so
+// plainly (the pipe keeps trying by itself); a link without its key can't work at all.
+function Offline({ missing, state }: { missing: boolean; state: PipeState }) {
+  const [title, text] = missing ? ["This link is missing its key", "Open the full link you were sent, including everything after the #."]
+    : state === "refused" ? ["This link doesn't open this room", "Its key is wrong or old. Ask whoever sent it for a fresh link."]
+    : state === "connecting" ? ["Connecting to the room…", "It runs on its host's computer, sealed through shellphone.woltspace.app."]
+    : ["This room is offline", "Its host's computer is asleep, or the room was closed. It comes back here by itself when the room is up again."];
+  return <div className="absolute inset-0 z-[1700] bg-paper/95 grid place-items-center px-8 text-center">
+    <div>
+      <div className="font-mono font-semibold text-acc text-lg mb-2">{title}</div>
+      <p className="text-sm text-dim leading-snug mb-4">{text}</p>
+      {state === "offline" && !missing && <button type="button" onClick={() => location.reload()} className="font-mono text-sm px-4 py-2 rounded-lg border border-acc text-acc bg-transparent cursor-pointer">Try again now</button>}
+    </div>
+  </div>;
+}
+
+// Someone who came in with the invite link says who they are, once. The name isn't checked: the room marks them "guest".
+function NameFirst({ done }: { done: () => void }) {
+  const [name, setName] = useState(""), [busy, setBusy] = useState(false), [problem, setProblem] = useState("");
+  const go = async () => { if (!name.trim() || busy) return; setBusy(true); const problem = await becomeGuest(name.trim()); setBusy(false); if (problem) setProblem(problem); else done(); };
+  return <div className="absolute inset-0 z-[1700] bg-paper grid place-items-center px-8 text-center">
+    <form onSubmit={(e) => { e.preventDefault(); go(); }} className="w-full max-w-xs">
+      <div className="font-mono font-semibold text-acc text-lg mb-2">&gt; you're invited</div>
+      <p className="text-sm text-dim leading-snug mb-4">What should people here call you?</p>
+      <input autoFocus value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder="your name"
+        className="w-full bg-panel border border-line rounded-[10px] px-3 py-2.5 text-base outline-none focus:shadow-[0_0_0_1px_var(--color-acc)] mb-3" />
+      <button type="submit" disabled={!name.trim() || busy} className="w-full font-mono font-semibold text-sm px-4 py-2.5 rounded-lg border-0 bg-acc text-white cursor-pointer disabled:opacity-40">{busy ? "joining…" : "join the room"}</button>
+      {problem && <p className="text-xs text-acc mt-3">{problem}</p>}
+      <p className="text-xs text-dim mt-4">You'll show as a guest: nobody checked this name.</p>
+    </form>
+  </div>;
+}
+
 export function App() {
   useFit();
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
+  const [naming, setNaming] = useState(needsName);  // an invite link: who are you, first
+  const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
+  useEffect(() => (relayRoom ? onRelayState(setLink) : undefined), []);
   const [listening, setListening] = useState<AudioContext | null | false>(false);
   const [viewing, setViewing] = useState<{ urls: string[]; at: number } | null>(null);
   const [thread, setThread] = useState("");  // the message whose thread is open
@@ -227,6 +264,10 @@ export function App() {
   // an open thread counts as read, including replies that arrive while you're in it
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
   const roots = main.filter((m) => replies.has(m.id));
+  // a room with no threads yet opens on its chat, not on an empty list (a brand-new room, someone's first)
+  const settled = useRef(false);
+  const threadsSeen = useRef(false); threadsSeen.current = replies.size > 0;
+  useEffect(() => { if (!settled.current && state.me) { settled.current = true; if (!replies.size) setListOpen(false); } }, [state.me]);
   const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
   const swipe = useSwipeBack(() => setThread(""));
 
@@ -263,7 +304,7 @@ export function App() {
     const seen = () => {
       if (document.hidden) { hidden = Date.now(); return; }
       noted();
-      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(true); setMenu(false); stickMain.current(); }
+      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(threadsSeen.current); setMenu(false); stickMain.current(); }
     };
     document.addEventListener("visibilitychange", seen);
     return () => { navigator.serviceWorker?.removeEventListener("message", fromNote); document.removeEventListener("visibilitychange", seen); };
@@ -298,7 +339,7 @@ export function App() {
     if (playing.current || !fresh.length) return;
     const [next, ...rest] = fresh;
     const m = msgs.find((x) => x.id === next.id);
-    if (!m || m.kind !== "wolt" || !m.audio) { setFresh(rest); return; }
+    if (!m || m.kind !== "wolt" || !m.audio || relayRoom) { setFresh(rest); return; }
     const a = new Audio("/voice/" + m.audio); playing.current = a;
     const done = () => { playing.current = null; setFresh(rest); };
     a.onended = done; a.onerror = done;
@@ -437,6 +478,8 @@ export function App() {
         {composer}
       </div>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
+      {naming && <NameFirst done={() => setNaming(false)} />}
+      {relayRoom && (relayKeyMissing || (link !== "open" && !(naming && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onSend={voiceStart} onDone={voice} />}
       {viewing && <Viewer urls={viewing.urls} at={viewing.at} close={() => setViewing(null)} />}

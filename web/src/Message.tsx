@@ -1,4 +1,5 @@
 // One bubble: who said it, the words (with @tags), a voice note with its words, a file or picture, a card.
+import { relayRoom } from "./relay";
 import { useRef, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
@@ -50,7 +51,7 @@ function Unsent({ m, ctx }: { m: Msg; ctx: Ctx }) {
 
 function Voice({ m, ctx }: { m: Msg; ctx: Ctx }) {
   const [open, setOpen] = useState(false);
-  const src = m.localUrl || (m.audio && m.audio !== "local" ? "/voice/" + m.audio : undefined);
+  const src = m.localUrl || (m.audio && m.audio !== "local" && !relayRoom ? "/voice/" + m.audio : undefined);  // through the relay: words only, for now
   return <div className="w-[min(260px,68vw)]">
     <Player src={src} seconds={m.seconds} />
     {m.failed ? <Unsent m={m} ctx={ctx} /> : m.pending
@@ -91,8 +92,8 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
       <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
       <div className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
         style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) } : undefined}>
-        {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5">[{name}]</div>}
-        {m.files?.length ? <Files m={m} ctx={ctx} /> : null}
+        {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5">[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
+        {m.files?.length ? relayRoom ? <div className="font-mono text-xs text-dim mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
         {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
         {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
         <Card msg={m} all={ctx.all} />

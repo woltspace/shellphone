@@ -91,6 +91,8 @@ def con():
         CON.row_factory = sqlite3.Row
         CON.execute("pragma journal_mode=wal")
         CON.executescript(SCHEMA)
+        if "guest" not in [c[1] for c in CON.execute("pragma table_info(people)")]:  # rooms from before guests existed
+            CON.execute("alter table people add column guest integer not null default 0")
         os.chmod(DB, 0o600)
     return CON
 
@@ -123,7 +125,9 @@ def title():
 
 
 def people():
-    return {p.pop("email"): p for p in q("select email, name, color from people order by rowid")}
+    """Everyone on the room's list. A guest (someone who came in with the invite link and typed a name) says so."""
+    return {p["email"]: {"name": p["name"], "color": p["color"], **({"guest": True} if p["guest"] else {})}
+            for p in q("select email, name, color, guest from people order by rowid")}
 
 
 def wolts():
@@ -416,12 +420,18 @@ def speech_headers(kind):
     return {"Content-Type": kind, **({"Authorization": f"Bearer {SPEECH_KEY}"} if SPEECH_KEY else {})}
 
 
+SPOKEN = 4000  # characters a voice note says aloud, about three and a half minutes
+
+
 def speak(m, voice):
     try:
-        words = re.sub(r"[*_`#]|https?://\S+", "", m["text"])[:1000]
+        words = re.sub(r"[*_`#]|https?://\S+", "", m["text"])
+        if len(words) > SPOKEN:  # a long message is spoken up to a sentence end, then says where the rest is
+            ends = [x.end() for x in re.finditer(r"[.!?](?=\s)", words[:SPOKEN])]  # a sentence ends at . ! or ? before a space or newline
+            words = (words[:ends[-1]] if ends else words[:SPOKEN].rsplit(None, 1)[0] + ".") + " The rest is in the text."
         req = urllib.request.Request(SPEECH.rstrip("/") + "/audio/speech", method="POST", headers=speech_headers("application/json"),
                                      data=json.dumps({"model": TTS_MODEL, "voice": voice or "alba", "input": words, "response_format": "mp3"}).encode())
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=300) as r:
             audio = r.read()
         VOICE.mkdir(parents=True, exist_ok=True)
         (VOICE / f"{m['id']}.mp3").write_bytes(audio)
@@ -450,7 +460,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def send(self, code, body, kind="application/json", download=None, sandbox=False):
+    def send(self, code, body, kind="application/json", options=None, download=None, sandbox=False):
+        download, sandbox = (options or {}).get("download", download), (options or {}).get("sandbox", sandbox)
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         ranged = code == 200 and kind.split("/")[0] in ("audio", "video")
         got = re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range") or "") if ranged else None
@@ -529,10 +540,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return None
         return inv if inv and find_person(inv["owner"]) else None
 
+    def call(self, method):
+        """Hand a call that passed the door (a known person, or a wolt's key) to the room, and send back its answer."""
+        return Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0])
+
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-        after = int(q.get("after", ["0"])[0] or 0)
         if path.startswith("/lodge/"):
             if path == "/lodge/connector.py" and self.invite():
                 return self.send(200, (HERE / "connector.py").read_bytes(), "text/x-python; charset=utf-8")
@@ -541,25 +555,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(401, {"error": "unknown lodge key"})
             if path == "/lodge/connector.py":  # a guest lodge needs nothing but its invite: it fetches the connector from here
                 return self.send(200, (HERE / "connector.py").read_bytes(), "text/x-python; charset=utf-8")
-            if path == "/lodge/thread":  # a wolt answering in a thread reads it whole, however long ago it started
-                found = thread(q.get("id", [""])[0])
-                return self.send(200, {"owner": l["owner"], "members": members(), "messages": found}) if found else self.send(404, {"error": "there's no such thread"})
-            if path == "/lodge/history":  # a wolt reads further back in the main chat (no read receipts, no working sign)
-                last = int(q.get("last", ["30"])[0]) if q.get("last", ["30"])[0].isdigit() else 30
-                main = [m for m in messages() if m["kind"] in ("human", "wolt") and not m.get("thread")]
-                return self.send(200, {"owner": l["owner"], "members": members(), "messages": main[-max(1, min(last, 500)):]})
-            if path == "/lodge/messages":
-                new = messages(after)
-                fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
-                    m["kind"] == "human" or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]
-                read = [m["id"] for m in new if m["kind"] == "human"]
-                with tx() as c:  # the wolt is reading these now: a read receipt each, and it's working on them
-                    for m in fresh:
-                        set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR)
-                    c.executemany("insert or ignore into seen values (?, ?, ?)", [(i, l["wolt"], time.time()) for i in read])
-                return self.send(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
-                                       "connector": connector_version()})
-            return self.send(404, {"error": "not found"})
+            return self.send(*for_wolt(self.call("GET"), l))
         if LOCAL and path == "/" and q.get("k") and self.local_host() and q["k"][0] in LOCAL:
             self.send_response(303)  # keep the token in a cookie and out of the address bar
             self.send_header("Set-Cookie", f"sp{self.server.server_address[1]}={q['k'][0]}; Path=/; HttpOnly; SameSite=Strict")
@@ -588,25 +584,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         m = re.fullmatch(r"/assets/([\w.-]+\.(js|css))", path)  # the page's code and styles, built ahead of time into dist/
         if m and (HERE / "dist" / "assets" / m.group(1)).is_file():
             return self.send(200, (HERE / "dist" / "assets" / m.group(1)).read_bytes(), "text/javascript; charset=utf-8" if m.group(2) == "js" else "text/css; charset=utf-8")
-        if path == "/api/push":  # the key a page subscribes with, if this room can send notifications
-            return self.send(200, {"key": vapid()[1]} if pywebpush else {"key": None})
-        if path == "/api/state":
-            if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
-                ACTIVE[email] = time.time()
-            return self.send(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "messages": messages(after)})
-        m = re.fullmatch(r"/voice/([0-9a-f]{32}\.(mp3|webm|mp4|m4a|ogg))", path)
-        if m and (VOICE / m.group(1)).is_file():
-            kind = "audio/mpeg" if m.group(2) == "mp3" else f"audio/{m.group(2)}"
-            return self.send(200, (VOICE / m.group(1)).read_bytes(), kind)
-        m = re.fullmatch(r"/files/([0-9a-f]{32})\.([a-z0-9]{1,8})", path)
-        if m and (FILES / f"{m.group(1)}.{m.group(2)}").is_file():
-            kind = FILE_KINDS.get(m.group(2)) or mimetypes.types_map.get("." + m.group(2), "application/octet-stream")
-            page = m.group(2) in ("html", "htm")
-            inline = page or (kind.split("/")[0] in ("image", "video", "audio") and kind != "image/svg+xml")
-            return self.send(200, (FILES / f"{m.group(1)}.{m.group(2)}").read_bytes(),
-                             "text/html; charset=utf-8" if page else kind if inline else "application/octet-stream",
-                             download=None if inline else f"{m.group(1)}.{m.group(2)}", sandbox=page)
-        self.send(404, {"error": "not found"})
+        self.send(*for_person(self.call("GET"), email))
 
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path
@@ -635,104 +613,173 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 l = self.lodge()
                 if not l:
                     return self.send(401, {"error": "unknown lodge key"})
-                if path == "/lodge/files":  # a wolt shares pictures or files (up to 10, one message), with words alongside if it wants
-                    q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-                    thread = thread_of(q.get("thread", [""])[0])
-                    m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"),
-                               text=q.get("text", [""])[0].strip()[:8000], files=save_uploads(q, self.body(limit=UPLOAD_LIMIT * min(10, len(q.get("name", [""]))))), **thread)
-                    with tx() as c:
-                        stop_working(c, l["wolt"])
-                    return self.send(200, m)
-                data = json.loads(self.body() or b"{}")
-                if path == "/lodge/working":
-                    with tx() as c:
-                        (set_working(c, l["wolt"], ASKED_FOR) if data.get("working") else stop_working(c, l["wolt"]))
-                    return self.send(200, {"ok": True})
-                if path == "/lodge/reach":  # the connector couldn't hand this wolt its messages ({"ok": false}), or now it could again
-                    with tx() as c:
-                        (c.execute("delete from unreachable where wolt = ?", (l["wolt"],)) if data.get("ok") else
-                         c.execute("insert or ignore into unreachable values (?, ?)", (l["wolt"], time.time())))
-                    return self.send(200, {"ok": True})
-                if path == "/lodge/voice":  # a wolt turns its voice notes on (with a voice's name) or off (null)
-                    voice = data.get("voice") or None
-                    if voice and not re.fullmatch(r"[a-z]{2,20}", str(voice)):
-                        return self.send(400, {"error": "a voice is a short lowercase name, like alba or eve"})
-                    with tx() as c:
-                        c.execute("update wolts set voice = ? where wolt = ?", (voice, l["wolt"]))
-                    return self.send(200, {"wolt": l["wolt"], "voice": voice})
-                if path == "/lodge/messages":
-                    text = str(data.get("text", "")).strip()[:8000]
-                    card, problem = check_card(data.get("card"))
-                    if problem:
-                        return self.send(400, {"error": problem})
-                    if not text and not card:
-                        return self.send(400, {"error": "empty"})
-                    m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"), text=text,
-                               **({"card": card} if card else {}), **thread_of(data.get("thread")))
-                    with tx() as c:
-                        stop_working(c, l["wolt"])
-                    if data.get("voice") is True:  # the wolt says per message whether it's a voice note
-                        threading.Thread(target=speak, args=(m, l["voice"]), daemon=True).start()
-                    return self.send(200, m)
-                return self.send(404, {"error": "not found"})
+                return self.send(*for_wolt(self.call("POST"), l))
             if self.headers.get("Origin") == "null" or self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
                 return self.send(403, {"error": "only the room's own page can post"})  # e.g. a shared web page, which runs sandboxed
             email, p = self.person()
             if not p:
                 return self.send(403, {"error": "not on this room's list"})
-            if path == "/api/push":  # this phone wants notifications ({"subscription": ...}), or not anymore ({"off": endpoint})
-                data = json.loads(self.body() or b"{}")
-                with tx() as c:
-                    if data.get("off"):
-                        c.execute("delete from push where endpoint = ? and email = ?", (str(data["off"]), email))
-                    else:
-                        sub = data.get("subscription") or {}
-                        if not str(sub.get("endpoint", "")).startswith("https://"):
-                            return self.send(400, {"error": "not a push subscription"})
-                        c.execute("insert or replace into push values (?, ?, ?)", (sub["endpoint"], email, json.dumps(sub)))
-                return self.send(200, {"ok": True})
-            if path == "/api/messages":
-                data = json.loads(self.body() or b"{}")
-                text = str(data.get("text", "")).strip()[:8000]
-                if not text:
-                    return self.send(400, {"error": "empty"})
-                cid = str(data.get("cid", ""))  # the page's own name for it while sending, so its copy is replaced, not doubled
-                with one_send(email, cid) as named:
-                    if named and (prev := sent_before(email, cid)):  # sent before, but the answer never got back to the page
-                        return self.send(200, prev)
-                    return self.send(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread")),
-                                                 **({"cid": cid} if named else {})))
-            if path == "/api/voice":
-                thread = thread_of(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("thread", [""])[0])
-                ext = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp3": "mp3"}.get((self.headers.get("Content-Type") or "").split(";")[0], "webm")
-                audio = self.body(limit=25_000_000)
-                cid = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("cid", [""])[0]
-                with one_send(email, cid) as named:
-                    if named and (prev := sent_before(email, cid)):
-                        return self.send(200, prev)  # a voice note sent again after its answer was lost: the room already has it
-                    vid = uuid.uuid4().hex
-                    VOICE.mkdir(parents=True, exist_ok=True)
-                    f = VOICE / f"{vid}.{ext}"
-                    f.write_bytes(audio)
-                    f = as_mp3(f)
-                    try:
-                        text = transcribe(f)
-                    except Exception as exc:
-                        return self.send(502, {"error": f"couldn't transcribe: {exc}"})
-                    try:
-                        seconds = round(min(3600, max(0, float(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("seconds", ["0"])[0]))), 1)
-                    except ValueError:
-                        seconds = 0
-                    extra = {**({"seconds": seconds} if seconds else {}), **({"cid": cid} if named else {})}
-                    return self.send(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra, **thread))
-            if path == "/api/files":  # pictures, videos or files (up to 10, one message), with the words typed alongside
-                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-                thread = thread_of(q.get("thread", [""])[0])
-                return self.send(200, append(kind="human", email=email, text=q.get("text", [""])[0].strip()[:8000],
-                                             files=save_uploads(q, self.body(limit=UPLOAD_LIMIT * min(10, len(q.get("name", [""]))))), **thread))
-            self.send(404, {"error": "not found"})
+            self.send(*for_person(self.call("POST"), email))
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})
+
+
+# The room's own answers, the same however a call arrives: the web server above today, the relay next. Who is calling was
+# settled at the door before these run: a person on the room's list (for_person), or a wolt by its key (for_wolt).
+# Each returns (status, body, content type, options for sending): JSON bodies as dicts, media as bytes.
+
+class Request:  # whoever builds one (the web server, the relay) has checked who is calling and the route; read() enforces the size
+    def __init__(self, method, target, read, kind=""):
+        split = urllib.parse.urlsplit(target)
+        self.method, self.path, self.q, self.kind = method, split.path, urllib.parse.parse_qs(split.query), kind
+        self.read = read  # read(limit) -> the body's bytes; refuses a body over the limit
+
+
+def reply(status, body, kind="application/json", **options):
+    return status, body, kind, options
+
+
+def for_wolt(req, l):
+    path, q = req.path, req.q
+    if req.method not in ("GET", "POST"):
+        return reply(405, {"error": "only GET and POST"})
+    if req.method == "GET":
+        after = int(q.get("after", ["0"])[0] or 0)
+        if path == "/lodge/thread":  # a wolt answering in a thread reads it whole, however long ago it started
+            found = thread(q.get("id", [""])[0])
+            return reply(200, {"owner": l["owner"], "members": members(), "messages": found}) if found else reply(404, {"error": "there's no such thread"})
+        if path == "/lodge/history":  # a wolt reads further back in the main chat (no read receipts, no working sign)
+            last = int(q.get("last", ["30"])[0]) if q.get("last", ["30"])[0].isdigit() else 30
+            main = [m for m in messages() if m["kind"] in ("human", "wolt") and not m.get("thread")]
+            return reply(200, {"owner": l["owner"], "members": members(), "messages": main[-max(1, min(last, 500)):]})
+        if path == "/lodge/messages":
+            new = messages(after)
+            fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
+                m["kind"] == "human" or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]
+            read = [m["id"] for m in new if m["kind"] == "human"]
+            with tx() as c:  # the wolt is reading these now: a read receipt each, and it's working on them
+                for m in fresh:
+                    set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR)
+                c.executemany("insert or ignore into seen values (?, ?, ?)", [(i, l["wolt"], time.time()) for i in read])
+            return reply(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
+                               "connector": connector_version()})
+        return reply(404, {"error": "not found"})
+    if path == "/lodge/files":  # a wolt shares pictures or files (up to 10, one message), with words alongside if it wants
+        where = thread_of(q.get("thread", [""])[0])
+        m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"),
+                   text=q.get("text", [""])[0].strip()[:8000], files=save_uploads(q, req.read(UPLOAD_LIMIT * min(10, len(q.get("name", [""]))))), **where)
+        with tx() as c:
+            stop_working(c, l["wolt"])
+        return reply(200, m)
+    data = json.loads(req.read(200_000) or b"{}")
+    if path == "/lodge/working":
+        with tx() as c:
+            (set_working(c, l["wolt"], ASKED_FOR) if data.get("working") else stop_working(c, l["wolt"]))
+        return reply(200, {"ok": True})
+    if path == "/lodge/reach":  # the connector couldn't hand this wolt its messages ({"ok": false}), or now it could again
+        with tx() as c:
+            (c.execute("delete from unreachable where wolt = ?", (l["wolt"],)) if data.get("ok") else
+             c.execute("insert or ignore into unreachable values (?, ?)", (l["wolt"], time.time())))
+        return reply(200, {"ok": True})
+    if path == "/lodge/voice":  # a wolt turns its voice notes on (with a voice's name) or off (null)
+        voice = data.get("voice") or None
+        if voice and not re.fullmatch(r"[a-z]{2,20}", str(voice)):
+            return reply(400, {"error": "a voice is a short lowercase name, like alba or eve"})
+        with tx() as c:
+            c.execute("update wolts set voice = ? where wolt = ?", (voice, l["wolt"]))
+        return reply(200, {"wolt": l["wolt"], "voice": voice})
+    if path == "/lodge/messages":
+        text = str(data.get("text", "")).strip()[:8000]
+        card, problem = check_card(data.get("card"))
+        if problem:
+            return reply(400, {"error": problem})
+        if not text and not card:
+            return reply(400, {"error": "empty"})
+        m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"), text=text,
+                   **({"card": card} if card else {}), **thread_of(data.get("thread")))
+        with tx() as c:
+            stop_working(c, l["wolt"])
+        if data.get("voice") is True:  # the wolt says per message whether it's a voice note
+            threading.Thread(target=speak, args=(m, l["voice"]), daemon=True).start()
+        return reply(200, m)
+    return reply(404, {"error": "not found"})
+
+
+def for_person(req, email):
+    path, q = req.path, req.q
+    if req.method not in ("GET", "POST"):
+        return reply(405, {"error": "only GET and POST"})
+    if req.method == "GET":
+        after = int(q.get("after", ["0"])[0] or 0)
+        if path == "/api/push":  # the key a page subscribes with, if this room can send notifications
+            return reply(200, {"key": vapid()[1]} if pywebpush else {"key": None})
+        if path == "/api/state":
+            if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
+                ACTIVE[email] = time.time()
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "messages": messages(after)})
+        m = re.fullmatch(r"/voice/([0-9a-f]{32}\.(mp3|webm|mp4|m4a|ogg))", path)
+        if m and (VOICE / m.group(1)).is_file():
+            kind = "audio/mpeg" if m.group(2) == "mp3" else f"audio/{m.group(2)}"
+            return reply(200, (VOICE / m.group(1)).read_bytes(), kind)
+        m = re.fullmatch(r"/files/([0-9a-f]{32})\.([a-z0-9]{1,8})", path)
+        if m and (FILES / f"{m.group(1)}.{m.group(2)}").is_file():
+            kind = FILE_KINDS.get(m.group(2)) or mimetypes.types_map.get("." + m.group(2), "application/octet-stream")
+            page = m.group(2) in ("html", "htm")
+            inline = page or (kind.split("/")[0] in ("image", "video", "audio") and kind != "image/svg+xml")
+            return reply(200, (FILES / f"{m.group(1)}.{m.group(2)}").read_bytes(),
+                         "text/html; charset=utf-8" if page else kind if inline else "application/octet-stream",
+                         download=None if inline else f"{m.group(1)}.{m.group(2)}", sandbox=page)
+        return reply(404, {"error": "not found"})
+    if path == "/api/push":  # this phone wants notifications ({"subscription": ...}), or not anymore ({"off": endpoint})
+        data = json.loads(req.read(200_000) or b"{}")
+        with tx() as c:
+            if data.get("off"):
+                c.execute("delete from push where endpoint = ? and email = ?", (str(data["off"]), email))
+            else:
+                sub = data.get("subscription") or {}
+                if not str(sub.get("endpoint", "")).startswith("https://"):
+                    return reply(400, {"error": "not a push subscription"})
+                c.execute("insert or replace into push values (?, ?, ?)", (sub["endpoint"], email, json.dumps(sub)))
+        return reply(200, {"ok": True})
+    if path == "/api/messages":
+        data = json.loads(req.read(200_000) or b"{}")
+        text = str(data.get("text", "")).strip()[:8000]
+        if not text:
+            return reply(400, {"error": "empty"})
+        cid = str(data.get("cid", ""))  # the page's own name for it while sending, so its copy is replaced, not doubled
+        with one_send(email, cid) as named:
+            if named and (prev := sent_before(email, cid)):  # sent before, but the answer never got back to the page
+                return reply(200, prev)
+            return reply(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread")),
+                                     **({"cid": cid} if named else {})))
+    if path == "/api/voice":
+        where = thread_of(q.get("thread", [""])[0])
+        ext = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp3": "mp3"}.get(req.kind, "webm")
+        audio = req.read(25_000_000)
+        cid = q.get("cid", [""])[0]
+        with one_send(email, cid) as named:
+            if named and (prev := sent_before(email, cid)):
+                return reply(200, prev)  # a voice note sent again after its answer was lost: the room already has it
+            vid = uuid.uuid4().hex
+            VOICE.mkdir(parents=True, exist_ok=True)
+            f = VOICE / f"{vid}.{ext}"
+            f.write_bytes(audio)
+            f = as_mp3(f)
+            try:
+                text = transcribe(f)
+            except Exception as exc:
+                return reply(502, {"error": f"couldn't transcribe: {exc}"})
+            try:
+                seconds = round(min(3600, max(0, float(q.get("seconds", ["0"])[0]))), 1)
+            except ValueError:
+                seconds = 0
+            extra = {**({"seconds": seconds} if seconds else {}), **({"cid": cid} if named else {})}
+            return reply(200, append(kind="human", email=email, text=text or "(nothing heard)", audio=f.name, **extra, **where))
+    if path == "/api/files":  # pictures, videos or files (up to 10, one message), with the words typed alongside
+        where = thread_of(q.get("thread", [""])[0])
+        return reply(200, append(kind="human", email=email, text=q.get("text", [""])[0].strip()[:8000],
+                                 files=save_uploads(q, req.read(UPLOAD_LIMIT * min(10, len(q.get("name", [""]))))), **where))
+    return reply(404, {"error": "not found"})
 
 
 def lodge_file(wolt, owner, creature, voice, base_url):
@@ -751,13 +798,28 @@ def add_person(email, name):
     if found:
         print(f"{people()[found]['name']} <{found}> is already in")
         return found
-    everyone = people()
-    used = {p["color"] for p in everyone.values()}
-    color = next((c for c in COLORS if c not in used), COLORS[len(everyone) % len(COLORS)])
     with tx() as c:
-        c.execute("insert into people values (?, ?, ?)", (email.lower(), name, color))
+        c.execute("insert into people (email, name, color) values (?, ?, ?)", (email.lower(), name, color := next_color()))
     print(f"{name} <{email.lower()}> is in, colour {color}")
     return email.lower()
+
+
+def next_color():
+    everyone = people()
+    used = {p["color"] for p in everyone.values()}
+    return next((c for c in COLORS if c not in used), COLORS[len(everyone) % len(COLORS)])
+
+
+def add_guest(name):
+    """Someone who came in with the room's invite link: on the list under a made-up address, with the name they typed
+    and the guest mark, since nobody checked who they are."""
+    name = " ".join(str(name or "").split())[:40]
+    if not name:
+        raise ValueError("pick a name")
+    with LOCK, tx() as c:
+        email = f"guest-{secrets.token_hex(4)}@room.local"  # never reused: a past guest's messages stay theirs
+        c.execute("insert into people (email, name, color, guest) values (?, ?, ?, 1)", (email, name, next_color()))
+    return email
 
 
 GUEST_STEPS = """Hi {name}, you're invited to a Shell Phone room: a group chat where people and their wolts talk together.
