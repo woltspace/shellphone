@@ -92,9 +92,15 @@ def room(a):
     server = r.http.server.ThreadingHTTPServer(("127.0.0.1", port), r.Handler)
     server.daemon_threads = True
 
-    def stop(*_):
-        raise KeyboardInterrupt
+    closing = []
+
+    def stop(*_):  # the first stop signal closes the room; any that follow do nothing, so closing always finishes
+        if not closing:
+            closing.append(True)
+            raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop)
+    if signal.getsignal(signal.SIGINT) is not signal.SIG_IGN:  # started in the background, Ctrl-C isn't ours to take
+        signal.signal(signal.SIGINT, stop)
     print(f"""Shell Phone room is open, on this computer only.
 
   Open the chat:    {url}/?k={token}

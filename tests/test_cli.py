@@ -151,6 +151,18 @@ class FrontDoor(unittest.TestCase):
             self.assertIn("Room closed and deleted.", r.close(sig))
             self.assertFalse(data.exists())
 
+    def test_a_second_stop_signal_cant_interrupt_the_closing(self):
+        for burst in ([signal.SIGINT] * 6, [signal.SIGTERM] * 6, [signal.SIGTERM, signal.SIGINT] * 3):
+            r = self.room()
+            r.browser.open(r.open)
+            data = self.data_dir(r)
+            for sig in burst:  # a double Ctrl-C, or a stop sent to a whole process group
+                r.proc.send_signal(sig)
+            out = r.proc.communicate(timeout=10)[0]
+            self.assertIn("Room closed and deleted.", out)
+            self.assertNotIn("Traceback", out)
+            self.assertFalse(data.exists())
+
     def test_keep_keeps_the_room_and_changes_the_links(self):
         kept = Path(self.tmp.name) / "kept"
         r = self.room("--keep", str(kept))
