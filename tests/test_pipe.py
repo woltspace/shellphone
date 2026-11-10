@@ -639,7 +639,7 @@ class RoomCap(unittest.TestCase):
         self.assertIn("max-age=30", first.headers["cache-control"])
         self.close(host)
         self.assertEqual(self.stats()[0], 0)
-        self.assertEqual(json.load(urllib.request.urlopen(self.base + "/live")), {"rooms": 1})  # kept for half a minute: asking often doesn't reach the desk
+        self.assertEqual(json.load(urllib.request.urlopen(self.base + "/live")), {"rooms": 1})  # kept for half a minute: asked again here, the desk isn't
         with self.assertRaises(urllib.error.HTTPError) as no:
             urllib.request.urlopen(urllib.request.Request(self.base + "/live", method="POST", data=b"{}"))
         self.assertEqual(no.exception.code, 404)

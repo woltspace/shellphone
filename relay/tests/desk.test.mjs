@@ -82,6 +82,19 @@ test("a goodbye from an earlier host can't close the room's next one", () => {
   assert.equal(desk.stats().open_rooms, 0);
 });
 
+test("the public count only reads, and leaves out a room that went silent", () => {
+  const desk = newDesk({ MAX_ROOMS: "5" });
+  let writes = 0;
+  const real = desk.sql.exec.bind(desk.sql);
+  desk.open("a"); desk.open("b");
+  desk.sql.exec = (q, ...p) => { if (!/^select/i.test(q.trim())) writes++; return real(q, ...p); };
+  assert.equal(desk.live(), 2);
+  later(3 * BEAT + 1);            // both go silent past the point a place is given away
+  assert.equal(desk.live(), 0);   // neither is counted any more,
+  assert.equal(desk.count(), 2);  // though nothing has cleared them away yet: that is for the next host or report
+  assert.equal(writes, 0);        // and all that asking wrote nothing
+});
+
 test("a number is never given twice, even to a room the desk had forgotten", () => {
   const desk = newDesk();
   const old = desk.open("a");

@@ -41,7 +41,9 @@ export default {
     const page = (file) => env.ASSETS.fetch(new Request(new URL(file, url), { method: "GET", headers: request.headers }));
     if (url.pathname === "/live") {
       // For everyone, and so only one number: how many rooms are up right now. Nothing about which, whose or where.
-      // Kept for half a minute, so however often it is asked for, the desk hears of it twice a minute at the most.
+      // Kept for half a minute in Cloudflare's cache, which spares the desk most of the asking but not all of it:
+      // the cache is one per data centre, and requests that miss it at the same moment each ask. So the desk's
+      // side of this only reads: asked a thousand times, it writes nothing.
       if (request.method !== "GET") return new Response("not found", { status: 404 });
       const kept = new Request(url.origin + "/live"), cache = caches.default;
       let answer = await cache.match(kept);
@@ -151,9 +153,8 @@ export class Desk extends DurableObject {
     this.sql.exec("update rooms set open = 0, at = ? where id = ? and gen = ?", now, id, gen);
   }
 
-  live() {  // the one number anyone may have
-    this.tidy(Date.now());
-    return this.count();
+  live() {  // the one number anyone may have. It only reads: a room that went silent isn't counted, and is cleared away by the next host or report
+    return this.sql.exec("select count(*) as n from rooms where open = 1 and at >= ?", Date.now() - stale(this.env)).one().n;
   }
 
   stats() {

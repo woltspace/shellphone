@@ -17,6 +17,8 @@
   p { color:var(--soft); margin:0 0 14px; }
   label { display:block; font-size:14px; color:var(--soft); margin:0 0 6px; }
   input { width:100%; padding:11px 12px; font:15px ui-monospace,Menlo,monospace; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
+  .row { display:flex; gap:8px; }
+  button { padding:0 16px; font:600 15px -apple-system,system-ui,sans-serif; border:1px solid var(--ink); background:var(--ink); color:#fff; cursor:pointer; }
   .now { display:flex; gap:10px; margin:20px 0; }
   .now div { flex:1; border:1px solid var(--line); background:var(--panel); padding:14px; }
   .now b { display:block; font:650 34px/1 -apple-system,system-ui,sans-serif; letter-spacing:-1px; }
@@ -34,8 +36,10 @@
   <a class="brand" href="/">shellphone<i>.</i></a>
   <h1>The relay's numbers</h1>
   <p>For whoever runs this relay. Counts only: no rooms' addresses, no names, no words.</p>
-  <label for="key">Host key</label>
-  <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="host key">
+  <form id="ask">
+    <label for="key">Host key</label>
+    <div class="row"><input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="host key"><button>Show</button></div>
+  </form>
   <p id="say"></p>
   <div id="out" hidden>
     <div class="now">
@@ -46,18 +50,26 @@
       <thead><tr><th>day (UTC)</th><th>rooms</th><th>connections</th><th>frames</th><th>refused</th></tr></thead>
       <tbody id="days"></tbody>
     </table>
-    <p class="note">Connections are page connections, not people: a page that reconnects counts again. Frames are sealed frames passed along, several per message. A room's traffic is added when it reports, every 30 minutes and when it closes, so today's line runs a little behind.</p>
+    <p class="note">Connections are page connections, not people: a page that reconnects counts again. Frames are sealed frames that reached the relay, several per message, including any it threw away for coming too fast. A room's traffic is added when it reports, every 30 minutes and when it closes, so today's line runs a little behind.</p>
   </div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
+let asked = 0;  // each change of the key starts a new asking; an answer to an earlier one is thrown away
+let key = "";   // the key as last asked with. It lives here only: this site also shows rooms' pages, so it is never put in the browser's storage
 async function show() {
-  const key = $("key").value.trim();
-  if (!key) { $("out").hidden = true; $("say").textContent = ""; return; }
-  let res;
-  try { res = await fetch("/stats", { headers: { Authorization: "Bearer " + key }, cache: "no-store" }); } catch { $("say").textContent = "Can't reach the relay."; return; }
-  if (!res.ok) { $("out").hidden = true; $("say").textContent = "That key doesn't open the numbers."; return; }
-  const s = await res.json(), today = new Date().toISOString().slice(0, 10);
+  const mine = ++asked;
+  const hide = (why) => { $("out").hidden = true; $("say").textContent = why; };
+  if (!key) return hide("");
+  let res, s;
+  try {
+    res = await fetch("/stats", { headers: { Authorization: "Bearer " + key }, cache: "no-store" });
+    if (res.ok) s = await res.json();
+  } catch { res = null; }
+  if (mine !== asked) return;  // the key was changed or cleared meanwhile: this answer is for a key no longer in the field
+  if (!res) return hide("Can't reach the relay.");
+  if (!res.ok) return hide("That key doesn't open the numbers.");
+  const today = new Date().toISOString().slice(0, 10);
   $("say").textContent = "";
   $("open").textContent = s.open_rooms; $("max").textContent = s.max_rooms; $("maxday").textContent = s.max_rooms_per_day;
   $("today").textContent = (s.days.find((d) => d.day === today) || { rooms_opened: 0 }).rooms_opened;
@@ -68,10 +80,10 @@ async function show() {
   }));
   $("out").hidden = false;
 }
-try { $("key").value = localStorage.getItem("shellphone:hostkey") || ""; } catch {}
-$("key").oninput = () => { try { localStorage.setItem("shellphone:hostkey", $("key").value.trim()); } catch {} show(); };
-show();
-setInterval(show, 60000);
+try { localStorage.removeItem("shellphone:hostkey"); } catch {}  // an earlier version of the Start page kept it there
+$("ask").onsubmit = (e) => { e.preventDefault(); key = $("key").value.trim(); show(); };  // asked when you say so, not at every letter typed
+$("key").oninput = () => { if (!$("key").value.trim()) { key = ""; show(); } };           // emptied: the numbers go at once
+setInterval(() => { if (key) show(); }, 60000);
 </script>
 </body>
 </html>
