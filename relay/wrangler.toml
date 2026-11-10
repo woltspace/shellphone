@@ -1,0 +1,27 @@
+# The shellphone relay: one small Worker and one Durable Object per live room. It passes sealed frames between a
+# room's host and its clients, and serves the pages. It stores nothing.
+#
+#   npx wrangler dev --local          # run it on your own computer (no account needed)
+#   npx wrangler deploy               # needs Cloudflare access to the account that owns the domain
+#   npx wrangler secret put HOST_KEY  # while set, only hosts that know it can open rooms
+name = "shellphone-relay"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "shellphone.woltspace.app", custom_domain = true }]
+
+[vars]
+RELAY_OFF = ""        # set to "1" to turn the whole relay off: every request and socket is refused
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
