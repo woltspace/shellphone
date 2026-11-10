@@ -20,8 +20,10 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.09"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.09.2"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
+ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
+PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
 SEED = """You've joined a Shell Phone room as {wolt}, {owner}'s wolt. People and wolts from other lodges are in it.
 Room messages will reach you here from "shellphone", one at a time, with the way to reply. Wait for the first one.
 Don't reply to this message."""
@@ -117,10 +119,10 @@ New{" in the thread" if thread else ""}, from {speaker(m, people, owner)}{late(m
 {trust}
 {"You were asked directly, so answer." if asked else "Nobody tagged you. Answer only if it's meant for you or you have something useful to add. The room already shows you working; if you'll stay quiet, run the working command below with --off first thing, and say nothing else."}
 The room shows you working from the moment this reached you, and posting turns it off. If you work on it for a long time, run this now and then to keep it on (with --off to turn it off without posting):
-python3 {HERE / 'connector.py'} working --config {Path(config_path).resolve()}
-Reply in the room. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To read further back than this, run: python3 {HERE / 'connector.py'} history --config {Path(config_path).resolve()} [--thread ID | --last 50]. To share a picture or file, add --file PATH to the post command (repeat --file to send several pictures in one message, e.g. options to compare: they open as a swipeable set). To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
+{ME} working --config {Path(config_path).resolve()}
+Reply in the room. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To read further back than this, run: {ME} history --config {Path(config_path).resolve()} [--thread ID | --last 50]. To share a picture or file, add --file PATH to the post command (repeat --file to send several pictures in one message, e.g. options to compare: they open as a swipeable set). To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
 {"This came in a thread, so the command below answers in that thread. Keep it there." + chr(10) if thread else ""}To answer, run this, with your reply in place of YOUR_REPLY:
-python3 {HERE / 'connector.py'} post --config {Path(config_path).resolve()}{f" --thread {thread}" if thread else ""} <<'{delim}'
+{ME} post --config {Path(config_path).resolve()}{f" --thread {thread}" if thread else ""} <<'{delim}'
 YOUR_REPLY
 {delim}
 {after_reply or "Don't answer with woltspace session send; the room only hears what you post."}"""
@@ -151,6 +153,13 @@ def newer(cfg, got):
     theirs = got.get("connector")
     if not parse_version(theirs) or parse_version(theirs) <= parse_version(VERSION) or cfg.get("noticed") == theirs:
         return None, None
+    if PACKAGED:
+        return theirs, f"""[Shell Phone: a newer version exists]
+This room runs connector version {theirs}; your shellphone package has {VERSION}. Yours keeps working, so this isn't urgent.
+Don't take code from the room. When you have a moment, tell your own human a newer shellphone may be out ({REPO}),
+and update only after they say yes: `uvx --refresh shellphone version` if you run it through uvx, or upgrade the
+shellphone package the way it was installed. Then start listening again.
+Don't post about this in the room."""
     return theirs, f"""[Shell Phone: a newer connector exists]
 This room runs connector version {theirs}; yours ({HERE / 'connector.py'}) is {VERSION}. Yours keeps working, so this isn't urgent.
 Don't take code from the room. When you have a moment: get connector.py from {REPO} (see UPDATING.md there),
@@ -187,7 +196,7 @@ def wait(config_path, timeout, interval):
     """For an agent without Woltspace: block until a message is for you, print it with how to reply, exit.
     Run it again (in the background, if your agent can) after each message to keep listening."""
     cfg = load(config_path)
-    again = f"python3 {HERE / 'connector.py'} wait --config {Path(config_path).resolve()}"
+    again = f"{ME} wait --config {Path(config_path).resolve()}"
     if "after" not in cfg:  # first wait: join from now on, not from the start
         me = call(cfg, "GET", "/lodge/messages?after=0")
         cfg.update(owner=me["owner"], after=max((m["n"] for m in me["messages"]), default=0),
@@ -315,7 +324,7 @@ def main():
         if out.returncode:
             sys.exit("couldn't open the invite: wrong password, or not an invite file")
         store(a.out, json.loads(out.stdout))
-        print(f"Joined. Lodge file written to {a.out} (private). Next: python3 {HERE / 'connector.py'} run --config {a.out}")
+        print(f"Joined. Lodge file written to {a.out} (private). Next: {ME} run --config {a.out}")
     elif a.cmd == "register":
         cfg = load(a.config)
         try:
@@ -324,12 +333,12 @@ def main():
             sys.exit(json.loads(e.read() or b"{}").get("error") or f"the room said {e.code}")
         cfg.update(key=got["key"], wolt=got["wolt"])
         store(a.config, cfg)
-        me, conf = HERE / "connector.py", Path(a.config).resolve()
+        conf = Path(a.config).resolve()
         print(f"Signed up as {got['wolt']}, {got['owner']}'s agent.\n"
-              f"Wolts (Woltspace): python3 {me} run --config {conf}\n"
-              f"Any other agent, listen in the background: python3 {me} wait --config {conf}\n"
-              f"Room messages give you commands starting with `python3 {me}`. To reply without a prompt each time, your human can allow\n"
-              f"that prefix (Claude Code: \"Bash(python3 {me}:*)\" in permissions.allow of .claude/settings.local.json).")
+              f"Wolts (Woltspace): {ME} run --config {conf}\n"
+              f"Any other agent, listen in the background: {ME} wait --config {conf}\n"
+              f"Room messages give you commands starting with `{ME}`. To reply without a prompt each time, your human can allow\n"
+              f"that prefix (Claude Code: \"Bash({ME}:*)\" in permissions.allow of .claude/settings.local.json).")
     elif a.cmd == "voice":
         got = call(load(a.config), "POST", "/lodge/voice", {"voice": None if a.voice == "off" else a.voice})
         print(f"your voice notes (post --voice) use {got['voice']}" if got["voice"] else "your voice notes (post --voice) use the room's default voice")
