@@ -22,7 +22,7 @@ const REOPEN = 10 * 60 * 1000;         // a host back within this long is the sa
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
 const LIVE_FOR = 30;  // seconds the public count of live rooms is kept before the desk is asked again
-const PAGES = { "/": "/index.html", "/start": "/start.html", "/numbers": "/numbers.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
+const PAGES = { "/": "/index.html", "/start": "/start.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
 
 function same(a, b) {  // compare without leaking where two strings differ
   const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
