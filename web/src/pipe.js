@@ -112,7 +112,10 @@ export function open(link, options = {}) {
           if (msg.part !== entry.parts.length || !Number.isInteger(msg.of) || msg.of < 2 || msg.of > 4096 || msg.part >= msg.of) return;
           entry.parts.push(msg.chunk);
           if (entry.parts.length < msg.of) return;
-          try { answer = JSON.parse(entry.parts.join("")); } catch { return; }
+          try {  // each part is base64 of a cut of the answer's bytes
+            const bytes = Uint8Array.from(atob(entry.parts.join("")), (c) => c.charCodeAt(0));
+            answer = JSON.parse(new TextDecoder().decode(bytes));
+          } catch { return; }
         }
         sent.delete(msg.id);
         clearTimeout(entry.timer);

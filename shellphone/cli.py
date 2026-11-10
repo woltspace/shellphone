@@ -166,7 +166,8 @@ def host(a):
     r, data, url, token, code, server = start(a, token)
 
     # The invite link has a secret and a token of its own, so nobody holding it can come in as the host. All it can
-    # do is make a guest: a person with the name they typed, the guest mark, and a token only they hold.
+    # do is make a guest: a person with the name they typed, the guest mark, and a token of their own. (That token is
+    # handed over under the invite secret, which every invited person shares: guests are not protected from each other.)
     invite_secret, invite_token, guests = secrets.token_bytes(32), secrets.token_urlsafe(24), {}
 
     def answer(kind, method, target, body, auth):

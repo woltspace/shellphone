@@ -92,7 +92,8 @@ test("an answer counts once, and only for a request still waiting", async () => 
 
 test("a long answer arrives in parts and is put back together", async () => {
   const big = { messages: Array.from({ length: 5 }, (_, i) => ({ n: i, text: "héllo 🐚 ".repeat(900) })) };
-  const text = JSON.stringify({ status: 200, body: big }), parts = text.match(/[\s\S]{1,9000}/g);
+  const bytes = new TextEncoder().encode(JSON.stringify({ status: 200, body: big })), parts = [];
+  for (let at = 0; at < bytes.length; at += 9000) parts.push(Buffer.from(bytes.subarray(at, at + 9000)).toString("base64"));
   const w = world({ answer: async (req, sock) => {
     for (const [i, chunk] of parts.entries()) sock.deliver(await sock.session.seal({ t: "res", id: req.id, part: i, of: parts.length, chunk }));
   } });
@@ -105,8 +106,9 @@ test("a long answer arrives in parts and is put back together", async () => {
 
 test("parts out of order or left unfinished never become an answer", async () => {
   const w = world({ answer: async (req, sock) => {
-    sock.deliver(await sock.session.seal({ t: "res", id: req.id, part: 1, of: 2, chunk: '"x"}' }));  // the second part first
-    sock.deliver(await sock.session.seal({ t: "res", id: req.id, part: 0, of: 2, chunk: '{"status":200,"body":' }));
+    const b64 = (s) => Buffer.from(s).toString("base64");
+    sock.deliver(await sock.session.seal({ t: "res", id: req.id, part: 1, of: 2, chunk: b64('"x"}') }));  // the second part first
+    sock.deliver(await sock.session.seal({ t: "res", id: req.id, part: 0, of: 2, chunk: b64('{"status":200,"body":') }));
   } });
   const pipe = open(LINK, { WebSocket: w.WebSocket, ...FAST, timeout: 60 });
   await assert.rejects(pipe.request("GET", "/api/state"), (e) => e.code === "timeout");

@@ -10,7 +10,8 @@
 // Sockets use the hibernation API: an idle room costs nothing and its sockets survive the object being put to sleep.
 import { DurableObject } from "cloudflare:workers";
 
-export const LIMITS = { frame: 64 * 1024, clients: 10, perSecond: 40 };
+// A client sends requests; a host answers every client, sometimes in many parts, so it may send far more.
+export const LIMITS = { frame: 64 * 1024, clients: 10, perSecond: 40, hostPerSecond: 400 };
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
 const PAGES = { "/": "/index.html", "/start": "/start.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
 
@@ -80,7 +81,8 @@ export class Room extends DurableObject {
     const now = Math.floor(Date.now() / 1000);  // a simple cap per socket: so many frames in any one second
     who.n = who.at === now ? who.n + 1 : 1; who.at = now;
     ws.serializeAttachment(who);
-    if (who.n > LIMITS.perSecond) return ws.close(1008, "too many frames");
+    if (who.role === "host") { if (who.n > LIMITS.hostPerSecond) return; }  // over its allowance, a host's frame is thrown away: closing it would close the room
+    else if (who.n > LIMITS.perSecond) return ws.close(1008, "too many frames");
     let frame;
     try { frame = JSON.parse(data); } catch { return ws.close(1007, "not json"); }
     if (who.role === "client") {  // a client only ever talks to the host

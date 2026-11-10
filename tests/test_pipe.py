@@ -3,7 +3,7 @@
     uv run --with cryptography --with websockets python -m unittest tests.test_pipe
     RELAY_E2E=1 …   also starts the relay with `npx wrangler dev --local` and a shared room, and talks through them
 """
-import http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.request
+import base64, http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -29,7 +29,7 @@ class Client:
         out = [self.session.open(f) for f in self.pipe.feed(self.session.seal({"t": "req", "id": self.n, "method": method, "path": path, "body": body, "auth": auth, **fields}))]
         if len(out) > 1:  # a long answer in parts: put it back together as the page does
             assert [(p["t"], p["id"], p["part"], p["of"]) for p in out] == [("res", self.n, i, len(out)) for i in range(len(out))], out
-            return {"t": "res", "id": self.n, **json.loads("".join(p["chunk"] for p in out))}
+            return {"t": "res", "id": self.n, **json.loads(base64.b64decode("".join(p["chunk"] for p in out)))}
         return out[0] if out else None
 
 
@@ -82,6 +82,55 @@ class HostSide(unittest.TestCase):
         self.assertEqual(c2.ask(), {"t": "res", "id": 1, "status": 200, "body": {"messages": history}})
         small = Client(self.make(lambda *_: (200, {"ok": True})))
         self.assertEqual(len(small.pipe.feed(small.session.seal({"t": "req", "id": 1, "method": "GET", "path": "/", "body": None, "auth": "t"}))), 1)
+
+    def test_no_frame_outgrows_the_relay_whatever_the_answer_holds(self):
+        relay_carries = 64 * 1024
+        awkward = ['"' * 20_000, "\\" * 20_000, "\n" * 20_000, "🐚" * 20_000, "\u0000" * 9_000, "x" * 29_990, '"' * 14_990, "é" * 30_000]
+        for body in awkward + [awkward, {"messages": [{"text": '"' * 8000} for _ in range(60)]}]:
+            c = Client(self.make(lambda *_: (200, body)))
+            frames = c.pipe.feed(c.session.seal({"t": "req", "id": 1, "method": "GET", "path": "/api/state", "body": None, "auth": "tok"}))
+            biggest = max(len(json.dumps({"to": "0123456789abcdef", "data": f})) for f in frames)
+            self.assertLess(biggest, relay_carries, f"{str(body)[:20]!r}… made a frame of {biggest}")
+            again = Client(self.make(lambda *_: (200, body)))
+            self.assertEqual(again.ask()["body"], body)
+
+    def test_a_megabyte_answer_is_many_parts_of_one_size(self):
+        body = {"blob": "a" * 1_300_000}
+        c = Client(self.make(lambda *_: (200, body)))
+        frames = c.pipe.feed(c.session.seal({"t": "req", "id": 1, "method": "GET", "path": "/api/state", "body": None, "auth": "tok"}))
+        self.assertEqual(len(frames), -(-len(json.dumps({"status": 200, "body": body}, separators=(",", ":"))) // pipe.PART))
+        self.assertGreater(len(frames), 40)
+        self.assertEqual(pipe.PART % 3, 0)  # so the base64 of the parts joins into the base64 of the whole
+        self.assertEqual(Client(self.make(lambda *_: (200, body))).ask()["body"], body)
+
+    def test_the_host_hands_a_long_answer_over_at_a_pace_the_relay_allows(self):
+        allowed = int(re.search(r"hostPerSecond: (\d+)", (REPO / "relay" / "src" / "index.js").read_text()).group(1))
+        self.assertLessEqual(pipe.FRAMES_PER_SECOND * 2, allowed)
+        client, sent, naps, stop = seal.Client(ROOM, SECRET), [], [], __import__("threading").Event()
+        script = iter([json.dumps({"join": "c1"}), json.dumps({"from": "c1", "data": client.hi()})])
+
+        class Relay:  # the relay's side of the host's socket, scripted
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def send(self, text): sent.append(json.loads(text))
+            def recv(self, timeout=None):
+                if len(sent) == 1 and "session" not in vars(self):  # the hello went out: now ask for something long
+                    self.session = client.hello(sent[0]["data"])
+                    return json.dumps({"from": "c1", "data": self.session.seal({"t": "req", "id": 1, "method": "GET", "path": "/api/state", "body": None, "auth": "t"})})
+                try:
+                    return next(script)
+                except StopIteration:
+                    stop.set()
+                    raise TimeoutError
+        real = pipe.time.sleep
+        pipe.time.sleep = naps.append
+        try:
+            pipe.serve("ws://relay.test/r/x/host", "", lambda: pipe.HostPipe(ROOM, {"h": SECRET}, lambda *_: (200, {"blob": "a" * 200_000})), stop, connect=lambda *a, **k: Relay())
+        finally:
+            pipe.time.sleep = real
+        parts = [m for m in sent[1:] if m.get("to") == "c1"]
+        self.assertGreater(len(parts), 5)
+        self.assertEqual(naps, [1 / pipe.FRAMES_PER_SECOND] * len(parts))  # a pause after every part
 
     def test_an_answer_too_long_to_send_is_refused_plainly(self):
         c = Client(self.make(lambda *_: (200, {"blob": "x" * (pipe.MAX_ANSWER + 1)})))
@@ -297,6 +346,32 @@ class ThroughTheRelay(unittest.TestCase):
             state = ask(cmd="request", method="GET", path="/api/state?after=0")
             self.assertEqual([m["text"] for m in state["body"]["messages"] if m["kind"] == "human"], long)
         self.assertEqual(ask(cmd="states")["states"], ["connecting", "open"])  # the room never dropped
+
+    def test_a_very_full_room_loads_and_stays_up(self):
+        link = self.link()
+        _, banner = self.host(link)
+        local = re.search(r"join '(http://127[^#']+)/#", banner).group(1)
+        door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        door.open(f"{local}/?k={self.token}")
+        # 170 messages of nothing but quotes: the worst text for sizes, and well over a megabyte once it's an answer
+        for i in range(170):
+            door.open(urllib.request.Request(local + "/api/messages", data=json.dumps({"text": '"' * 7990 + f" {i}", "cid": f"full{i:04d}"}).encode(),
+                                             headers={"Content-Type": "application/json"}))
+        ask = self.page(link)
+        for _ in range(2):
+            state = ask(cmd="request", method="GET", path="/api/state?after=0")
+            self.assertEqual(state["status"], 200)
+            texts = [m["text"] for m in state["body"]["messages"] if m["kind"] == "human"]
+            self.assertEqual((len(texts), texts[0], texts[-1]), (170, '"' * 7990 + " 0", '"' * 7990 + " 169"))
+        self.assertGreater(sum(len(f) for f in ask(cmd="wire")["wire"]), 2_500_000)  # it really was that much
+        # five pages asking for all of it at the same moment: several hundred parts for the host to hand over
+        import threading
+        pages, counts = [self.page(link) for _ in range(5)], []
+        threads = [threading.Thread(target=lambda p=p: counts.append(len((p(cmd="request", method="GET", path="/api/state?after=0").get("body") or {}).get("messages", [])))) for p in pages]
+        [t.start() for t in threads], [t.join() for t in threads]
+        self.assertEqual(counts, [170] * 5)
+        self.assertEqual(ask(cmd="states")["states"], ["connecting", "open"])  # and the room never dropped
+        self.assertTrue(self.up())
 
     def test_the_room_comes_back_after_the_host_restarts(self):
         link = self.link()

@@ -6,13 +6,16 @@
 A request is {"t":"req","id":n,"method","path","body","auth"} and its answer {"t":"res","id":n,"status","body"},
 both sealed (seal.py). The relay only ever sees the sealed form.
 """
-import json, threading, time
+import base64, json, threading, time
 
 from . import seal
 
 MAX_BODY = 32 * 1024   # a request's body, as JSON, in bytes
-PART = 30_000          # an answer longer than this goes out in parts, so no frame outgrows what the relay carries
+WHOLE = 30_000         # an answer up to this long (as JSON) goes out in one frame
+PART = 24_000          # a longer one goes out in parts of this many bytes, each sent as base64 so its size is known exactly
+MAX_FRAME = 60_000     # no sealed frame may be longer than this: the relay carries 65,536 with its own wrapping
 MAX_ANSWER = 4 * 1024 * 1024  # and an answer longer than this isn't sent at all
+FRAMES_PER_SECOND = 200       # how fast the host hands frames to the relay, across all clients (the relay allows a host 400)
 MAX_BAD = 5            # frames that don't open or make no sense, before the client is turned away
 PER_SECOND = 20        # requests a client may make, on average
 BURST = 40
@@ -65,18 +68,24 @@ class HostPipe:
                 return self._strike()  # not a request, or one whose number was already used
             self._last_id = rid
             status, body = self._reply(msg)
-            # ASCII only, so a character is a byte and the answer can be cut anywhere into parts of a known size
-            text = json.dumps({"status": status, "body": body}, separators=(",", ":"))
-            if len(text) > MAX_ANSWER:
-                status, body = 502, {"error": "too much to send at once"}
-                text = json.dumps({"status": status, "body": body}, separators=(",", ":"))
             try:
-                if len(text) <= PART:
-                    return [self._session.seal({"t": "res", "id": rid, "status": status, "body": body})]
-                parts = [text[i:i + PART] for i in range(0, len(text), PART)]
-                return [self._session.seal({"t": "res", "id": rid, "part": i, "of": len(parts), "chunk": part}) for i, part in enumerate(parts)]
+                return self._frames(rid, status, body)
             except seal.SealError:
                 raise Closed("this session has sealed all it may") from None
+
+    def _frames(self, rid, status, body):
+        """The sealed frames for one answer. Every one of them is short enough for the relay, whatever the answer holds."""
+        text = json.dumps({"status": status, "body": body}, separators=(",", ":")).encode()  # ASCII: a character is a byte
+        if len(text) > MAX_ANSWER:
+            return self._frames(rid, 502, {"error": "too much to send at once"})
+        if len(text) <= WHOLE:
+            frames = [self._session.seal({"t": "res", "id": rid, "status": status, "body": body})]
+        else:  # cut the bytes, and send each cut as base64: nothing in it needs escaping, so a part can't grow on the way
+            cuts = [text[i:i + PART] for i in range(0, len(text), PART)]
+            frames = [self._session.seal({"t": "res", "id": rid, "part": i, "of": len(cuts), "chunk": base64.b64encode(cut).decode()}) for i, cut in enumerate(cuts)]
+        if max(map(len, frames)) > MAX_FRAME:  # can't happen with the sizes above; if it ever does, say so instead of sending it
+            return [self._session.seal({"t": "res", "id": rid, "status": 502, "body": {"error": "the answer didn't fit"}})]
+        return frames
 
     def _reply(self, msg):
         method, path, body, auth = msg.get("method"), msg.get("path"), msg.get("body"), msg.get("auth")
@@ -133,6 +142,8 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
                             continue
                         for frame in out:
                             ws.send(json.dumps({"to": cid, "data": frame}))
+                            if len(out) > 1:  # a long answer: hand it over at a steady pace, well inside what the relay allows a host
+                                time.sleep(1 / FRAMES_PER_SECOND)
         except Exception as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status in (401, 409):  # not allowed to open rooms here, or this room already has a host: trying again won't help
