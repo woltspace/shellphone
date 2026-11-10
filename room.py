@@ -624,7 +624,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 # settled at the door before these run: a person on the room's list (for_person), or a wolt by its key (for_wolt).
 # Each returns (status, body, content type, options for sending): JSON bodies as dicts, media as bytes.
 
-class Request:
+class Request:  # whoever builds one (the web server, the relay) has checked who is calling and the route; read() enforces the size
     def __init__(self, method, target, read, kind=""):
         split = urllib.parse.urlsplit(target)
         self.method, self.path, self.q, self.kind = method, split.path, urllib.parse.parse_qs(split.query), kind
@@ -637,6 +637,8 @@ def reply(status, body, kind="application/json", **options):
 
 def for_wolt(req, l):
     path, q = req.path, req.q
+    if req.method not in ("GET", "POST"):
+        return reply(405, {"error": "only GET and POST"})
     if req.method == "GET":
         after = int(q.get("after", ["0"])[0] or 0)
         if path == "/lodge/thread":  # a wolt answering in a thread reads it whole, however long ago it started
@@ -701,6 +703,8 @@ def for_wolt(req, l):
 
 def for_person(req, email):
     path, q = req.path, req.q
+    if req.method not in ("GET", "POST"):
+        return reply(405, {"error": "only GET and POST"})
     if req.method == "GET":
         after = int(q.get("after", ["0"])[0] or 0)
         if path == "/api/push":  # the key a page subscribes with, if this room can send notifications
