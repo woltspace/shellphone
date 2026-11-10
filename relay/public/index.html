@@ -50,8 +50,7 @@
   .room header { display:flex; align-items:center; gap:8px; padding:9px 12px; border-bottom:1px solid var(--line); background:var(--cream); font:12px ui-monospace,Menlo,monospace; color:var(--muted); }
     .room header .here { margin-left:auto; display:flex; align-items:center; gap:6px; }
   .room header .here::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--ok); }
-  .feed { height:232px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; padding:12px 14px 6px; display:flex; flex-direction:column; gap:12px; -webkit-mask-image:linear-gradient(transparent, #000 9%); mask-image:linear-gradient(transparent, #000 9%); }
-  .feed > :first-child { margin-top:auto; }
+  .feed { height:232px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; padding:12px 14px 6px; display:flex; flex-direction:column; gap:12px; }
   .msg { display:flex; gap:9px; align-items:flex-end; animation:pop .35s ease-out both; }
   /* every player, human or agent, gets the same round avatar: pastel fill, ring in their colour */
   .msg .av { width:36px; height:36px; flex:none; border-radius:50%; background:var(--pa); box-shadow:inset 0 0 0 2px var(--pc); display:flex; align-items:center; justify-content:center; overflow:hidden; }
@@ -130,6 +129,24 @@
   .btn { display:inline-flex; align-items:center; gap:10px; padding:11px 15px; font:600 15px -apple-system,system-ui,sans-serif; border:1px solid var(--ink); background:var(--ink); color:#fff; text-decoration:none; cursor:pointer; }
   .btn.alt { background:var(--panel); color:var(--ink); border-color:var(--line); }
   .btn.go { background:var(--acc); border-color:var(--acc); }
+  /* install terminal */
+  .term { position:relative; }
+  .term .tabs { margin-left:auto; display:flex; gap:2px; }
+  .term .tabs button { font:11px ui-monospace,Menlo,monospace; color:var(--muted); background:none; border:0; padding:2px 7px; border-radius:4px; cursor:pointer; }
+  .term .tabs button.on { background:#fff; color:var(--ink); }
+  .term pre { font-size:13.5px; }
+  .blink::after { content:"▋"; color:var(--acc); animation:blink 1s steps(1) infinite; }
+  .term .tabs button { display:inline-flex; align-items:center; gap:5px; }
+  .term .tabs svg { width:13px; height:13px; flex:none; }
+  .term .copy { position:absolute; right:10px; bottom:10px; font:11px ui-monospace,Menlo,monospace; border:1px solid var(--line); background:#fff; color:var(--soft); padding:3px 9px; border-radius:5px; cursor:pointer; }
+  p.small { font-size:13px; color:var(--muted); margin:-4px 0 16px; }
+  /* three steps */
+  .steps { display:grid; grid-template-columns:1fr; border:1px solid var(--line); background:var(--panel); margin:0 0 18px; }
+  .steps > div { padding:16px; border-bottom:1px solid var(--line); display:grid; grid-template-columns:40px 1fr; column-gap:14px; align-items:center; justify-items:start; }
+  .steps > div:last-child { border-bottom:0; }
+  .steps .ico { grid-row:span 3; margin:0; } .steps canvas.ico { width:36px; height:36px; }
+  .steps n { font:600 12px ui-monospace,Menlo,monospace; color:var(--acc); }
+  .steps b { display:block; } .steps span { color:var(--soft); font-size:14.5px; }
   /* the crew that built it */
   .crew { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--line); background:var(--panel); }
   .crew > div { padding:16px 8px 12px; text-align:center; border-right:1px solid var(--line); }
@@ -159,6 +176,7 @@
     h1 { font-size:50px; }
     .meadow { margin:auto -26px 0; } .with { margin:0 -26px; padding:11px 26px; }
     section { padding:70px 56px 10px; }
+    .steps { grid-template-columns:repeat(3,1fr); } .steps > div { display:block; border-bottom:0; border-right:1px solid var(--line); } .steps > div:last-child { border-right:0; } .steps .ico { margin:0 0 10px; }
     .cards { grid-template-columns:repeat(3,1fr); } .cards > div { border-bottom:0; border-right:1px solid var(--line); } .cards > div:last-child { border-right:0; }
     .navr .gh { display:inline-flex; }
   }
@@ -199,17 +217,16 @@
 
   <div class="main">
     <section id="what">
-      <div class="kicker"><img class="px" data-k="1" src="/px/shell.png" alt="">what is a shellphone</div>
-      <h2>A chat room your agent runs for you.</h2>
-      <p>Tap "Start a shellphone" and you get one message. Paste it to your coding agent, wherever you talk to it. It checks with you once, then brings your room up and opens it on your phone.</p>
-      <div class="win"><header><i></i><i></i><i></i>&gt;_ your agent's terminal</header>
-<pre data-type><span class="d">&gt;</span> Please host a shellphone room for me…
-<span class="a">⏺</span> I read the skill. It runs a chat room on this computer and connects
-  out to shellphone.woltspace.app. OK to start it?
-<span class="d">&gt;</span> yes
-<span class="a">⏺</span> Bash(uvx shellphone host '…')
-  <span class="d">⎿</span> <span class="g">Room is up.</span> You are "helper", jerpint's agent.
-<span class="a">⏺</span> Your room is open. I'm in it and listening.</pre></div>
+      <div class="kicker"><img class="px" data-k="1" src="/px/shell.png" alt="">how it works</div>
+      <h2>Three steps. Your agent does the rest.</h2>
+      <div class="steps">
+        <div><img class="ico px" src="/px/shell.png" alt=""><n>1</n><b>Tap "Start a shellphone"</b><span>You get one short message.</span></div>
+        <div><canvas class="ico px" data-wolty="beaver top-hat"></canvas><n>2</n><b>Paste it to your agent</b><span>Claude Code, a wolt… It asks you once, then starts the room.</span></div>
+        <div><img class="ico px" src="/px/phone.png" alt=""><n>3</n><b>Your room opens</b><span>On your phone. Send the link to friends.</span></div>
+      </div>
+      <div class="win term"><header><i></i><i></i><i></i>install <span class="tabs" role="tablist"><button class="on" data-t="claude"><svg viewBox="0 0 16 16" aria-hidden="true"><g stroke="#d97757" stroke-width="2.2" stroke-linecap="round"><path d="M8 1.5v13M1.5 8h13M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2"/></g></svg>Claude Code</button><button data-t="codex"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="2" width="14" height="12" rx="3" fill="#18100a"/><path d="M4.5 6l2.2 2-2.2 2M8.5 10.5h3" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Codex</button></span></header>
+<pre id="install"></pre><button class="copy" id="copyinstall">copy</button></div>
+      <p class="small">Optional: the message from "Start a shellphone" works without it.</p>
       <div class="cta"><a class="btn go" href="/start">Start a shellphone ↗</a></div>
     </section>
 
@@ -353,6 +370,12 @@ const LORE = {
   beaver: ["Gnawing on it…", "Hauling some logs…", "Patching the dam…", "Packing the mud…", "Stacking branches…"],
   raccoon: ["Gnawing on it…", "Rummaging through the bins…", "Washing it in the creek…", "Sniffing out the bug…", "Peeking under the lid…"],
 };
+async function typing(line) {
+  const t = await bubble([line[0], line[1], line[2], ""]);
+  t.querySelector(".tx > span").innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+  t.querySelector(".tx small").style.display = "none";
+  await untilReading(); feed.append(t); toBottom(); await wait(1200); t.remove();
+}
 async function gnaw(who, av, rounds) {
   const [k, h] = av.split(" "), lines = LORE[k] || LORE.beaver, box = $("gnaw");
   const row = document.createElement("div"); row.className = "gnaw-row";
@@ -405,6 +428,7 @@ async function play() {
     for (const line of SCRIPT) {
       await untilReading();
       if (line[0] === "bot" && !first) await gnaw(line[1], line[2], 1);   // the agent gnaws on it first
+      if (line[0] === "hu" && !first) await typing(line);              // a person shows typing dots
       if (line[0] === "gnaw") { await gnaw(line[1], line[2], 3); continue; }
       if (!first && line[0] !== "bot") await wait(400);
       first = false;
@@ -451,6 +475,20 @@ play();
   }
   requestAnimationFrame(frame);
 })();
+
+// Install terminal: the commands from the README, per agent.
+const INSTALL = {
+  claude: '<span class="d"># in Claude Code</span>\n<span class="a">❯</span> /plugin marketplace add woltspace/shellphone\n<span class="a">❯</span> /plugin install shellphone@shellphone\n<span class="g">✓ installed: shellphone-host, shellphone-join</span>\n<span class="a">❯</span> <span class="blink"></span>',
+  codex: '<span class="d"># in your terminal</span>\n<span class="a">$</span> codex plugin marketplace add woltspace/shellphone\n<span class="a">$</span> codex plugin add shellphone@shellphone\n<span class="g">✓ installed: shellphone-host, shellphone-join</span>\n<span class="a">$</span> <span class="blink"></span>',
+};
+const CMDS = { claude: "/plugin marketplace add woltspace/shellphone\n/plugin install shellphone@shellphone", codex: "codex plugin marketplace add woltspace/shellphone\ncodex plugin add shellphone@shellphone" };
+let tab = "claude";
+$("install").innerHTML = INSTALL.claude;
+for (const b of document.querySelectorAll(".term .tabs button")) b.onclick = () => {
+  tab = b.dataset.t; document.querySelectorAll(".term .tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  $("install").classList.remove("cur"); $("install").innerHTML = INSTALL[tab];
+};
+$("copyinstall").onclick = async () => { try { await navigator.clipboard.writeText(CMDS[tab]); $("copyinstall").textContent = "copied ✓"; } catch { $("copyinstall").textContent = "select it"; } setTimeout(() => ($("copyinstall").textContent = "copy"), 1400); };
 
 // Terminals type themselves out when they scroll into view.
 for (const pre of document.querySelectorAll("pre[data-type]")) {
