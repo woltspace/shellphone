@@ -205,6 +205,7 @@ function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: 
 // plainly (the pipe keeps trying by itself); a link without its key can't work at all.
 function Offline({ missing, state }: { missing: boolean; state: PipeState }) {
   const [title, text] = missing ? ["This link is missing its key", "Open the full link you were sent, including everything after the #."]
+    : state === "refused" ? ["This link doesn't open this room", "Its key is wrong or old. Ask whoever sent it for a fresh link."]
     : state === "connecting" ? ["Connecting to the room…", "It runs on its host's computer, sealed through shellphone.woltspace.app."]
     : ["This room is offline", "Its host's computer is asleep, or the room was closed. It comes back here by itself when the room is up again."];
   return <div className="absolute inset-0 z-[1700] bg-paper/95 grid place-items-center px-8 text-center">

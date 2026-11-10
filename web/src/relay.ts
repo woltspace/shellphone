@@ -1,7 +1,7 @@
-// A room reached through the relay, at shellphone.woltspace.app/r/<room>#<secret>.<token>. The room itself runs on its
+// A room reached through the relay, at shellphone.woltspace.app/r/<room>#<kind>.<secret>.<token> (kind h: the host's link, i: an invite). The room itself runs on its
 // host's computer; this page talks to it only through one sealed pipe, and every call the page makes goes through it.
 // Elsewhere (a room served straight from its host, like today's rooms) none of this runs and the page uses fetch.
-export type PipeState = "connecting" | "open" | "offline";
+export type PipeState = "connecting" | "open" | "offline" | "refused";  // refused: this link's key doesn't open this room
 export type Pipe = {
   request(method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   onState(cb: (s: PipeState) => void): void;
@@ -15,7 +15,7 @@ function saved(): string | null {
   if (!relayRoom) return null;
   const store = `sp-room-${relayRoom}`, hash = location.hash.slice(1);
   try {
-    if (/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]+$/.test(hash)) {
+    if (/^[hi]\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]+$/.test(hash)) {
       history.replaceState(null, "", location.pathname);  // out of the address bar and screenshots, whatever happens next
       try { localStorage.setItem(store, hash); } catch { /* no storage (private mode): kept for this visit only */ }
       return hash;  // a home-screen app opens the bare address later: storage keeps the key for it
