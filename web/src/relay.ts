@@ -5,6 +5,7 @@ export type PipeState = "connecting" | "open" | "offline" | "refused";  // refus
 export type Pipe = {
   request(method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   onState(cb: (s: PipeState) => void): void;
+  onNews?(cb: () => void): () => void;  // the room says something changed: the page asks for it then, not on a timer
   close(): void;
 };
 
@@ -64,7 +65,9 @@ let pipe: Promise<Pipe> | null = null;
 const listeners = new Set<(s: PipeState) => void>();
 let state: PipeState = "connecting";
 
-const tell = (s: PipeState) => { state = s; listeners.forEach((f) => f(s)); };
+const tell = (s: PipeState) => { state = s; listeners.forEach((f) => f(s)); if (s === "open") heard(); };  // (re)connected: anything may have changed meanwhile
+const news = new Set<() => void>();
+const heard = () => news.forEach((f) => f());
 
 function connect(): Promise<Pipe> {
   if (!pipe) {
@@ -74,10 +77,16 @@ function connect(): Promise<Pipe> {
     pipe = (opener ? opener() : Promise.reject(new Error("This page can't reach rooms through the relay yet."))).then((m) => {
       const p = m.open(`${location.origin}${location.pathname}#${key}`);
       p.onState(tell);
+      p.onNews?.(heard);
       return p;
     }).catch((e) => { pipe = null; tell("offline"); throw e; });
   }
   return pipe;
+}
+
+export function onRelayNews(f: () => void) {
+  news.add(f);
+  return () => { news.delete(f); };
 }
 
 export function onRelayState(f: (s: PipeState) => void) {
