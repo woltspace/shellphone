@@ -20,6 +20,11 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
   const [files, setFilesNow] = useState(() => attached.get(draft) || []);  // attached, not sent yet
   const setFiles = (f: { f: File; url?: string }[]) => { setFilesNow(f); if (f.length) attached.set(draft, f); else attached.delete(draft); };
   const [full, setFull] = useState(false);
+  // A room through the relay carries text only, for now. Its paperclip opens what's coming instead, and the relay counts
+  // the taps (only which one: the paperclip, voice or files; no room, no name, no words) so we know what people want.
+  const [soon, setSoon] = useState(false);
+  const tap = (what: "more" | "mic" | "file") => fetch(`/tap?what=${what}`, { method: "POST", keepalive: true }).catch(() => {});
+  const comingSoon = () => { if (!soon) tap("more"); setSoon(!soon); };
   const attach = (f: File[]) => {
     const room = MOST - files.length, took = f.slice(0, Math.max(0, room));
     if (took.length < f.length) { setFull(true); setTimeout(() => setFull(false), 3000); }
@@ -60,6 +65,13 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
       {tagOpts.length > 0 && <div className={menu}>{tagOpts.map((w) => <button key={w.wolt} type="button" className={item} onClick={() => set(text.replace(/@[\w-]*$/, "@" + w.wolt + " "))}>@{w.wolt}</button>)}</div>}
       {slash.length > 0 && <div className={menu}>{slash.map((s) => <button key={s.tag} type="button" className={item} onClick={() => set(s.text)}><b className="text-acc">/{s.tag}</b> <span className="text-dim">{s.text}</span></button>)}</div>}
       {full && <div className="pl-11 pb-1 text-xs text-acc">{MOST} at most in one message</div>}
+      {soon && <div className={menu + " right-auto min-w-60"}>
+        {([[Mic, "Voice note", "mic"], [Paperclip, "Photo or file", "file"]] as const).map(([Icon, label, what]) => (
+          <button key={what} type="button" onClick={() => { tap(what); setSoon(false); }} className="flex w-full items-center gap-2.5 px-3.5 py-3 border-0 border-b border-line bg-transparent text-left text-[15px] cursor-pointer">
+            <Icon size={19} className="text-acc" />{label}<span className="ml-auto text-[11px] text-dim border border-line rounded-lg px-1.5">soon</span>
+          </button>))}
+        <div className="px-3.5 py-2 text-[11px] text-dim">Coming soon. We count taps here to choose what to build next.</div>
+      </div>}
       {files.length > 0 && <div className="flex gap-3 overflow-x-auto pt-2.5 pr-2.5 pb-2 pl-11">{files.map((x, i) => (
         <div key={i} className="relative flex-none">
           {x.url ? <img src={x.url} alt={x.f.name} className="block h-20 w-auto max-w-48 object-contain rounded-lg border border-line" />
@@ -67,9 +79,9 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
           <button type="button" aria-label={"Remove " + x.f.name} onClick={() => unattach(i)} className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-ink grid place-items-center border-0 cursor-pointer"><X size={14} className="text-white" /></button>
         </div>))}</div>}
       <div className="flex items-center gap-2">
-        {!relayRoom && <button type="button" aria-label="Attach" onClick={() => pick.current?.click()} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent cursor-pointer">
-          <Paperclip size={23} className="text-acc" />
-        </button>}
+        <button type="button" aria-label={soon ? "Close" : "Attach"} onClick={() => relayRoom ? comingSoon() : pick.current?.click()} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent cursor-pointer">
+          {soon ? <X size={23} className="text-acc" /> : <Paperclip size={23} className="text-acc" />}
+        </button>
         <input ref={pick} type="file" multiple hidden onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; if (f.length) attach(f); }} />
         <textarea ref={box} rows={1} value={text} placeholder={placeholder || "$ message, @wolt, or /"}
           onChange={(e) => { setText(e.target.value); grow(); }}
