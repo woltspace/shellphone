@@ -423,7 +423,8 @@ def speak(m, voice):
     try:
         words = re.sub(r"[*_`#]|https?://\S+", "", m["text"])
         if len(words) > SPOKEN:  # a long message is spoken up to a sentence end, then says where the rest is
-            words = words[:SPOKEN].rsplit(". ", 1)[0] + ". The rest is in the text."
+            ends = [x.end() for x in re.finditer(r"[.!?](?=\s)", words[:SPOKEN])]  # a sentence ends at . ! or ? before a space or newline
+            words = (words[:ends[-1]] if ends else words[:SPOKEN].rsplit(None, 1)[0] + ".") + " The rest is in the text."
         req = urllib.request.Request(SPEECH.rstrip("/") + "/audio/speech", method="POST", headers=speech_headers("application/json"),
                                      data=json.dumps({"model": TTS_MODEL, "voice": voice or "alba", "input": words, "response_format": "mp3"}).encode())
         with urllib.request.urlopen(req, timeout=300) as r:
