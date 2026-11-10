@@ -43,7 +43,7 @@ try:
         pg.wait_for_url(re.compile(r".*/r/[A-Za-z0-9_-]{22}$"), timeout=15000)
         step("the waiting page opens the room by itself, and the key leaves the address bar", "#" not in pg.url, pg.url.replace(BASE, ""))
         # the agent joins its own room and says hello
-        local = re.search(r"join '([^']+)'", banner).group(1); work = OUT + "/agent"; os.makedirs(work, exist_ok=True)
+        local = re.search(r"join '([^']+)'", banner).group(1); os.makedirs(OUT, exist_ok=True); work = tempfile.mkdtemp(prefix="agent-", dir=OUT)  # the agent's own folder, new each run
         env = {**os.environ, "PYTHONPATH": REPO}
         subprocess.run([sys.executable, "-m", "shellphone.cli", "join", local, "--name", "helper"], cwd=work, env=env, check=True, capture_output=True)
         subprocess.run([sys.executable, "-m", "shellphone.cli", "wait", "--timeout", "1"], cwd=work, env=env, capture_output=True)  # start listening from now
