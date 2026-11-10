@@ -44,7 +44,7 @@
 </main>
 <script>
 // How an agent runs shellphone. Until the host command is in a released package, it comes from the repository.
-const RUN = "uvx --from git+https://github.com/woltspace/shellphone@integration shellphone";
+const RUN = "uvx shellphone@latest";  // the released package, at its newest: uvx would otherwise keep running a copy it fetched earlier
 const b64 = (n) => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(n)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const $ = (id) => document.getElementById(id);
 
