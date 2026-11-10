@@ -1,6 +1,6 @@
 // The room's log, as the page sees it. The room server is the only truth: this file only reads /api/state and posts back.
 import { useEffect, useRef, useState } from "react";
-import { call, needsName, relayRoom } from "./relay";
+import { call, needsName, onRelayNews, relayPushes, relayRoom } from "./relay";
 
 export type Person = { email: string; name: string; color: string; guest?: boolean };  // guest: came in with the invite link, name not checked
 export type Wolt = { wolt: string; owner: string; creature: string; voice?: string | null };
@@ -42,13 +42,20 @@ export function useRoom() {
   const after = useRef(0), first = useRef(true), version = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    let stop = false, timer = 0;
+    // Through a relay that says when something changed, the page asks only then (and when it reconnects or comes back on
+    // screen), with a slow check as a safety net: a quiet room with the page open then costs nothing. Elsewhere, every 2 s.
+    let stop = false, timer = 0, busy = false, again = false;
+    const kick = () => { if (busy) again = true; else { clearTimeout(timer); poll(); } };
+    const off = relayRoom ? onRelayNews(kick) : () => {};
+    const shown = () => { if (document.visibilityState === "visible") kick(); };
+    if (relayRoom) document.addEventListener("visibilitychange", shown);
     async function poll() {
-      if (needsName()) { timer = window.setTimeout(poll, 500); return; }  // a guest picks a name first; until then the room has nothing for them
+      if (needsName()) { timer = window.setTimeout(poll, 500); return; }
+      busy = true;  // a guest picks a name first; until then the room has nothing for them
       try {
         const url = `/api/state?after=${after.current}${document.visibilityState === "visible" ? "&here=1" : ""}`;
         const r = await (relayRoom ? call(url) : fetch(url, { cache: "no-store" }));
-        if (r.status === 403) { setError("You're not on this room's list."); return; }
+        if (r.status === 403) { busy = false; setError("You're not on this room's list."); return; }
         const s = (await r.json()) as State & { messages: Msg[] };
         // a new version of the page: reload, but not in the middle of recording, typing or sending (it waits, then reloads)
         // (through the relay the page comes from the relay, not the room: the room's version says nothing about it)
@@ -86,10 +93,13 @@ export function useRoom() {
         first.current = false;
         setError("");
       } catch { setError("Can't reach the room, trying again…"); }
-      if (!stop) timer = window.setTimeout(poll, 2000);
+      busy = false;
+      if (stop) return;
+      if (again) { again = false; return kick(); }  // news while asking: what came back may already be old
+      timer = window.setTimeout(poll, relayRoom && relayPushes ? 30000 : 2000);
     }
     poll();
-    return () => { stop = true; clearTimeout(timer); };
+    return () => { stop = true; clearTimeout(timer); off(); document.removeEventListener("visibilitychange", shown); };
   }, []);
 
   const person = (email?: string): Person => state.members.people.find((p) => p.email === email) || { email: email || "", name: email || "?", color: "#8a6a52" };
