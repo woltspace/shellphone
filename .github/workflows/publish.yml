@@ -1,8 +1,8 @@
 name: Publish to PyPI
 
-# Run by hand, from the branch to release. The tests run, the package is built, and then the run waits at the
-# "pypi" environment for an approval before anything is uploaded. PyPI trusts this workflow in that environment
-# (trusted publishing), so no token is stored anywhere.
+# Run by hand, from main. The tests run, the package is built and tried the way people use it (through uvx), and
+# then the run waits at the "pypi" environment for an approval before anything is uploaded. PyPI trusts this
+# workflow in that environment (trusted publishing), so no token is stored anywhere.
 on:
   workflow_dispatch:
     inputs:
@@ -18,29 +18,34 @@ concurrency:
   group: publish-shellphone
   cancel-in-progress: false
 
+env:
+  UV_VERSION: "0.13.7"
+  UV_PYTHON: "3.13"
+
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Only main or integration, and only this repository
+      - name: Only main, and only this repository
         env:
           REF: ${{ github.ref }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          printf '%s\n' "$REF" | grep -Eqx 'refs/heads/(main|integration)'
+          test "$REF" = refs/heads/main
           test "$REPOSITORY" = woltspace/shellphone
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          python-version: '3.13'
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
       - name: "The version asked for is the version in the code, and is not on PyPI yet"
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          python - <<'PY'
+          uv run --no-project python - <<'PY'
           import os, re, sys, tomllib, urllib.error, urllib.request
           asked = os.environ["VERSION"]
           if not re.fullmatch(r"\d+\.\d+\.\d+", asked):
@@ -56,16 +61,25 @@ jobs:
                   raise
           PY
       - name: Tests
-        run: python -m unittest discover tests -v
+        run: uv run --no-project python -m unittest discover tests -v
       - name: Build into out/ (dist/ is the built chat page)
         run: |
-          python -m pip install --quiet build==1.2.2.post1
-          python -m build --outdir out
+          uv build --out-dir out
           ls -l out
-      - name: The wheel runs on its own
+      - name: Open and close a room from the built wheel, through uvx
         run: |
-          python -m venv /tmp/try && /tmp/try/bin/pip install --quiet out/*.whl
-          cd /tmp && /tmp/try/bin/shellphone version && /tmp/try/bin/shellphone room --help > /dev/null
+          wheel=$(ls "$PWD"/out/*.whl)
+          cd "$RUNNER_TEMP"
+          uvx --from "$wheel" shellphone version
+          uvx --from "$wheel" shellphone room --port 0 > room.out 2>&1 &
+          for i in $(seq 30); do grep -q "Press Ctrl-C" room.out && break; sleep 1; done
+          cat room.out | sed -E 's/(k=|#)[A-Za-z0-9_-]{20,}/\1<key>/g'
+          link=$(grep -o 'http://127[^ ]*?k=[^ ]*' room.out)
+          test "$(curl -s -L -c jar -o /dev/null -w '%{http_code}' "$link")" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "${link%%/\?*}/")" = 403
+          pkill -TERM -f "shellphone room --port 0"
+          for i in $(seq 10); do grep -q "Room closed and deleted." room.out && break; sleep 1; done
+          grep -q "Room closed and deleted." room.out
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: shellphone-${{ inputs.version }}
@@ -86,6 +100,9 @@ jobs:
         with:
           name: shellphone-${{ inputs.version }}
           path: out
-      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          packages-dir: out
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Upload (PyPI trusts this workflow in this environment; no token)
+        run: uv publish --trusted-publishing always out/*
