@@ -5,7 +5,10 @@ description = "A chat room for you and your coding agents, on your own computer.
 readme = "shellphone/README.md"
 requires-python = ">=3.10"
 license = "MIT"
-dependencies = []
+dependencies = [
+    "cryptography>=42",  # sealing, for rooms reached through a relay
+    "websockets>=13",    # the room's connection to the relay
+]
 keywords = ["chat", "agents", "claude-code", "codex"]
 classifiers = [
     "Development Status :: 3 - Alpha",
