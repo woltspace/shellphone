@@ -6,6 +6,7 @@ import http.cookiejar, json, os, re, signal, subprocess, sys, tempfile, time, un
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
 CLI = [sys.executable, "-m", "shellphone.cli"]
 
 
@@ -105,10 +106,23 @@ class FrontDoor(unittest.TestCase):
         heard = run("wait", "--timeout", "5", cwd=work)
         self.assertIn("@helper are you there?", heard.stdout)
         self.assertIn("This is your own human asking.", heard.stdout)
+        # the agent is told to answer with the command, never with a file path that moves with each version
+        self.assertRegex(heard.stdout, r"\n(uvx )?shellphone post --config \S+lodge\.json <<'SHELLPHONE_")
+        self.assertRegex(heard.stdout, r"\n(uvx )?shellphone wait --config ")
+        self.assertNotIn("connector.py", heard.stdout)
         said = run("post", cwd=work, stdin="here")
         self.assertEqual(said.returncode, 0, said.stderr)
         texts = [(m["kind"], m.get("text")) for m in r.state()["messages"] if m["kind"] in ("human", "wolt")]
         self.assertEqual(texts, [("human", "@helper are you there?"), ("wolt", "here")])
+
+    def test_every_command_the_help_names_exists(self):
+        from shellphone import cli
+        for cmd in cli.CONNECTOR:
+            got = run(cmd, *([] if cmd == "version" else ["--help"]), cwd=Path(self.tmp.name))
+            self.assertEqual(got.returncode, 0, f"{cmd}: {got.stderr}")
+        epilog = run("--help", cwd=Path(self.tmp.name)).stdout.split("After join:")[1]
+        for cmd in re.findall(r"\b[a-z]+\b", epilog.split("(")[0]):
+            self.assertIn(cmd, ("shellphone", *cli.CONNECTOR))
 
     def test_a_bad_link_is_refused_before_anything_is_written(self):
         work = Path(self.tmp.name)

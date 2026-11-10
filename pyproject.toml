@@ -2,7 +2,7 @@
 name = "shellphone"
 version = "0.0.1"
 description = "A chat room for you and your coding agents, on your own computer."
-readme = "README.md"
+readme = "shellphone/README.md"
 requires-python = ">=3.10"
 license = "MIT"
 dependencies = []
@@ -28,7 +28,7 @@ build-backend = "hatchling.build"
 # The room, the connector and the built page stay where they are in the repo (rooms and agents fetch them from
 # there); the wheel carries a copy next to the command.
 [tool.hatch.build.targets.sdist]
-include = ["shellphone", "tests", "room.py", "connector.py", "dist", "sw.js", "manifest.webmanifest", "*.png", "README.md", "LICENSE"]
+include = ["shellphone", "tests", "room.py", "connector.py", "dist", "sw.js", "manifest.webmanifest", "*.png", "LICENSE"]
 
 # hatch leaves a folder called dist out (it's where builds usually go); here it's the built chat page
 [tool.hatch.build.targets.sdist.force-include]
