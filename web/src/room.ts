@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { call, needsName, onRelayNews, relayRoom, rememberRoom } from "./relay";
 
 export type Person = { email: string; name: string; color: string; guest?: boolean };  // guest: came in with the invite link, name not checked
-export type Wolt = { wolt: string; owner: string; creature: string; voice?: string | null };
+export type Wolt = { wolt: string; owner: string; creature: string; voice?: string | null; paused?: boolean };  // paused: the room hands it only what tags it by name
 export type FileInfo = { name: string; type: string; url: string; size: number };
 export type CardNode = { type: string; props?: Record<string, any>; children?: CardNode[] };
 export type Msg = {
@@ -14,7 +14,7 @@ export type Msg = {
 };
 export type Tab = { slug: string; title: string; v: number };
 export type State = {
-  version?: string; title: string; me: string;
+  version?: string; title: string; me: string; host?: string;  // host: the person who can pause or remove any agent
   members: { people: Person[]; wolts: Wolt[] };
   working: Record<string, unknown>; unreachable?: Record<string, number>; seen: Record<string, string[]>; tabs: Tab[];
 };

@@ -116,6 +116,107 @@ class FrontDoor(unittest.TestCase):
         texts = [(m["kind"], m.get("text")) for m in r.state()["messages"] if m["kind"] in ("human", "wolt")]
         self.assertEqual(texts, [("human", "@helper are you there?"), ("wolt", "here")])
 
+    def test_a_paused_agent_hears_only_its_name_and_a_removed_one_is_out(self):
+        r = self.room()
+        work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
+        work.mkdir(), other.mkdir()
+        self.assertEqual(run("join", r.agent, "--name", "helper", cwd=work).returncode, 0)
+        self.assertEqual(run("join", r.agent, "--name", "second", cwd=other).returncode, 0)
+        run("wait", "--timeout", "1", cwd=work)  # joins from now on
+        r.browser.open(r.open)
+
+        def page(path, body):
+            try:
+                return json.load(r.browser.open(urllib.request.Request(r.url + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+            except urllib.error.HTTPError as e:
+                return e.code
+        paused = lambda: {w["wolt"]: bool(w.get("paused")) for w in r.state()["members"]["wolts"]}
+
+        self.assertEqual(page("/api/wolt", {"wolt": "helper", "state": "paused"}), {"wolt": "helper", "paused": True})
+        self.assertEqual(paused(), {"helper": True, "second": False})
+        page("/api/messages", {"text": "a word for everyone, about the weather"})
+        quiet = run("wait", "--timeout", "2", cwd=work)
+        self.assertIn("No new messages", quiet.stdout)  # paused: what isn't for it never reaches it
+        self.assertNotIn("weather", quiet.stdout)
+        self.assertFalse(r.state()["working"])  # and the room doesn't show it working on it
+        page("/api/messages", {"text": "@helper one thing for you"})
+        heard = run("wait", "--timeout", "5", cwd=work)
+        self.assertIn("@helper one thing for you", heard.stdout)  # its name still gets through
+        self.assertNotIn("weather", heard.stdout)  # and what it missed isn't handed over with it
+        self.assertEqual(paused()["helper"], True)  # hearing its name didn't bring it back
+
+        # An agent can bring another back, and pause itself, but not pause another.
+        self.assertIn("helper hears the room again", run("resume", "helper", cwd=other).stdout)
+        self.assertEqual(paused(), {"helper": False, "second": False})
+        page("/api/messages", {"text": "back to everyone now"})
+        again = run("wait", "--timeout", "5", cwd=work)
+        self.assertIn("back to everyone now", again.stdout)
+        self.assertNotIn("weather", again.stdout)  # nothing piled up while it was paused
+        self.assertIn("second is paused", run("pause", cwd=other).stdout)
+        self.assertEqual(paused(), {"helper": False, "second": True})
+        key = json.loads((other / "shellphone" / "lodge.json").read_text())["key"]
+        def as_agent(body):
+            try:
+                return urllib.request.urlopen(urllib.request.Request(r.url + "/lodge/state", data=json.dumps(body).encode(), headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})).status
+            except urllib.error.HTTPError as e:
+                return e.code
+        self.assertEqual(as_agent({"wolt": "helper", "paused": True}), 403)
+        self.assertEqual(as_agent({"wolt": "nobody", "paused": False}), 404)
+        self.assertEqual(as_agent({"wolt": "helper"}), 400)
+
+        # Removed: off the list, and its key is dead at once.
+        self.assertEqual(page("/api/wolt", {"wolt": "second", "state": "removed"}), {"wolt": "second", "removed": True})
+        self.assertEqual(paused(), {"helper": False})
+        self.assertEqual(as_agent({"wolt": "second", "paused": False}), 401)
+        gone = run("wait", "--timeout", "3", cwd=other)
+        self.assertIn("turned you away", gone.stderr)
+        self.assertEqual(page("/api/wolt", {"wolt": "second", "state": "removed"}), 404)
+        self.assertEqual(page("/api/wolt", {"wolt": "helper", "state": "asleep"}), 400)
+
+    def test_a_guest_cant_pause_or_remove_an_agent(self):
+        import importlib, io, contextlib
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SHELLPHONE_DATA": self.tmp.name}):  # the room reads where it lives when it loads
+            room = importlib.import_module("room")
+        self.addCleanup(sys.modules.pop, "room", None)
+        self.addCleanup(lambda: room.CON and room.CON.close())
+        with contextlib.redirect_stdout(io.StringIO()):
+            room.add_person("sam@example.com", "Sam")
+        guest = room.add_guest("Visitor")
+        room.lodge_file("helper", "sam@example.com", "raccoon", None, "http://127.0.0.1:1")
+        ask = lambda who, state: room.for_person(room.Request("POST", "/api/wolt", lambda limit: json.dumps({"wolt": "helper", "state": state}).encode()), who)[:2]
+        self.assertEqual(ask(guest, "paused")[0], 403)
+        self.assertEqual(ask(guest, "removed")[0], 403)
+        self.assertEqual([w["wolt"] for w in room.members()["wolts"]], ["helper"])
+        self.assertEqual(ask("sam@example.com", "paused"), (200, {"wolt": "helper", "paused": True}))
+
+    def test_only_the_host_or_its_own_keeper_changes_an_agent(self):
+        import importlib, io, contextlib
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SHELLPHONE_DATA": self.tmp.name}):
+            room = importlib.import_module("room")
+        self.addCleanup(sys.modules.pop, "room", None)
+        self.addCleanup(lambda: room.CON and room.CON.close())
+        with contextlib.redirect_stdout(io.StringIO()):
+            for email, name in (("sam@example.com", "Sam"), ("kim@example.com", "Kim"), ("lee@example.com", "Lee")):
+                room.add_person(email, name)  # Sam opened the room: its host
+        room.lodge_file("sams", "sam@example.com", "raccoon", None, "http://127.0.0.1:1")
+        room.lodge_file("kims", "kim@example.com", "otter", None, "http://127.0.0.1:1")
+        ask = lambda who, wolt, state: room.for_person(room.Request("POST", "/api/wolt", lambda limit: json.dumps({"wolt": wolt, "state": state}).encode()), who)[0]
+        self.assertEqual(room.host(), "sam@example.com")
+        self.assertEqual(room.for_person(room.Request("GET", "/api/state", lambda limit: b""), "kim@example.com")[1]["host"], "sam@example.com")
+        for state in ("paused", "on", "removed"):  # a member who is neither the host nor the keeper: nothing
+            self.assertEqual(ask("lee@example.com", "kims", state), 403)
+            self.assertEqual(ask("kim@example.com", "sams", state), 403)
+            self.assertEqual(ask("lee@example.com", "nobody", state), 403)  # and isn't told which agents exist
+        self.assertEqual([(w["wolt"], bool(w.get("paused"))) for w in room.members()["wolts"]], [("sams", False), ("kims", False)])
+        self.assertEqual(ask("kim@example.com", "kims", "paused"), 200)  # a keeper, their own
+        self.assertEqual(ask("sam@example.com", "kims", "on"), 200)      # the host, anyone's
+        self.assertEqual(ask("sam@example.com", "nobody", "on"), 404)
+        self.assertEqual(ask("kim@example.com", "kims", "removed"), 200)
+        self.assertEqual(ask("sam@example.com", "sams", "removed"), 200)
+        self.assertEqual(room.members()["wolts"], [])
+
     def test_a_newer_room_never_tells_a_package_to_swap_files(self):
         from shellphone import cli
         packaged, plain = cli.connector(), cli.part("connector")

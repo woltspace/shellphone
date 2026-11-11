@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { Bell, BellOff, BellRing, Check, ChevronRight, MessagesSquare, Shell, Squirrel, UserPlus } from "lucide-react";
 import { inviteLink, relayHost, relayRoom } from "./relay";
+import { Agents } from "./Agents";
+import type { Person, Wolt } from "./room";
 
 const row = "flex items-center gap-3 w-full px-4 py-2.5 border-0 bg-transparent text-left text-[15px] text-ink no-underline cursor-pointer active:bg-panel";
 // "My rooms" lives on the relay's site. A room there is listed already; a room served from its own address (a lodge's)
@@ -11,8 +13,8 @@ const myRooms = (title: string) => relayRoom ? "/rooms"
   : ROOMS + "#add=" + btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify([[title, location.origin + "/"]])))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const sec = "px-4 pt-4 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 
-export function Menu({ open, panel, scrim, touch, close, title, me, push, freshCount, onThreads }: {
-  open: boolean; panel: React.RefObject<HTMLElement | null>; scrim: React.RefObject<HTMLDivElement | null>; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string;
+export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts, people, push, freshCount, onThreads }: {
+  open: boolean; panel: React.RefObject<HTMLElement | null>; scrim: React.RefObject<HTMLDivElement | null>; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string; host?: string; wolts: Wolt[]; people: Person[];
   push: { state: "ask" | "on" | "off"; turnOn: () => void }; freshCount: number; onThreads: () => void;
 }) {
   // while a finger drags it, App moves these two directly; otherwise the classes below decide
@@ -41,6 +43,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, push, freshC
         {!relayRoom && <a href="/join" className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></a>}
         <button type="button" onClick={() => { close(); onThreads(); }} className={row}><MessagesSquare size={20} className="text-acc" /><span className="flex-1">Threads</span>
           {freshCount > 0 && <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{freshCount}</span>}</button>
+        <Agents wolts={wolts} people={people} me={me} host={host} sec={sec} />
       </div>
     </aside>
   </>;
