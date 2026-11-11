@@ -14,7 +14,7 @@ export type Msg = {
 };
 export type Tab = { slug: string; title: string; v: number };
 export type State = {
-  version?: string; title: string; me: string;
+  version?: string; title: string; me: string; host?: string;  // host: the person who can pause or remove any agent
   members: { people: Person[]; wolts: Wolt[] };
   working: Record<string, unknown>; unreachable?: Record<string, number>; seen: Record<string, string[]>; tabs: Tab[];
 };

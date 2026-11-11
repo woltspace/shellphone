@@ -460,8 +460,14 @@ def members():
 
 
 # An agent in the room is on or paused. A paused one is handed only what asks it by name (see for_wolt), so a room it
-# isn't needed in costs it nothing; anyone on the list who isn't a guest can flip it, an agent can pause itself or
-# bring another back. Removing one is for people on the list (not guests): its key stops working at once.
+# isn't needed in costs it nothing. The room's host can pause, bring back or remove any agent; a person can do so with
+# their own agents; nobody else can. An agent can pause itself or bring another back. Removed, its key stops working at once.
+def host():
+    """The room's host: the first person put on its list who isn't a guest (the one who opened the room)."""
+    row = q("select email from people where guest = 0 order by rowid limit 1")
+    return row[0]["email"] if row else None
+
+
 def set_paused(wolt, paused):
     with tx() as c:
         if not c.execute("update wolts set paused = ? where wolt = ?", (1 if paused else 0, wolt)).rowcount:
@@ -752,7 +758,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "messages": messages(after)})
         m = re.fullmatch(r"/voice/([0-9a-f]{32}\.(mp3|webm|mp4|m4a|ogg))", path)
         if m and (VOICE / m.group(1)).is_file():
             kind = "audio/mpeg" if m.group(2) == "mp3" else f"audio/{m.group(2)}"
@@ -779,11 +785,14 @@ def for_person(req, email):
         return reply(200, {"ok": True})
     if path == "/api/wolt":  # pause an agent, bring it back, or remove it ({"wolt": name, "state": "on" | "paused" | "removed"})
         data = json.loads(req.read(200_000) or b"{}")
-        if people().get(email, {}).get("guest"):
-            return reply(403, {"error": "guests can't change who is in the room"})
         who, state = str(data.get("wolt") or ""), data.get("state")
         if state not in ("on", "paused", "removed"):
             return reply(400, {"error": "state is on, paused or removed"})
+        if people().get(email, {}).get("guest"):
+            return reply(403, {"error": "guests can't change who is in the room"})
+        owner = next((l["owner"] for l in wolts() if l["wolt"] == who), None)
+        if email != host() and (owner is None or canon(email) != canon(owner)):  # not the host, and not this agent's own keeper
+            return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
         done = remove_wolt(who) if state == "removed" else set_paused(who, state == "paused")
         return reply(200, done) if done else reply(404, {"error": f"there's no {who} in this room"})
     if path == "/api/messages":

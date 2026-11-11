@@ -1,5 +1,6 @@
 // The agents in this room, in the ☰ menu: each one is on or paused, and can be removed. Paused, the room hands it only
-// what tags it by name, so it costs nothing while it isn't needed. Guests see the list, without the switches.
+// what tags it by name, so it costs nothing while it isn't needed. The switches show where you may use them: on every
+// agent for the room's host, on your own agents otherwise. Everyone sees the list.
 import { useState } from "react";
 import { Pause, Play, X } from "lucide-react";
 import { say, type Person, type Wolt } from "./room";
@@ -8,12 +9,13 @@ import { woltAvatar } from "./sprites";
 const set = (wolt: string, state: "on" | "paused" | "removed") =>
   say("/api/wolt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt, state }) });
 
-export function Agents({ wolts, people, me, sec }: { wolts: Wolt[]; people: Person[]; me: string; sec: string }) {
+export function Agents({ wolts, people, me, host, sec }: { wolts: Wolt[]; people: Person[]; me: string; host?: string; sec: string }) {
   const [busy, setBusy] = useState("");      // the agent a change is on its way for
   const [asking, setAsking] = useState("");  // the agent whose removal waits for a second tap
   const [note, setNote] = useState("");
   if (!wolts.length) return null;
   const guest = !!people.find((p) => p.email === me)?.guest;
+  const may = (w: Wolt) => !guest && (me === host || w.owner === me);  // the room decides; this only hides what it would refuse
   const go = async (wolt: string, state: "on" | "paused" | "removed") => {
     setBusy(wolt); setAsking("");
     setNote((await set(wolt, state)) || "");
@@ -30,7 +32,7 @@ export function Agents({ wolts, people, me, sec }: { wolts: Wolt[]; people: Pers
           <span className={`block truncate font-mono text-sm ${w.paused ? "text-dim" : "text-ink"}`}>{w.wolt}</span>
           <small className="block text-xs text-dim">{w.paused ? "paused · tag it to reach it" : `${owner?.name || w.owner}'s`}</small>
         </span>
-        {!guest && (asking === w.wolt
+        {may(w) && (asking === w.wolt
           ? <>
             <button type="button" disabled={busy === w.wolt} onClick={() => go(w.wolt, "removed")} className={`${btn} text-white bg-acc border-acc`}>remove</button>
             <button type="button" onClick={() => setAsking("")} className={`${plain} text-dim`}>keep</button>

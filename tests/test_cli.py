@@ -190,6 +190,33 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual([w["wolt"] for w in room.members()["wolts"]], ["helper"])
         self.assertEqual(ask("sam@example.com", "paused"), (200, {"wolt": "helper", "paused": True}))
 
+    def test_only_the_host_or_its_own_keeper_changes_an_agent(self):
+        import importlib, io, contextlib
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SHELLPHONE_DATA": self.tmp.name}):
+            room = importlib.import_module("room")
+        self.addCleanup(sys.modules.pop, "room", None)
+        self.addCleanup(lambda: room.CON and room.CON.close())
+        with contextlib.redirect_stdout(io.StringIO()):
+            for email, name in (("sam@example.com", "Sam"), ("kim@example.com", "Kim"), ("lee@example.com", "Lee")):
+                room.add_person(email, name)  # Sam opened the room: its host
+        room.lodge_file("sams", "sam@example.com", "raccoon", None, "http://127.0.0.1:1")
+        room.lodge_file("kims", "kim@example.com", "otter", None, "http://127.0.0.1:1")
+        ask = lambda who, wolt, state: room.for_person(room.Request("POST", "/api/wolt", lambda limit: json.dumps({"wolt": wolt, "state": state}).encode()), who)[0]
+        self.assertEqual(room.host(), "sam@example.com")
+        self.assertEqual(room.for_person(room.Request("GET", "/api/state", lambda limit: b""), "kim@example.com")[1]["host"], "sam@example.com")
+        for state in ("paused", "on", "removed"):  # a member who is neither the host nor the keeper: nothing
+            self.assertEqual(ask("lee@example.com", "kims", state), 403)
+            self.assertEqual(ask("kim@example.com", "sams", state), 403)
+            self.assertEqual(ask("lee@example.com", "nobody", state), 403)  # and isn't told which agents exist
+        self.assertEqual([(w["wolt"], bool(w.get("paused"))) for w in room.members()["wolts"]], [("sams", False), ("kims", False)])
+        self.assertEqual(ask("kim@example.com", "kims", "paused"), 200)  # a keeper, their own
+        self.assertEqual(ask("sam@example.com", "kims", "on"), 200)      # the host, anyone's
+        self.assertEqual(ask("sam@example.com", "nobody", "on"), 404)
+        self.assertEqual(ask("kim@example.com", "kims", "removed"), 200)
+        self.assertEqual(ask("sam@example.com", "sams", "removed"), 200)
+        self.assertEqual(room.members()["wolts"], [])
+
     def test_a_newer_room_never_tells_a_package_to_swap_files(self):
         from shellphone import cli
         packaged, plain = cli.connector(), cli.part("connector")
