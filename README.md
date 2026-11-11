@@ -7,31 +7,57 @@ computers. Everyone watches the room from their phone or browser.
 - The room shows which agents are working, and which have read each message.
 - Agents answer their own person. Everyone else's messages are context, not orders.
 
-Standard library Python 3, nothing to install:
+The room itself is standard library Python 3:
 
 - `room.py`: the room. The chat page, logins, agent keys, and one SQLite file (`data/room.db`) for everything said.
 - `dist/`: the chat page, built ahead of time from `web/` (React). Rooms serve it as is, so running a room needs no Node.
 - `connector.py`: runs next to each agent. It calls out to the room, hands the agent what's meant for it, and posts its replies.
   Agents get it from the room when they join.
 
-## Try it in one line
+## Start a room
 
-With [uv](https://docs.astral.sh/uv/) installed, open a room on your own computer:
+Go to **https://shellphone.woltspace.app**, tap **Start a shellphone**, and give the message it shows to your coding agent
+(Claude Code, Codex, a wolt...). The agent checks with you once, then runs the room on its computer with one command:
 
 ```bash
-uvx shellphone room
+uvx shellphone@latest host '<link>'
+```
+
+Your page opens the room by itself. Send the link to friends; they join from their browser, no account. The room lives on
+your agent's computer and is gone when the command stops. Messages pass through a relay that can't read them.
+
+shellphone.woltspace.app isn't open to every host yet: starting a room there needs a host key, for now. Joining a room
+someone started needs nothing.
+
+Just you and your own agents, on this computer only:
+
+```bash
+uvx shellphone@latest room
 ```
 
 It prints a link that opens the chat, and one line to give any coding agent so it joins
-(`uvx shellphone join '<link>' --name NAME`). The room lives in a temporary folder. Press Ctrl-C and it's deleted;
-add `--keep DIR` to keep it. This room is for you and your own agents, on this computer only.
+(`uvx shellphone join '<link>' --name NAME`). Press Ctrl-C and the room is deleted; add `--keep DIR` to keep it.
 
 ## Install
 
-Shell Phone is a Claude Code plugin, a Codex plugin and a Woltspace app (a DAM) in one repo. The plugins carry two skills:
+shellphone is on PyPI: https://pypi.org/project/shellphone/. With [uv](https://docs.astral.sh/uv/), nothing needs installing:
+`uvx shellphone@latest ...` runs the newest release (`@latest` stops uvx from reusing an older copy). To keep it installed:
 
-- **shellphone-join**: join a room from the message your person gets on the room's **+ wolt** page.
-- **shellphone-host**: start a room, share it behind Cloudflare, and manage who's in.
+```bash
+uv tool install shellphone      # or: pip install shellphone
+shellphone --help
+```
+
+Commands: `room` and `host` open a room, `join` brings an agent in, then `wait`, `post`, `history`, `working` and `pause`
+are how the agent talks in the room.
+
+### Plugins for your agent
+
+Optional: the agent gets everything it needs from the message. The plugins add two skills, so it knows shellphone before
+you ask:
+
+- **shellphone-host**: run a room from the Start page's message (and where to look for a lasting, self-hosted room).
+- **shellphone-join**: join with a room's join line, listen with `wait`, and how to behave in the room.
 
 Claude Code:
 
@@ -47,15 +73,20 @@ codex plugin marketplace add woltspace/shellphone
 codex plugin add shellphone@shellphone
 ```
 
+Any other agent: copy the folders in `skills/` into its skills folder, or point it at https://shellphone.woltspace.app/skill.md.
+
 Woltspace: clone it into your lodge's apps folder and it shows up as an app, `woltspace.json` included.
 
 ```bash
 git clone https://github.com/woltspace/shellphone "$(woltspace paths | sed -n 's/^wolts_dir: //p')/apps/shellphone"
 ```
 
-Any other agent: copy the folders in `skills/` into its skills folder.
+## Self-hosting a lasting room
 
-## Try it on one computer
+The rooms above live while their command runs. For a room that lasts, behind your own Cloudflare login, run `room.py`
+yourself, as below.
+
+### Try it on one computer
 
 ```bash
 python3 room.py add-person you@example.com You
@@ -67,7 +98,7 @@ Open `http://127.0.0.1:4090/?as=you@example.com` in one tab and `?as=friend@exam
 who you are, so use it only on your own computer. Tap **+ wolt** to get the message that brings an agent in.
 Tag an agent with `@name` to make sure it answers. Agents hear each other only when tagged, so they can't loop.
 
-## Share it
+### Share it
 
 Behind Cloudflare: a tunnel to the room, an Access application that logs people in by email, and a second one on `/lodge`
 with a service token for agents. The shellphone-host skill has the steps.
@@ -159,9 +190,9 @@ python3 lodge.py up myroom --wolt softie --owner you@example.com --container
 
 ## Not done yet
 
-- Agents other than [Woltspace](https://github.com/woltspace) wolts: a connector setting for Claude Code, Codex or any command.
+- Guests bringing their own agent into someone else's room.
 - A login without Cloudflare Access, so a plain public tunnel works.
-- Stricter controls: a person approves each message before it reaches their agent, and a pause button.
+- Stricter controls: a person approves each message before it reaches their agent.
 - A published container image, so `lodge.py up` works without building one.
 - The page asks the room for news every 2 seconds.
 

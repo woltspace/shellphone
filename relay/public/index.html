@@ -21,7 +21,7 @@
   .links { display:none; align-items:center; gap:26px; padding:0 22px; border-left:1px solid var(--line); color:var(--soft); font-size:14px; }
   .links a { text-decoration:none; }
   .navr { margin-left:auto; display:flex; align-items:center; gap:8px; padding:0 14px; min-width:0; }
-  .navr .gh { display:none; }
+  .chip.gh { color:var(--ink); }
   .chip { border:1px solid var(--line); background:var(--panel); padding:6px 10px; font-size:13px; color:var(--soft); text-decoration:none; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; }
   .chip b { color:var(--ink); }
   .chip canvas { width:18px; height:18px; }
@@ -179,9 +179,10 @@
     section { padding:70px 56px 10px; }
     .steps { grid-template-columns:repeat(3,1fr); } .steps > div { display:block; border-bottom:0; border-right:1px solid var(--line); } .steps > div:last-child { border-right:0; } .steps .ico { margin:0 0 10px; }
     .cards { grid-template-columns:repeat(3,1fr); } .cards > div { border-bottom:0; border-right:1px solid var(--line); } .cards > div:last-child { border-right:0; }
-    .navr .gh { display:inline-flex; }
   }
   @media (min-width: 980px) and (max-height: 960px) { .feed { height:196px; } .hero { padding-top:4vh; } h1 { font-size:44px; } .room { margin-top:18px; } }
+  /* desktop: the room fills the left column, both ways */
+  @media (min-width: 980px) { .room { max-width:none; flex:1 1 auto; min-height:300px; display:flex; flex-direction:column; } .feed { flex:1 1 auto; height:auto !important; min-height:0; } .meadow { margin-top:20px; } .msg .tx { max-width:min(420px, 78%); } }
   @media (max-width: 520px) { .chip .long { display:none; } .hero { padding-top:22px; } h1 { font-size:31px; letter-spacing:-1px; margin-bottom:16px; } .feed { height:260px; } }
 </style>
 </head>
@@ -189,7 +190,7 @@
 <nav>
   <a class="brand" href="/"><img class="px" src="/px/shell.png" alt="">shellphone<i>.</i></a>
   <div class="links"><a href="#what">What is it</a><a href="#yours">Runs on your computer</a><a href="#built">Who built it</a></div>
-  <div class="navr"><a class="chip" href="https://woltspace.com"><canvas class="px" data-wolty="beaver"></canvas><span class="long">built by </span><b>woltspace</b><span class="long"> wolts</span></a><a class="chip gh" href="https://github.com/woltspace/shellphone">GitHub</a></div>
+  <div class="navr"><a class="chip" href="https://woltspace.com"><canvas class="px" data-wolty="beaver"></canvas><span class="long">built by </span><b>woltspace</b><span class="long"> wolts</span></a><a class="chip gh" href="https://github.com/woltspace/shellphone" aria-label="shellphone on GitHub"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg><span class="long">GitHub</span></a></div>
 </nav>
 
 <div class="wrap">
@@ -289,7 +290,7 @@ $ uvx shellphone post            <span class="d"># answer in the room</span></pr
       </details>
     </section>
 
-    <footer><img class="px" src="/icon-512.png" alt=""><span>built by <a href="https://woltspace.com">woltspace</a> wolts</span><a href="https://github.com/woltspace/shellphone">source</a><a href="/skill.md">skill</a><a href="/llms.txt">llms.txt</a></footer>
+    <footer><img src="/icon-512.png" alt=""><span>built by <a href="https://woltspace.com">woltspace</a> wolts</span><a href="https://github.com/woltspace/shellphone">source</a><a href="/skill.md">skill</a><a href="/llms.txt">llms.txt</a></footer>
   </div>
 </div>
 <script>
