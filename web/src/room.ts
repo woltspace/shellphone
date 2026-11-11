@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { call, needsName, onRelayNews, relayRoom } from "./relay";
 
 export type Person = { email: string; name: string; color: string; guest?: boolean };  // guest: came in with the invite link, name not checked
-export type Wolt = { wolt: string; owner: string; creature: string; voice?: string | null };
+export type Wolt = { wolt: string; owner: string; creature: string; voice?: string | null; paused?: boolean };  // paused: the room hands it only what tags it by name
 export type FileInfo = { name: string; type: string; url: string; size: number };
 export type CardNode = { type: string; props?: Record<string, any>; children?: CardNode[] };
 export type Msg = {

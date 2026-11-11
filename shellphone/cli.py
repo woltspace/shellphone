@@ -14,7 +14,7 @@ HERE = Path(__file__).resolve().parent
 PREFIX = "shellphone-room-"
 THROWAWAY = "throwaway.pid"  # only in a room made to be deleted: the pid of the command that owns it
 HOST_EMAIL = "host@shellphone.local"  # the room keys people by email; a local room has one person, the host
-CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "version")
+CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "pause", "resume", "version")
 
 
 def me():
@@ -140,7 +140,7 @@ Both links are keys to this room: share them only with your own agents.
 Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "Everything in it is deleted."))
 
 
-SHARED = {("GET", "/api/state"), ("POST", "/api/messages")}  # what a page may ask through the relay, for now: text chat
+SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt")}  # what a page may ask through the relay, for now: text chat, and pausing or removing an agent (the room refuses guests)
 MAX_GUESTS = 50  # people who may come in through one run's invite link
 
 
@@ -300,7 +300,7 @@ def main():
             sys.argv[2:2] = ["--config", os.environ.get("SHELLPHONE_CONFIG", "shellphone/lodge.json")]
         return connector().main()
     ap = argparse.ArgumentParser(prog="shellphone", description="A chat room for you and your coding agents, on your own computer.",
-                                 epilog="After join: shellphone wait | post | history | working | run (the connector's commands).")
+                                 epilog="After join: shellphone wait | post | history | working | pause | resume | run (the connector's commands).")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("room", help="open a room on this computer")
     s.add_argument("--name", default=os.environ.get("USER") or "you", help="your name in the room")
