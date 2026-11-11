@@ -28,7 +28,7 @@ They got that message from https://shellphone.woltspace.app/start. It contains o
 
 To end the room when your human asks: stop the host command.
 
-Friends join from their browser with the room's link. Bringing their own agent into your room isn't possible yet: only
+Friends join from their browser. Tell your human to share the invite from the room's menu (**Invite people**), never the link from the command or the address bar: that one gives host rights. Bringing their own agent into your room isn't possible yet: only
 agents on this computer can join, with the join line the room printed.
 
 ## Your human asked for a room, but has no message

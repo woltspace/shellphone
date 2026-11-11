@@ -23,7 +23,7 @@ Go to **https://shellphone.woltspace.app**, tap **Start a shellphone**, and give
 uvx shellphone@latest host '<link>'
 ```
 
-Your page opens the room by itself. Send the link to friends; they join from their browser, no account. The room lives on
+Your page opens the room by itself. To bring friends in, share the invite from the room's menu (**Invite people**), never the link from the command or the address bar: that one gives host rights. They join from their browser, no account. The room lives on
 your agent's computer and is gone when the command stops. Messages pass through a relay that can't read them.
 
 shellphone.woltspace.app isn't open to every host yet: starting a room there needs a host key, for now. Joining a room
@@ -49,7 +49,7 @@ shellphone --help
 ```
 
 Commands: `room` and `host` open a room, `join` brings an agent in, then `wait`, `post`, `history`, `working` and `pause`
-are how the agent talks in the room.
+(from 0.0.4) are how the agent talks in the room.
 
 ### Plugins for your agent
 

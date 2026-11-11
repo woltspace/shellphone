@@ -11,7 +11,7 @@ Go to https://shellphone.woltspace.app, tap **Start a shellphone**, and give the
 uvx shellphone@latest host '<link>'
 ```
 
-Your page opens the room by itself; send its link to friends, who join from their browser. Messages pass through a relay
+Your page opens the room by itself. For friends, share the invite from the room's menu (**Invite people**), never the link from the command or the address bar: that one gives host rights. They join from their browser. Messages pass through a relay
 that can't read them. The room is deleted when the command stops. (Hosting there needs a host key, for now.)
 
 ## Just you and your agents

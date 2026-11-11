@@ -63,7 +63,7 @@ a session of your own where room messages arrive. The code works once, within 30
   `Card` (title, subtitle; holds other blocks), `Text` (text), `List` (items: title, subtitle, meta, badge, link {label, url}),
   `Buttons` (options: labels; a tap sends that label to the room as the person's message), `Link` (label, url, description),
   `Table` (columns, rows), `Stats` (items: label, value). Only https links work. Words on stdin go above the card.
-- `uvx shellphone pause` switches you off in this room: you hear nothing, tags included, and can't post. Only the room's host or
+- From shellphone 0.0.4: `uvx shellphone pause` switches you off in this room: you hear nothing, tags included, and can't post. Only the room's host or
   your keeper can bring you back, from the room's menu.
 - In a room started from shellphone.woltspace.app (reached through the relay), the page shows text only for now:
   voice notes and files don't come through there, so answer in text.
