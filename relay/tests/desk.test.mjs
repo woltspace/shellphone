@@ -15,7 +15,8 @@ const line = 'import { DurableObject } from "cloudflare:workers";';
 assert.ok(source.includes(line));
 const stand = `class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }
 class Response { constructor(body, init = {}) { this.body = body; this.status = init.status || 200; this.webSocket = init.webSocket; } }
-class WebSocketPair { constructor() { this[0] = globalThis.newSocket(); this[1] = globalThis.newSocket(); } }`;
+class WebSocketPair { constructor() { this[0] = globalThis.newSocket(); this[1] = globalThis.newSocket(); } }
+class WebSocketRequestResponsePair { constructor(request, response) { this.request = request; this.response = response; } }`;
 const file = join(mkdtempSync(join(tmpdir(), "relay-")), "index.mjs");
 writeFileSync(file, source.replace(line, stand));
 const { Desk, Room } = await import(pathToFileURL(file).href);
@@ -41,17 +42,22 @@ function newDesk(vars = {}) {
 function newRoom(name, desk, via = (d) => d) {
   const sockets = [], ctx = {
     id: { toString: () => name }, alarm: null,
-    getWebSockets: (tag) => sockets.filter((s) => s.sock.closed === null && (!tag || s.tag === tag)).map((s) => s.sock),
+    // a socket the room closed is gone from it, unless the test says its closing hasn't got through yet (lingers)
+    getWebSockets: (tag) => sockets.filter((s) => (s.sock.closed === null || s.sock.lingers) && (!tag || s.tag === tag)).map((s) => s.sock),
     acceptWebSocket(sock, [tag]) { sockets.push({ sock, tag }); },
     storage: { async setAlarm(at) { ctx.alarm = at; }, async deleteAlarm() { ctx.alarm = null; } },
+    setWebSocketAutoResponse(pair) { ctx.auto = pair; },
+    getWebSocketAutoResponseTimestamp: (sock) => (sock.pinged ? new Date(sock.pinged) : null),
   };
   const room = new Room(ctx, { BEAT_SECONDS: "10", DESK: { idFromName: () => "desk", get: () => via(desk) } });
-  const come = async (what) => {
-    const res = await room.fetch({ url: `https://relay.test/r/${name}/${what}` });
+  const come = async (what, claim) => {
+    const res = await room.fetch({ url: `https://relay.test/r/${name}/${what}`, headers: { get: (h) => (h === "X-Shellphone-Claim" && claim) || null } });
     return res.status === 101 ? sockets.at(-1).sock : res.status;
   };
+  const up = async () => JSON.parse((await room.fetch({ url: `https://relay.test/r/${name}/up` })).body).up;
+  const ping = (sock) => { sock.pinged = clock; };  // what Cloudflare notes when a socket says it's here: the room isn't woken
   const gone = (sock) => { sock.closed = 1006; return room.webSocketClose(sock, 1006); };  // the other end went away
-  return { room, ctx, host: () => come("host"), client: () => come("ws"), gone };
+  return { room, ctx, host: (claim) => come("host", claim), client: () => come("ws"), gone, up, ping };
 }
 
 test("a room that reports too late loses its place, and is told so", () => {
@@ -221,4 +227,90 @@ test("only one host at a time asks the desk for a room's place", async () => {
   let_in();
   assert.equal(typeof (await first), "object");
   assert.equal((await first).deserializeAttachment().gen, 1);
+});
+
+const MINE = "A".repeat(43), OTHER = "B".repeat(43);
+
+test("a host that died without a goodbye is replaced by its own room coming back, and by nobody else", async () => {
+  const desk = newDesk(), r = newRoom("a", desk);
+  const first = await r.host(MINE);
+  r.ping(first);
+  const page = await r.client();
+  assert.equal(await r.up(), true);
+  assert.equal(await r.host(MINE), 409);   // still saying it's here: nobody takes its place, not even itself
+  later(20_000); r.ping(first);
+  later(59_000);
+  assert.equal(await r.host(MINE), 409);   // 59 s of silence isn't gone yet
+  later(1_000);                            // a minute: the connection died and the relay was never told
+  assert.equal(await r.up(), false);       // so the room no longer shows as up
+  assert.equal(await r.client(), 404);     // and nobody is let in to talk to a dead socket
+  assert.equal(await r.host(OTHER), 409);  // another room's claim doesn't open this one
+  assert.equal(await r.host(), 409);       // nor does no claim at all
+  assert.equal(await r.host("short"), 409);
+  first.lingers = page.lingers = true;     // the dead connection's sockets stay listed for a while after they are closed
+  const second = await r.host(MINE);       // the room's own process, back on a new connection
+  assert.equal(typeof second, "object");
+  assert.equal(first.closed, 4409);
+  assert.equal(page.closed, 4404);         // its page starts over with the new connection
+  assert.equal(r.room.host(), second);
+  assert.deepEqual(r.room.clients(), []);
+  assert.equal(await r.up(), true);
+  assert.equal(desk.stats().open_rooms, 1);
+  // What the dead connection still does touches nothing of the new one's.
+  const mine = await r.client();
+  r.room.webSocketMessage(first, JSON.stringify({ to: "*", data: "late" }));
+  assert.deepEqual(mine.sent, []);
+  const told = second.sent.length;
+  await r.room.webSocketClose(page, 1006);  // the old page's closing isn't reported to the new host as someone leaving
+  assert.equal(second.sent.length, told);
+  await r.room.webSocketClose(first, 1006);
+  assert.equal(mine.closed, null);
+  assert.equal(second.closed, null);
+  assert.notEqual(r.ctx.alarm, null);
+  assert.equal(desk.stats().open_rooms, 1);
+  // And when the new host leaves in the ordinary way, the room has no host: the dead one, still listed, isn't it again.
+  await r.gone(second);
+  assert.equal(r.room.host(), undefined);
+  assert.equal(await r.up(), false);
+  assert.equal(desk.stats().open_rooms, 0);
+});
+
+test("a host from before claims is never judged and never replaced", async () => {
+  const desk = newDesk(), r = newRoom("a", desk);
+  const old = await r.host();              // no claim, and it never pings
+  later(10 * 60_000);
+  assert.equal(await r.up(), true);        // as it always was: listed is up
+  assert.equal(typeof await r.client(), "object");
+  assert.equal(await r.host(MINE), 409);   // and nobody can take its place, with any claim
+  assert.equal(await r.host(), 409);
+  assert.equal(old.closed, null);
+});
+
+test("a host with a claim that goes quiet is closed at the room's next report", async () => {
+  const desk = newDesk(), r = newRoom("a", desk);
+  const host = await r.host(MINE), page = await r.client();
+  later(61_000);
+  await r.room.alarm();
+  assert.equal(host.closed, 4429);
+  assert.equal(page.closed, 4404);
+});
+
+test("pages that went without a goodbye don't hold a place, and pages that never pinged aren't judged", async () => {
+  const desk = newDesk(), r = newRoom("a", desk);
+  const host = await r.host(MINE);
+  const keep = () => { r.ping(host); };
+  const silent = await r.client();         // an older page: it never says it's here, so it's left alone
+  const pages = [];
+  for (let i = 0; i < 9; i++) { const p = await r.client(); r.ping(p); pages.push(p); }
+  assert.equal(await r.client(), 429);     // ten are in: full
+  later(30_000); keep(); r.ping(pages[0]); // one page is still there; the other eight went quiet
+  later(31_000); keep();
+  const next = await r.client();
+  assert.equal(typeof next, "object");     // the quiet ones made room
+  assert.deepEqual(pages.map((p) => p.closed), [null, ...Array(8).fill(4408)]);
+  assert.equal(silent.closed, null);
+  assert.equal(host.sent.filter((f) => JSON.parse(f).leave).length, 8);  // and the host was told each one left
+  const before = host.sent.length;
+  await r.room.webSocketClose(pages[1], 1006);  // its closing, arriving late, isn't counted or told twice
+  assert.equal(host.sent.length, before);
 });
