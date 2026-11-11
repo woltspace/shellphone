@@ -23,7 +23,7 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
   // A room through the relay carries text only, for now. Its paperclip opens what's coming instead, and the relay counts
   // the taps (only which one: the paperclip, voice or files; no room, no name, no words) so we know what people want.
   const [soon, setSoon] = useState(false);
-  const tap = (what: "more" | "mic" | "file") => fetch(`/tap?what=${what}`, { method: "POST", keepalive: true }).catch(() => {});
+  const tap = (what: "more" | "mic" | "file") => fetch(`/tap?what=${what}`, { method: "POST", keepalive: true, referrerPolicy: "no-referrer", credentials: "omit" }).catch(() => {});
   const comingSoon = () => { if (!soon) tap("more"); setSoon(!soon); };
   const attach = (f: File[]) => {
     const room = MOST - files.length, took = f.slice(0, Math.max(0, room));
