@@ -20,7 +20,9 @@ MAX_FRAME = 60_000     # no sealed frame may be longer than this: the relay carr
 MAX_ANSWER = 4 * 1024 * 1024  # and an answer longer than this isn't sent at all
 FRAMES_PER_SECOND = 200       # how fast the host hands frames to the relay, across all clients (the relay allows a host 400)
 FULL_WAIT = 120        # seconds before asking a full relay again for a place
-TAKEN_WAIT = 60        # seconds a host that had its room up keeps asking a relay that now says the room has a host: that host is itself, not yet seen to be gone
+TAKEN_WAIT = 150       # seconds a host that had its room up keeps asking a relay that now says the room has a host: that host is itself, and the relay
+                       # only counts it gone after a minute without a ping (so: that minute, and time for a few more tries)
+PING, PING_EVERY = '{"ping":1}', 20  # "still here", said to the relay this often: a connection can die without either end being told
 MAX_BAD = 5            # frames that don't open or make no sense, before the client is turned away
 PER_SECOND = 20        # requests a client may make, on average
 BURST = 40
@@ -121,7 +123,7 @@ class HostPipe:
             return 500, {"error": "the room couldn't answer"}
 
 
-def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, wait=(1, 2, 4, 8, 15, 30), news=None):
+def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, wait=(1, 2, 4, 8, 15, 30), news=None, claim=None):
     """Keep one connection to the relay (the room's `host` socket at `url`) until `stop` is set, reconnecting when it drops.
 
     new_pipe() makes a HostPipe for each client the relay announces. on_state gets "up", "down", "full" (the
@@ -129,16 +131,27 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
     A room that was up and is then told "already has a host" keeps trying for TAKEN_WAIT seconds from the first such
     answer: the relay may not have noticed yet that the old connection is gone (it is cut without a goodbye when the
     relay is updated, and a computer that slept comes back to the same answer).
-    news is a threading.Event the room sets when something changed: every established client is then told, once."""
+    news is a threading.Event the room sets when something changed: every established client is then told, once.
+    claim is what proves to the relay that this room is ours (a hash only the host's link can make): with it, and
+    the pings below, the relay lets us back in when our old connection died without it being told."""
     if connect is None:
         from websockets.sync.client import connect  # only a shared room needs it
     tries, was_up, taken = 0, False, None  # taken: when a room that had been up was first told it has a host, until it is up again
     while not stop.is_set():
         try:
-            with connect(url, additional_headers={"Authorization": f"Bearer {key}"} if key else {}, open_timeout=15, max_size=256 * 1024) as ws:
+            headers = {**({"Authorization": f"Bearer {key}"} if key else {}), **({"X-Shellphone-Claim": claim} if claim else {})}
+            with connect(url, additional_headers=headers, open_timeout=15, max_size=256 * 1024) as ws:
                 tries, pipes, told, was_up, taken = 0, {}, 0.0, True, None
+                pinged = time.monotonic()
+
+                def ping():
+                    nonlocal pinged
+                    if time.monotonic() - pinged >= PING_EVERY:
+                        pinged = time.monotonic()
+                        ws.send(PING)
                 on_state("up")
                 while not stop.is_set():
+                    ping()
                     if news is not None and news.is_set() and time.monotonic() - told >= NEWS_EVERY:
                         news.clear()  # cleared before telling: a change made meanwhile sets it again and is told next
                         told = time.monotonic()
@@ -178,6 +191,7 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
                             ws.send(json.dumps({"to": cid, "data": frame}))
                             if len(out) > 1:  # a long answer: hand it over at a steady pace, well inside what the relay allows a host
                                 time.sleep(1 / FRAMES_PER_SECOND)
+                                ping()  # and keep saying we're here while it goes out
         except Exception as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status is None and not stop.is_set():  # why the connection went, for whoever reads the room's log later
