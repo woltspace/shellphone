@@ -340,6 +340,23 @@ function Offline({ missing, state }: { missing: boolean; state: PipeState }) {
   </div>;
 }
 
+// Until the room's first answer: say so, instead of an empty chat. A failed fetch keeps retrying by itself and says so, with a button.
+// (index.html shows the same words before the script has even loaded.)
+const WAVES = `<style>.w1{animation:sp-in 0.8s steps(1) infinite}.w2{animation:sp-out 0.8s steps(1) infinite}@keyframes sp-in{0%{opacity:.15}20%{opacity:1}85%{opacity:.15}}@keyframes sp-out{0%{opacity:.15}45%{opacity:1}85%{opacity:.15}}</style><rect x="58" y="78" width="74" height="46" fill="#f5f1e8"/><g class="w1" fill="#c4531e"><rect x="87" y="106" width="16" height="8"/><rect x="79" y="114" width="8" height="8"/><rect x="103" y="114" width="8" height="8"/></g><g class="w2" fill="#c4531e"><rect x="79" y="82" width="32" height="8"/><rect x="71" y="90" width="8" height="8"/><rect x="111" y="90" width="8" height="8"/><rect x="63" y="98" width="8" height="8"/><rect x="119" y="98" width="8" height="8"/></g>`;  // the icon's signal arcs, pulsing (same as index.html)
+function Opening({ problem }: { problem: string }) {
+  return <div className="absolute inset-0 z-[1650] bg-paper grid place-items-center px-8 text-center">
+    <div>
+      <div className="relative w-[120px] h-[120px] mx-auto mb-3">
+        <img src="/icon-512.png" alt="" className="w-full h-full [image-rendering:pixelated]" />
+        <svg viewBox="0 0 512 512" className="absolute inset-0 w-full h-full" dangerouslySetInnerHTML={{ __html: WAVES }} />
+      </div>
+      <div className="font-mono font-semibold text-acc text-lg mb-2">{problem ? "Can't reach the room" : "loading shellphone…"}</div>
+      {problem && <><p className="text-sm text-dim leading-snug mb-4">{problem}</p>
+        <button type="button" onClick={() => location.reload()} className="font-mono text-sm px-4 py-2 rounded-lg border border-acc text-acc bg-transparent cursor-pointer">Try again now</button></>}
+    </div>
+  </div>;
+}
+
 // Someone who came in with the invite link says who they are, once. The name isn't checked: the room marks them "guest".
 function NameFirst({ done }: { done: () => void }) {
   const [name, setName] = useState(""), [busy, setBusy] = useState(false), [problem, setProblem] = useState("");
@@ -360,6 +377,7 @@ function NameFirst({ done }: { done: () => void }) {
 export function App() {
   useFit();
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
+  const firstState = useRef(state), loading = state === firstState.current;  // nothing from the room yet
   const [naming, setNaming] = useState(needsName);  // an invite link: who are you, first
   const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
   useEffect(() => (relayRoom ? onRelayState(setLink) : undefined), []);
@@ -600,6 +618,7 @@ export function App() {
         {composer}
       </ThreadSheet>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} />
+      {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}
       {relayRoom && (relayKeyMissing || (link !== "open" && !(naming && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
