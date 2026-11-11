@@ -20,6 +20,7 @@ MAX_FRAME = 60_000     # no sealed frame may be longer than this: the relay carr
 MAX_ANSWER = 4 * 1024 * 1024  # and an answer longer than this isn't sent at all
 FRAMES_PER_SECOND = 200       # how fast the host hands frames to the relay, across all clients (the relay allows a host 400)
 FULL_WAIT = 120        # seconds before asking a full relay again for a place
+TAKEN_WAIT = 60        # seconds a host that lost its connection keeps asking a relay that says the room has a host: that host is itself, not yet seen to be gone
 MAX_BAD = 5            # frames that don't open or make no sense, before the client is turned away
 PER_SECOND = 20        # requests a client may make, on average
 BURST = 40
@@ -125,14 +126,17 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
 
     new_pipe() makes a HostPipe for each client the relay announces. on_state gets "up", "down", "full" (the
     relay has no place for this room for now: asked again every FULL_WAIT seconds) or "refused: ..." (and it stops).
+    A room that was up and is told "already has a host" just after its connection dropped keeps trying for TAKEN_WAIT
+    seconds: the relay may not have noticed yet that the old connection is gone (it is cut without a goodbye when the relay is updated).
     news is a threading.Event the room sets when something changed: every established client is then told, once."""
     if connect is None:
         from websockets.sync.client import connect  # only a shared room needs it
-    tries = 0
+    tries, lost = 0, None  # lost: when a connection that was up went away, until the next one is up
     while not stop.is_set():
+        was_up = False
         try:
             with connect(url, additional_headers={"Authorization": f"Bearer {key}"} if key else {}, open_timeout=15, max_size=256 * 1024) as ws:
-                tries, pipes, told = 0, {}, 0.0
+                tries, pipes, told, lost, was_up = 0, {}, 0.0, None, True
                 on_state("up")
                 while not stop.is_set():
                     if news is not None and news.is_set() and time.monotonic() - told >= NEWS_EVERY:
@@ -178,7 +182,10 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status is None and not stop.is_set():  # why the connection went, for whoever reads the room's log later
                 print(f"the relay connection ended: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
-            if status in (401, 409):  # not allowed to open rooms here, or this room already has a host: trying again won't help
+            if was_up and lost is None:
+                lost = time.monotonic()
+            taken_by_us = status == 409 and lost is not None and time.monotonic() - lost < TAKEN_WAIT
+            if status in (401, 409) and not taken_by_us:  # not allowed to open rooms here, or this room already has a host: trying again won't help
                 on_state(f"refused: {'this relay is not open to new rooms yet' if status == 401 else 'this room already has a host'}")
                 return
             if status == 429:  # the relay is carrying all the rooms it may: a place comes free when one closes

@@ -202,6 +202,54 @@ class HostSide(unittest.TestCase):
             states, waits, knocks = turned_away(status)
             self.assertEqual((states[0][:8], waits, knocks), ("refused:", [], 1))  # not allowed, or already hosted: once is enough
 
+    def test_a_host_that_lost_its_connection_keeps_asking_while_the_relay_still_sees_the_old_one(self):
+        class Taken(Exception):
+            response = type("R", (), {"status_code": 409})
+
+        class Cut:  # a connection that opens, then is cut without a goodbye, as when the relay is updated
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def recv(self, timeout=None): raise ConnectionError("cut")
+
+        def run(answers, seconds_per_wait, stop_at=None):
+            states, waits, clock = [], [], [0.0]
+
+            class Stop:
+                def is_set(self): return False
+                def wait(self, seconds):
+                    waits.append(seconds)
+                    clock[0] += seconds_per_wait
+                    return len(waits) == stop_at
+
+            def connect(*a, **k):
+                if not answers:
+                    raise KeyboardInterrupt  # the script ran out: end the test here
+                answer = answers.pop(0)
+                if answer == "taken":
+                    raise Taken()
+                return Cut()
+            real = pipe.time.monotonic
+            pipe.time.monotonic = lambda: clock[0]
+            try:
+                pipe.serve("ws://relay.test/r/x/host", "", lambda: None, Stop(), on_state=states.append, connect=connect)
+            except KeyboardInterrupt:
+                pass
+            finally:
+                pipe.time.monotonic = real
+            return states, waits
+        # Up, cut, then "taken" twice before the relay lets it back in: the room comes up again.
+        states, waits = run(["up", "taken", "taken", "up"], 1)
+        self.assertEqual(states[:5], ["up", "down", "down", "down", "up"])
+        self.assertFalse([s for s in states if s.startswith("refused")])
+        # Still "taken" a minute after the cut: someone else does host this room, and it stops.
+        states, waits = run(["up"] + ["taken"] * 50, 20)
+        self.assertEqual(states[-1][:8], "refused:")
+        self.assertEqual(waits, [1, 2, 4])  # paced, and the minute runs from the cut, not from each try: each wait takes 20 s here, so the third "taken" comes at the minute and is the last
+        # Stopped while it waits to ask again: it ends there, quietly.
+        states, waits = run(["up"] + ["taken"] * 50, 1, stop_at=3)
+        self.assertEqual((states[-1], len(waits)), ("down", 3))
+        self.assertFalse([s for s in states if s.startswith("refused")])
+
     def test_an_answer_too_long_to_send_is_refused_plainly(self):
         c = Client(self.make(lambda *_: (200, {"blob": "x" * (pipe.MAX_ANSWER + 1)})))
         self.assertEqual(c.ask(), {"t": "res", "id": 1, "status": 502, "body": {"error": "too much to send at once"}})
