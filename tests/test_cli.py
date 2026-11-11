@@ -116,7 +116,7 @@ class FrontDoor(unittest.TestCase):
         texts = [(m["kind"], m.get("text")) for m in r.state()["messages"] if m["kind"] in ("human", "wolt")]
         self.assertEqual(texts, [("human", "@helper are you there?"), ("wolt", "here")])
 
-    def test_a_paused_agent_hears_only_its_name_and_a_removed_one_is_out(self):
+    def test_a_paused_agent_is_off_and_a_removed_one_is_out(self):
         r = self.room()
         work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
         work.mkdir(), other.mkdir()
@@ -140,10 +140,24 @@ class FrontDoor(unittest.TestCase):
         self.assertNotIn("weather", quiet.stdout)
         self.assertFalse(r.state()["working"])  # and the room doesn't show it working on it
         page("/api/messages", {"text": "@helper one thing for you"})
-        heard = run("wait", "--timeout", "5", cwd=work)
-        self.assertIn("@helper one thing for you", heard.stdout)  # its name still gets through
-        self.assertNotIn("weather", heard.stdout)  # and what it missed isn't handed over with it
-        self.assertEqual(paused()["helper"], True)  # hearing its name didn't bring it back
+        page("/api/messages", {"text": "helper, your own human says your name"})
+        deaf = run("wait", "--timeout", "2", cwd=work)
+        self.assertIn("No new messages", deaf.stdout)  # paused is off: a tag or its name doesn't get through either
+        self.assertNotIn("one thing for you", deaf.stdout + deaf.stderr)
+        self.assertFalse(r.state()["working"])  # and a tag doesn't light it up
+        def agent(folder, path, body=None):
+            key = json.loads((folder / "shellphone" / "lodge.json").read_text())["key"]
+            try:
+                return urllib.request.urlopen(urllib.request.Request(r.url + path, data=None if body is None else json.dumps(body).encode(), headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})).status
+            except urllib.error.HTTPError as e:
+                return e.code
+        said = len(r.state()["messages"])
+        self.assertEqual(agent(work, "/lodge/messages", {"text": "still here"}), 403)  # it can't post,
+        self.assertEqual(agent(work, "/lodge/history"), 403)  # read back,
+        self.assertEqual(agent(work, "/lodge/working", {"working": True}), 403)  # show itself working,
+        self.assertEqual(agent(work, "/lodge/state", {"paused": False}), 403)  # or bring itself back
+        self.assertEqual(len(r.state()["messages"]), said)
+        self.assertEqual(paused()["helper"], True)
 
         # An agent can bring another back, and pause itself, but not pause another.
         self.assertIn("helper hears the room again", run("resume", "helper", cwd=other).stdout)
@@ -152,17 +166,15 @@ class FrontDoor(unittest.TestCase):
         again = run("wait", "--timeout", "5", cwd=work)
         self.assertIn("back to everyone now", again.stdout)
         self.assertNotIn("weather", again.stdout)  # nothing piled up while it was paused
-        self.assertIn("second is paused", run("pause", cwd=other).stdout)
-        self.assertEqual(paused(), {"helper": False, "second": True})
-        key = json.loads((other / "shellphone" / "lodge.json").read_text())["key"]
-        def as_agent(body):
-            try:
-                return urllib.request.urlopen(urllib.request.Request(r.url + "/lodge/state", data=json.dumps(body).encode(), headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})).status
-            except urllib.error.HTTPError as e:
-                return e.code
+        self.assertNotIn("one thing for you", again.stdout)
+        as_agent = lambda body: agent(other, "/lodge/state", body)
         self.assertEqual(as_agent({"wolt": "helper", "paused": True}), 403)
         self.assertEqual(as_agent({"wolt": "nobody", "paused": False}), 404)
         self.assertEqual(as_agent({"wolt": "helper"}), 400)
+        self.assertIn("second is paused", run("pause", cwd=other).stdout)
+        self.assertEqual(paused(), {"helper": False, "second": True})
+        self.assertNotEqual(run("resume", cwd=other).returncode, 0)  # having paused itself, it stays off until someone else brings it back
+        self.assertEqual(paused()["second"], True)
 
         # Removed: off the list, and its key is dead at once.
         self.assertEqual(page("/api/wolt", {"wolt": "second", "state": "removed"}), {"wolt": "second", "removed": True})

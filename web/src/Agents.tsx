@@ -1,5 +1,5 @@
-// The agents in this room, in the ☰ menu: each one is on or paused, and can be removed. Paused, the room hands it only
-// what tags it by name, so it costs nothing while it isn't needed. The switches show where you may use them: on every
+// The agents in this room, in the ☰ menu: each one is on or paused, and can be removed. Paused, it is off: the room hands
+// it nothing, a tag included, and it can't post, so it costs nothing. The switches show where you may use them: on every
 // agent for the room's host, on your own agents otherwise. Everyone sees the list.
 import { useState } from "react";
 import { Pause, Play, X } from "lucide-react";
@@ -30,7 +30,7 @@ export function Agents({ wolts, people, me, host, sec }: { wolts: Wolt[]; people
         <img src={woltAvatar(w.creature || "raccoon", owner?.color || "#8a6a52")} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />
         <span className="flex-1 min-w-0">
           <span className={`block truncate font-mono text-sm ${w.paused ? "text-dim" : "text-ink"}`}>{w.wolt}</span>
-          <small className="block text-xs text-dim">{w.paused ? "paused · tag it to reach it" : `${owner?.name || w.owner}'s`}</small>
+          <small className="block text-xs text-dim">{w.paused ? "paused · hears nothing" : `${owner?.name || w.owner}'s`}</small>
         </span>
         {may(w) && (asking === w.wolt
           ? <>
