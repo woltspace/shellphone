@@ -50,7 +50,7 @@
   <div class="empty" id="empty" hidden>No rooms on this device yet. A room you open here shows up on its own.</div>
   <label for="link">Add a room by its link</label>
   <div class="row"><input id="link" placeholder="https://…" autocomplete="off" spellcheck="false"><button id="go" style="flex:none">Add</button></div>
-  <p class="small" style="margin-top:14px">This list lives in this browser only: nothing about it is sent to us. A green dot means the room is up right now (shown for rooms that run through shellphone.woltspace.app).</p>
+  <p class="small" style="margin-top:14px">This list lives in this browser only: its names and links aren't sent anywhere. A green dot means the room is up right now: for rooms that run through shellphone.woltspace.app, this page asks the relay about each one by its id.</p>
 </main>
 <script>
 // Two kinds of rooms. Rooms through this relay (/r/<id>) are listed by the room page itself when you open one
@@ -63,7 +63,11 @@ const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } ca
 const ID = /^[A-Za-z0-9_-]{22}$/;
 const ago = (t) => { if (!t) return ""; const m = Math.round((Date.now() - t) / 60000);
   return m < 1 ? "open just now" : m < 60 ? `open ${m} min ago` : m < 1440 ? `open ${Math.round(m / 60)} h ago` : `open ${Math.round(m / 1440)} d ago`; };
-const web = (u) => { try { const x = new URL(u); return x.protocol === "https:" || x.hostname === "127.0.0.1" || x.hostname === "localhost" ? x : null; } catch { return null; } };
+// a room's address: https, or http on this computer only. Anything else (javascript:, data:, a user:password@) is refused,
+// when it's added and again before it becomes a link
+const web = (u) => { try { const x = new URL(u);
+  const ok = x.protocol === "https:" || (x.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(x.hostname));
+  return ok && !x.username && !x.password ? x : null; } catch { return null; } };
 
 function rooms() {
   const seen = read("sp-rooms", {}), out = [];
@@ -75,7 +79,7 @@ function rooms() {
     if (!has) continue;  // without its key the room can't be opened from here
     out.push({ relay: id, name: seen[id]?.title || "Room " + id.slice(0, 6), url: "/r/" + id, at: seen[id]?.at || 0 });
   }
-  for (const l of read("sp-links", [])) out.push({ name: l.name, url: l.url, at: l.at || 0 });
+  for (const l of read("sp-links", [])) { const u = l && typeof l.name === "string" && web(l.url); if (u) out.push({ name: l.name, url: u.href, at: l.at || 0 }); }
   return out.sort((a, b) => b.at - a.at || a.name.localeCompare(b.name));
 }
 
