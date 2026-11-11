@@ -39,7 +39,7 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
   const deaf = wolts.filter((w) => w.paused && new RegExp(`(?:^|\\s)@${w.wolt.replace(/[-]/g, "\\-")}(?![\\w-])`, "i").test(text)).map((w) => w.wolt);
   const all = awake.map((w) => "@" + w.wolt).join(" ");
   const mine = awake.filter((w) => w.owner === me).map((w) => "@" + w.wolt), others = awake.filter((w) => w.owner !== me).map((w) => "@" + w.wolt);
-  const slash = text.startsWith("/") && !text.includes(" ") ? [
+  const slash = awake.length && text.startsWith("/") && !text.includes(" ") ? [
     { tag: "status", text: `${all} what are you each working on right now?` },
     { tag: "review", text: `${others[0] || all} please review ` },
     { tag: "summary", text: `${mine[0] || all} sum up what this room decided so far` },
