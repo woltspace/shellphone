@@ -53,34 +53,122 @@ function Gnaw({ ctx, working, away = {} }: { ctx: Ctx; working: Record<string, u
 
 // Pictures full screen, like WhatsApp: swipe left and right through the ones sent together ("2 / 3" up top).
 // Always a way out: the ✕ (dark, so it shows on any picture), a tap, a swipe down, or Escape. A double tap zooms in.
+type Zoomer = { toggle: (x: number, y: number) => void; reset: () => void };
+
+// One picture you can pinch, pan and double-tap, like any picture on the web. The page itself never zooms (the room
+// would jump around), so the viewer does it: two fingers zoom around where they are, one finger moves a zoomed picture.
+function Zoomable({ src, bind, onZoom }: { src: string; bind: (z: Zoomer | null) => void; onZoom: (on: boolean) => void }) {
+  const box = useRef<HTMLDivElement>(null), img = useRef<HTMLImageElement>(null);
+  const s = useRef({ k: 1, x: 0, y: 0 });
+  const g = useRef<{ d: number; k: number; mx: number; my: number; x: number; y: number } | null>(null);
+  const last = useRef<{ x: number; y: number } | null>(null);
+  const said = useRef(onZoom); said.current = onZoom;
+  const center = () => { const r = box.current!.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, W: r.width, H: r.height }; };
+  const draw = (anim = false) => {
+    const el = img.current; if (!el) return;
+    el.style.transition = anim ? "transform .22s cubic-bezier(.2,.8,.2,1)" : "none";
+    el.style.transform = `translate(${s.current.x}px, ${s.current.y}px) scale(${s.current.k})`;
+    said.current(s.current.k > 1.02);
+  };
+  // zoom to k around the screen point (fx, fy), keeping what's under it in place
+  const zoomAt = (k: number, fx: number, fy: number, from = s.current) => {
+    const { cx, cy } = center(); k = Math.min(6, Math.max(1, k));
+    const ux = (fx - cx - from.x) / from.k, uy = (fy - cy - from.y) / from.k;
+    s.current = { k, x: fx - cx - k * ux, y: fy - cy - k * uy };
+  };
+  // a zoomed picture can't be pushed off screen; back at 1x it sits in the middle again
+  const settle = () => {
+    const el = img.current; if (!el) return;
+    const { W, H } = center(), { k } = s.current;
+    if (k < 1.05) { s.current = { k: 1, x: 0, y: 0 }; return draw(true); }
+    const mx = Math.max(0, (el.offsetWidth * k - W) / 2), my = Math.max(0, (el.offsetHeight * k - H) / 2);
+    s.current.x = Math.max(-mx, Math.min(mx, s.current.x)); s.current.y = Math.max(-my, Math.min(my, s.current.y));
+    draw(true);
+  };
+  useEffect(() => {
+    bind({
+      toggle: (x, y) => { if (s.current.k > 1.02) s.current = { k: 1, x: 0, y: 0 }; else zoomAt(2.5, x, y); settle(); },
+      reset: () => { s.current = { k: 1, x: 0, y: 0 }; draw(); },
+    });
+    return () => bind(null);
+  }, []);
+  useEffect(() => {
+    const el = box.current!;
+    const pts = (e: TouchEvent) => [...e.touches].map((t) => ({ x: t.clientX, y: t.clientY }));
+    const start = (e: TouchEvent) => {
+      const p = pts(e);
+      if (p.length === 2) { e.preventDefault(); g.current = { d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y), k: s.current.k, mx: (p[0].x + p[1].x) / 2, my: (p[0].y + p[1].y) / 2, x: s.current.x, y: s.current.y }; }
+      last.current = p.length === 1 ? p[0] : null;
+    };
+    const move = (e: TouchEvent) => {
+      const p = pts(e);
+      if (p.length === 2 && g.current) {
+        e.preventDefault();
+        const G = g.current, d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y), mx = (p[0].x + p[1].x) / 2, my = (p[0].y + p[1].y) / 2;
+        zoomAt(G.k * d / G.d, G.mx, G.my, { k: G.k, x: G.x, y: G.y });
+        s.current.x += mx - G.mx; s.current.y += my - G.my;  // the fingers carry the picture as they go
+        draw();
+      } else if (p.length === 1 && s.current.k > 1.02 && last.current) {
+        e.preventDefault();  // zoomed in: one finger moves the picture, not the carousel
+        s.current.x += p[0].x - last.current.x; s.current.y += p[0].y - last.current.y; last.current = p[0];
+        draw();
+      }
+    };
+    const end = (e: TouchEvent) => {
+      if (e.touches.length < 2) g.current = null;
+      last.current = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+      if (!e.touches.length) settle();
+    };
+    // a trackpad pinch arrives as a wheel with ctrl held; a plain wheel moves a zoomed picture
+    const wheel = (e: WheelEvent) => {
+      if (e.ctrlKey) { e.preventDefault(); zoomAt(s.current.k * Math.exp(-e.deltaY / 100), e.clientX, e.clientY); draw(); clearTimeout(wt); wt = window.setTimeout(settle, 150); }
+      else if (s.current.k > 1.02) { e.preventDefault(); s.current.x -= e.deltaX; s.current.y -= e.deltaY; draw(); clearTimeout(wt); wt = window.setTimeout(settle, 150); }
+    };
+    let wt = 0;
+    const no = (e: Event) => e.preventDefault();  // Safari's own page pinch
+    el.addEventListener("touchstart", start, { passive: false }); el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end); el.addEventListener("touchcancel", end); el.addEventListener("wheel", wheel, { passive: false });
+    el.addEventListener("gesturestart", no); el.addEventListener("gesturechange", no);
+    return () => {
+      el.removeEventListener("touchstart", start); el.removeEventListener("touchmove", move); el.removeEventListener("touchend", end);
+      el.removeEventListener("touchcancel", end); el.removeEventListener("wheel", wheel); el.removeEventListener("gesturestart", no); el.removeEventListener("gesturechange", no);
+    };
+  }, []);
+  return <div ref={box} className="flex-none w-full h-full grid place-items-center snap-center snap-always overflow-hidden">
+    <img ref={img} src={src} alt="" draggable={false} className="max-w-[94vw] max-h-[86dvh] object-contain rounded-md will-change-transform select-none" style={{ transformOrigin: "50% 50%" }} /></div>;
+}
+
 function Viewer({ urls, at, close }: { urls: string[]; at: number; close: () => void }) {
-  const [big, setBig] = useState(false), [i, setI] = useState(at);
-  const strip = useRef<HTMLDivElement>(null), tap = useRef(0), from = useRef<{ x: number; y: number } | null>(null);
+  const [zoomed, setZoomed] = useState(false), [i, setI] = useState(at);
+  const strip = useRef<HTMLDivElement>(null), tap = useRef(0), lastTap = useRef(0), from = useRef<{ x: number; y: number } | null>(null);
+  const zoomers = useRef<Record<number, Zoomer | null>>({});
   const go = (to: number) => { const s = strip.current; if (s) s.scrollTo({ left: Math.max(0, Math.min(urls.length - 1, to)) * s.clientWidth, behavior: "smooth" }); };
-  useLayoutEffect(() => { const s = strip.current; if (s) s.scrollLeft = i * s.clientWidth; }, [big]);  // opening, and back from zoom, on the same picture
+  useLayoutEffect(() => { const s = strip.current; if (s) s.scrollLeft = i * s.clientWidth; }, []);  // opens on the picture you tapped
+  useEffect(() => { for (const [j, z] of Object.entries(zoomers.current)) if (+j !== i) z?.reset(); }, [i]);  // the others back to 1x
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") close(); if (e.key === "ArrowRight") go(i + 1); if (e.key === "ArrowLeft") go(i - 1); };
     addEventListener("keydown", key); return () => removeEventListener("keydown", key);
   }, [i]);
   const btn = "fixed w-11 h-11 grid place-items-center rounded-full bg-[#000c] border-2 border-white text-white text-xl cursor-pointer shadow-[0_2px_8px_#0008]";
   return <div className="fixed inset-0 z-[3000] bg-[#000e]"
-    onClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; clearTimeout(tap.current); if (!big) tap.current = window.setTimeout(close, 260); }}
-    onDoubleClick={() => { clearTimeout(tap.current); setBig(!big); }}
+    // one tap closes (unless zoomed in), two quick taps zoom in where you tapped, or back out
+    onClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; clearTimeout(tap.current);
+      if (Date.now() - lastTap.current < 300) { lastTap.current = 0; zoomers.current[i]?.toggle(e.clientX, e.clientY); return; }
+      lastTap.current = Date.now(); if (!zoomed) tap.current = window.setTimeout(close, 300); }}
     onTouchStart={(e) => { from.current = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }}
     onTouchEnd={(e) => { const f = from.current, t = e.changedTouches[0]; from.current = null;
-      if (f && !big && t.clientY - f.y > 80 && Math.abs(t.clientX - f.x) < 60) close(); }}>
-    {big ? <div className="w-full h-full overflow-auto grid place-items-center"><img src={urls[i]} alt="" className="max-w-none w-[250vw]" /></div>
-      : <div ref={strip} onScroll={(e) => setI(Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth))}
-          className="w-full h-full flex overflow-x-auto snap-x snap-mandatory overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {urls.map((u) => <div key={u} className="flex-none w-full h-full grid place-items-center snap-center snap-always">
-            <img src={u} alt="" draggable={false} className="max-w-[94vw] max-h-[86dvh] object-contain rounded-md" /></div>)}
-        </div>}
+      if (f && !zoomed && t.clientY - f.y > 80 && Math.abs(t.clientX - f.x) < 60) close(); }}>
+    <div ref={strip} onScroll={(e) => setI(Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth))}
+      className={`w-full h-full flex ${zoomed ? "overflow-hidden" : "overflow-x-auto"} snap-x snap-mandatory overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}
+      style={{ touchAction: zoomed ? "none" : "pan-x" }}>
+      {urls.map((u, j) => <Zoomable key={u} src={u} bind={(z) => { zoomers.current[j] = z; }} onZoom={setZoomed} />)}
+    </div>
     {urls.length > 1 && <>
       <div className="fixed top-[calc(22px+env(safe-area-inset-top))] left-0 right-0 text-center font-mono text-sm text-white pointer-events-none">{i + 1} / {urls.length}</div>
       <div className="fixed bottom-[calc(18px+env(safe-area-inset-bottom))] left-0 right-0 flex justify-center gap-1.5 pointer-events-none">
         {urls.map((u, j) => <i key={u} className={`w-1.5 h-1.5 rounded-full ${j === i ? "bg-white" : "bg-[#fff6]"}`} />)}</div>
-      {!big && i > 0 && <button type="button" aria-label="Previous" onClick={() => go(i - 1)} className={btn + " left-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>‹</button>}
-      {!big && i < urls.length - 1 && <button type="button" aria-label="Next" onClick={() => go(i + 1)} className={btn + " right-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>›</button>}
+      {!zoomed && i > 0 && <button type="button" aria-label="Previous" onClick={() => go(i - 1)} className={btn + " left-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>‹</button>}
+      {!zoomed && i < urls.length - 1 && <button type="button" aria-label="Next" onClick={() => go(i + 1)} className={btn + " right-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>›</button>}
     </>}
     <button type="button" aria-label="Close" onClick={close} className={btn + " top-[calc(12px+env(safe-area-inset-top))] right-3"}>✕</button>
   </div>;
