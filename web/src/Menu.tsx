@@ -1,16 +1,11 @@
-// The ☰ menu: this room, its settings, and a way to all your rooms. It slides in from the left, like Slack's.
+// The ☰ menu: this room and its settings. It slides in from the left, like Slack's.
 import { useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronRight, MessagesSquare, Shell, Squirrel, UserPlus } from "lucide-react";
+import { Bell, BellOff, BellRing, Check, ChevronRight, MessagesSquare, Squirrel, UserPlus } from "lucide-react";
 import { inviteLink, relayHost, relayRoom } from "./relay";
 import { Agents } from "./Agents";
 import type { Person, Wolt } from "./room";
 
 const row = "flex items-center gap-3 w-full px-4 py-2.5 border-0 bg-transparent text-left text-[15px] text-ink no-underline cursor-pointer active:bg-panel";
-// "My rooms" lives on the relay's site. A room there is listed already; a room served from its own address (a lodge's)
-// can't be seen from there, so its link carries this room's name and address (no key) for the list to offer to add.
-const ROOMS = "https://shellphone.woltspace.app/rooms";
-const myRooms = (title: string) => relayRoom ? "/rooms"
-  : ROOMS + "#add=" + btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify([[title, location.origin + "/"]])))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const sec = "px-4 pt-4 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 
 export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts, people, push, freshCount, onThreads }: {
@@ -32,7 +27,6 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
           <span className="flex-1 min-w-0 truncate font-mono font-semibold text-sm"><span className="text-dim font-normal">~/</span>{title}</span>
           <Check size={20} className="text-acc" />
         </button>
-        <a href={myRooms(title)} className={row}><Shell size={20} className="text-acc" /><span className="flex-1">All your rooms<small className="block text-xs text-dim">{relayRoom ? "Every room on this device" : "Add this room to your list"}</small></span><ChevronRight size={20} className="text-acc" /></a>
         <div className={sec}>This room</div>
         {!relayRoom && <button type="button" onClick={push.state === "ask" ? push.turnOn : undefined} className={row}>
           {push.state === "on" ? <BellRing size={20} className="text-acc" /> : push.state === "ask" ? <Bell size={20} className="text-acc" /> : <BellOff size={20} className="text-dim" />}

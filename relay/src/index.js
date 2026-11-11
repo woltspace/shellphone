@@ -31,7 +31,7 @@ const TAPS_PER_DAY = 5000;      // of each, at the most: past that a day's taps 
 const TAPS_PER_SECOND = 20;     // and this many a second is all one copy of the Worker passes on to the desk
 let tapped = { at: 0, n: 0 };
 const LIVE_FOR = 30;  // seconds the public count of live rooms is kept before the desk is asked again
-const PAGES = { "/": "/index.html", "/start": "/start.html", "/rooms": "/rooms.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
+const PAGES = { "/": "/index.html", "/start": "/start.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
 
 function same(a, b) {  // compare without leaking where two strings differ
   const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
