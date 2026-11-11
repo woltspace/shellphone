@@ -382,7 +382,9 @@ export class Room extends DurableObject {
       const said = this.untold(ws);  // counted while the clients are still here
       // Everything of this room's is put away before anything is awaited: once this waits for the desk, the room's
       // next host may already be coming in, and nothing below may touch what is theirs.
-      const next = who.gone || this.ctx.getWebSockets("host").some((h) => h !== ws && h.deserializeAttachment().gen !== who.gen);
+      // (the next host is one let in after this one: a socket this room put out earlier, still listed, is not it)
+      const now = this.host();
+      const next = who.gone || (!!now && now !== ws && now.deserializeAttachment().gen > who.gen);
       if (!next) {
         for (const c of this.clients()) c.close(4404, "room is offline");
         await this.ctx.storage.deleteAlarm();  // nothing else runs in this room during a storage call

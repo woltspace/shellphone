@@ -270,6 +270,8 @@ test("a host that died without a goodbye is replaced by its own room coming back
   assert.equal(desk.stats().open_rooms, 1);
   // And when the new host leaves in the ordinary way, the room has no host: the dead one, still listed, isn't it again.
   await r.gone(second);
+  assert.equal(mine.closed, 4404);         // its pages are told the room is offline
+  assert.equal(r.ctx.alarm, null);         // and it stops reporting
   assert.equal(r.room.host(), undefined);
   assert.equal(await r.up(), false);
   assert.equal(desk.stats().open_rooms, 0);
