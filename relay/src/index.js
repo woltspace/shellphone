@@ -9,6 +9,8 @@
 //   relay  -> host    {"from": cid, "data": "..."}   also {"join": cid} and {"leave": cid}
 //   host   -> relay   {"to": cid | "*", "data": "..."}   also {"drop": cid}
 //   relay  -> client  {"data": "..."}
+//   either -> relay   {"ping":1}, answered {"pong":1}: "I'm still here". Cloudflare answers it without waking the room
+//                     (so it adds no running time) and keeps when each socket last asked. See Room.quiet.
 //
 // Sockets use the hibernation API: an idle room costs nothing and its sockets survive the object being put to sleep.
 import { DurableObject } from "cloudflare:workers";
@@ -19,8 +21,15 @@ const number = (text, otherwise) => (/^\d+$/.test(text || "") ? Number(text) : o
 const beat = (env) => number(env.BEAT_SECONDS, 30 * 60) * 1000;  // an open room tells the desk so this often, with its counts
 const stale = (env) => 3 * beat(env);  // a room the desk hasn't heard from for this long has gone without saying: its place is free
 const REOPEN = 10 * 60 * 1000;         // a host back within this long is the same room coming back, not a new one
+const quietFor = (env) => number(env.QUIET_SECONDS, 60) * 1000;  // a socket that says it's here every 20 s, and hasn't for this long, has gone without a goodbye
+const PING = '{"ping":1}', PONG = '{"pong":1}';
+const CLAIM = /^[A-Za-z0-9_-]{43}$/;   // what a host shows to prove a room is its own: a hash only the host's link can make (see Room.fetch)
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
+const TAPS = ["more", "mic", "file"];  // "more" is the paperclip that opens the list; "mic" and "file" are its "coming soon" lines. A tap on one is counted, to learn what people want
+const TAPS_PER_DAY = 5000;      // of each, at the most: past that a day's taps aren't counted (or written) any more
+const TAPS_PER_SECOND = 20;     // and this many a second is all one copy of the Worker passes on to the desk
+let tapped = { at: 0, n: 0 };
 const LIVE_FOR = 30;  // seconds the public count of live rooms is kept before the desk is asked again
 const PAGES = { "/": "/index.html", "/start": "/start.html" };  // everything else that's a file (scripts, icons, skill.md) is served as it is
 
@@ -53,6 +62,17 @@ export default {
       }
       return answer;
     }
+    if (url.pathname === "/tap") {
+      // A tap on something that isn't built yet. All we record is which thing: no room, no person, no words.
+      // (The request itself still has what any request has, an address and headers; none of it is kept. And a
+      // count is only a count: anyone can send a tap, so it shows interest, not people.)
+      const what = url.searchParams.get("what");
+      if (request.method !== "POST" || !TAPS.includes(what)) return new Response("not found", { status: 404 });
+      const now = Math.floor(Date.now() / 1000);
+      tapped = tapped.at === now ? { at: now, n: tapped.n + 1 } : { at: now, n: 1 };
+      if (tapped.n <= TAPS_PER_SECOND) ctx.waitUntil(desk(env).tap(what).catch(() => {}));  // a flood is answered the same, and not counted
+      return new Response(null, { status: 204 });
+    }
     if (url.pathname === "/stats") {  // the relay's counts, for whoever holds the host key
       if (!env.HOST_KEY || !same(request.headers.get("Authorization") || "", "Bearer " + env.HOST_KEY)) return new Response("not found", { status: 404 });
       return json(200, await desk(env).stats());
@@ -81,6 +101,7 @@ const desk = (env) => env.DESK.get(env.DESK.idFromName("desk"));
 //   frames         sealed frames that came in, from either side: several per request, so this is not chat messages
 //                  (one thrown away for coming too fast is counted too: it is what the relay had to handle)
 //   refused        hosts turned away because the relay was full, or had opened all the rooms it may that day
+//   taps (more, mic, file)   taps on the paperclip and its "coming soon" lines in a room's page: taps, not people, not tied to any room
 //
 // A place is a lease. Every admission of a host gets a number (gen) that is never given twice, whatever the desk
 // has forgotten since, and an open room must report in time to keep its place: one that didn't is forgotten
@@ -91,6 +112,7 @@ export class Desk extends DurableObject {
     this.sql = ctx.storage.sql;
     this.sql.exec("create table if not exists rooms (id text primary key, open integer not null, at integer not null, gen integer not null)");
     this.sql.exec("create table if not exists counters (name text primary key, n integer not null)");
+    this.sql.exec("create table if not exists taps (day text not null, what text not null, n integer not null, primary key (day, what))");
     this.sql.exec("create table if not exists days (day text primary key, rooms_opened integer not null default 0, connections integer not null default 0, frames integer not null default 0, refused integer not null default 0)");
   }
 
@@ -102,6 +124,7 @@ export class Desk extends DurableObject {
   tidy(now) {
     this.sql.exec("delete from rooms where (open = 1 and at < ?) or (open = 0 and at < ?)", now - stale(this.env), now - REOPEN);
     this.sql.exec("delete from days where day < ?", this.day(now - 90 * 86400 * 1000));
+    this.sql.exec("delete from taps where day < ?", this.day(now - 90 * 86400 * 1000));
   }
   count() { return this.sql.exec("select count(*) as n from rooms where open = 1").one().n; }
   full() { return this.count() >= number(this.env.MAX_ROOMS, 20); }
@@ -153,6 +176,13 @@ export class Desk extends DurableObject {
     this.sql.exec("update rooms set open = 0, at = ? where id = ? and gen = ?", now, id, gen);
   }
 
+  tap(what) {  // one more tap on a "coming soon" button, up to a day's limit
+    if (!TAPS.includes(what)) return;
+    const day = this.day(Date.now()), had = this.sql.exec("select n from taps where day = ? and what = ?", day, what).toArray()[0];
+    if (had && had.n >= TAPS_PER_DAY) return;
+    this.sql.exec("insert into taps (day, what, n) values (?, ?, 1) on conflict (day, what) do update set n = n + 1", day, what);
+  }
+
   live() {  // the one number anyone may have. It only reads: a room that went silent isn't counted, and is cleared away by the next host or report
     return this.sql.exec("select count(*) as n from rooms where open = 1 and at >= ?", Date.now() - stale(this.env)).one().n;
   }
@@ -160,13 +190,55 @@ export class Desk extends DurableObject {
   stats() {
     this.tidy(Date.now());
     return { open_rooms: this.count(), max_rooms: number(this.env.MAX_ROOMS, 20), max_rooms_per_day: number(this.env.MAX_ROOMS_PER_DAY, 200),
-      days: this.sql.exec("select * from days order by day desc limit 30").toArray() };
+      days: this.sql.exec("select * from days order by day desc limit 30").toArray(),
+      taps: this.sql.exec("select day, what, n from taps order by day desc, what limit 60").toArray() };
   }
 }
 
 export class Room extends DurableObject {
-  host() { return this.ctx.getWebSockets("host")[0]; }
-  clients() { return this.ctx.getWebSockets("client"); }
+  constructor(ctx, env) {
+    super(ctx, env);
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
+  }
+
+  // The room's host is the one let in last. A socket this room has put out (gone) is no longer part of it, even
+  // while its closing is still on its way.
+  host() {
+    let best;
+    for (const h of this.ctx.getWebSockets("host")) {
+      const who = h.deserializeAttachment();
+      if (!who.gone && (!best || who.gen > best.deserializeAttachment().gen)) best = h;
+    }
+    return best;
+  }
+  clients() { return this.ctx.getWebSockets("client").filter((c) => !c.deserializeAttachment().gone); }
+
+  // A connection can die without a goodbye (a computer asleep, a network gone), and then the relay is never told:
+  // the socket stays listed for ever. So hosts and pages say they're here every 20 s, and a socket that has said
+  // so before, or a host that showed a claim (every host that does, pings), is gone once it has been quiet for
+  // QUIET_SECONDS. A host from before all this never pings and shows no claim: it is never judged, and stays as it was.
+  heard(ws) {
+    const who = ws.deserializeAttachment(), ping = this.ctx.getWebSocketAutoResponseTimestamp(ws);
+    return Math.max(who.since || 0, (who.at || 0) * 1000, ping ? ping.getTime() : 0);
+  }
+  quiet(ws) {
+    const judged = ws.deserializeAttachment().claim || this.ctx.getWebSocketAutoResponseTimestamp(ws);
+    return !!judged && Date.now() - this.heard(ws) >= quietFor(this.env);
+  }
+  out(ws, code, why) {  // put a socket out of the room: from here on nothing of the room's is done for it
+    ws.serializeAttachment({ ...ws.deserializeAttachment(), gone: true });
+    try { ws.close(code, why); } catch { /* already closed */ }
+  }
+  drop(client) {  // a client that went quiet: what webSocketClose would have done, had the relay been told
+    const host = this.host(), who = client.deserializeAttachment();
+    if (host) {
+      const keeps = host.deserializeAttachment();
+      keeps.left = (keeps.left || 0) + (who.total || 0);
+      host.serializeAttachment(keeps);
+      try { host.send(JSON.stringify({ leave: who.id })); } catch { /* the host is going too */ }
+    }
+    this.out(client, 4408, "gone quiet");
+  }
 
   // What this room carried that the desk hasn't been told. The numbers live on the sockets, so they survive the
   // object being put to sleep; a client's are moved to the host's socket when the client leaves.
@@ -182,6 +254,7 @@ export class Room extends DurableObject {
   async alarm() {
     const host = this.host();
     if (!host) return;
+    if (this.quiet(host)) return this.stop(host);  // its host went without a goodbye: the room is closed, and the desk forgets it
     const gen = host.deserializeAttachment().gen, said = this.untold(host), every = beat(this.env);
     let held = null;  // true: still ours. false: lost. null: the desk couldn't be asked
     let timer;
@@ -205,16 +278,16 @@ export class Room extends DurableObject {
   // The place is held until two report times after the desk last confirmed it. Past that, nothing is carried:
   // checked on every frame too, so it holds even while a report to the desk is still waiting for its answer.
   lapsed(host) { return Date.now() - (host.deserializeAttachment().lease || 0) >= 2 * beat(this.env); }
-  stop(host) {
+  stop(host, code = 4429, why = "this room lost its place on the relay") {
     const keeps = host.deserializeAttachment();
     for (const c of this.clients()) {  // what each client sent goes on the host's socket first, so the goodbye still counts it (once)
       const who = c.deserializeAttachment();
       keeps.left = (keeps.left || 0) + (who.total || 0);
       c.serializeAttachment({ ...who, total: 0 });
-      c.close(4404, "room is offline");
+      this.out(c, 4404, "room is offline");  // out at once: its closing, when it comes, has nothing left to do
     }
     host.serializeAttachment(keeps);
-    host.close(4429, "this room lost its place on the relay");
+    host.close(code, why);
   }
 
   shut() {  // the relay was switched off: nothing is carried any more, for sockets that were already open too
@@ -226,10 +299,21 @@ export class Room extends DurableObject {
   async fetch(request) {
     if (this.shut()) return new Response("shellphone is switched off for now", { status: 503 });
     const what = new URL(request.url).pathname.split("/").pop();
-    if (what === "up") return json(200, { up: !!this.host() });
+    const listed = this.host(), here = !!listed && !this.quiet(listed);
+    if (what === "up") return json(200, { up: here });
     const role = what === "host" ? "host" : "client";
-    if (role === "host" && this.host()) return new Response("this room already has a host", { status: 409 });
-    if (role === "client" && !this.host()) return new Response("room is offline", { status: 404 });
+    // A host that proves the room is its own shows a claim: a hash of the room, its secret and the host's token,
+    // which only the host's link holds (the relay can't turn it back into any of them, and a guest's link has
+    // other secrets). The room keeps the claim of the host it let in. A host arriving while one is listed is
+    // let in only in its place: same claim, and the listed one gone quiet. That is the room's own process
+    // coming back after its connection died. Anything else is turned away, as before.
+    const shown = (request.headers && request.headers.get("X-Shellphone-Claim")) || "", claim = CLAIM.test(shown) ? shown : "";
+    if (role === "host" && listed) {
+      const was = listed.deserializeAttachment().claim;
+      if (!(was && claim && same(was, claim) && this.quiet(listed))) return new Response("this room already has a host", { status: 409 });
+    }
+    if (role === "client" && !here) return new Response("room is offline", { status: 404 });
+    if (role === "client") for (const c of this.clients()) if (this.quiet(c)) this.drop(c);  // pages that went without a goodbye don't hold a place
     if (role === "client" && this.clients().length >= LIMITS.clients) return new Response("room is full", { status: 429 });
     let place = null;
     if (role === "host") {
@@ -238,12 +322,17 @@ export class Room extends DurableObject {
       try { place = await desk(this.env).open(this.ctx.id.toString()); } catch { place = null; } finally { this.admitting = false; }
       if (!place) return new Response("the relay can't open rooms right now", { status: 503 });
       if (!place.ok) return new Response(place.why, { status: 429 });
+      // The host it replaces is put out only now that the desk gave this one its number: its clients with it (they
+      // held sessions with that connection), and from here its late frames and its closing touch nothing.
+      const old = this.host();
+      if (old) { this.stop(old, 4409, "this room's host came back on another connection"); this.out(old, 4409, "replaced"); }
       await this.ctx.storage.setAlarm(Date.now() + beat(this.env));
     }
     const pair = new WebSocketPair();
     const id = role === "host" ? "host" : crypto.randomUUID().replaceAll("-", "").slice(0, 16);  // the relay names clients; they can't
     this.ctx.acceptWebSocket(pair[1], [role]);
-    pair[1].serializeAttachment(role === "host" ? { role, id, at: 0, n: 0, gen: place.gen, lease: Date.now() } : { role, id, at: 0, n: 0 });
+    pair[1].serializeAttachment(role === "host" ? { role, id, at: 0, n: 0, gen: place.gen, lease: Date.now(), since: Date.now(), ...(claim ? { claim } : {}) }
+      : { role, id, at: 0, n: 0, since: Date.now() });
     if (role === "client") {
       const host = this.host(), who = host.deserializeAttachment();
       who.joined = (who.joined || 0) + 1;
@@ -256,6 +345,7 @@ export class Room extends DurableObject {
   webSocketMessage(ws, data) {
     if (this.shut()) return;
     const who = ws.deserializeAttachment(), holder = who.role === "host" ? ws : this.host();
+    if (who.gone) return;  // put out of the room: what it still sends goes nowhere
     if (holder && this.lapsed(holder)) return this.stop(holder);
     if (typeof data !== "string" || data.length > LIMITS.frame) {
       // A client that sends too much is dropped. The host's socket is the whole room, so its frame is only thrown away.
@@ -287,11 +377,14 @@ export class Room extends DurableObject {
   async webSocketClose(ws, code) {
     try { ws.close(code === 1005 || code === 1006 ? 1000 : code, "bye"); } catch { /* already closed */ }  // finish the closing handshake
     const who = ws.deserializeAttachment();
+    if (who.role === "client" && who.gone) return;  // dropped for going quiet: its leaving was already dealt with
     if (who.role === "host") {
       const said = this.untold(ws);  // counted while the clients are still here
       // Everything of this room's is put away before anything is awaited: once this waits for the desk, the room's
       // next host may already be coming in, and nothing below may touch what is theirs.
-      const next = this.ctx.getWebSockets("host").some((h) => h !== ws && h.deserializeAttachment().gen !== who.gen);
+      // (the next host is one let in after this one: a socket this room put out earlier, still listed, is not it)
+      const now = this.host();
+      const next = who.gone || (!!now && now !== ws && now.deserializeAttachment().gen > who.gen);
       if (!next) {
         for (const c of this.clients()) c.close(4404, "room is offline");
         await this.ctx.storage.deleteAlarm();  // nothing else runs in this room during a storage call

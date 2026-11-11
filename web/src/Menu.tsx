@@ -1,13 +1,15 @@
-// The ☰ menu: this room, its settings, and later all your rooms. It slides in from the left, like Slack's.
+// The ☰ menu: this room and its settings. It slides in from the left, like Slack's.
 import { useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronRight, MessagesSquare, Shell, Squirrel, UserPlus } from "lucide-react";
+import { Bell, BellOff, BellRing, Check, ChevronRight, MessagesSquare, Squirrel, UserPlus } from "lucide-react";
 import { inviteLink, relayHost, relayRoom } from "./relay";
+import { Agents } from "./Agents";
+import type { Person, Wolt } from "./room";
 
 const row = "flex items-center gap-3 w-full px-4 py-2.5 border-0 bg-transparent text-left text-[15px] text-ink no-underline cursor-pointer active:bg-panel";
 const sec = "px-4 pt-4 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 
-export function Menu({ open, panel, scrim, touch, close, title, me, push, freshCount, onThreads }: {
-  open: boolean; panel: React.RefObject<HTMLElement | null>; scrim: React.RefObject<HTMLDivElement | null>; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string;
+export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts, people, push, freshCount, onThreads }: {
+  open: boolean; panel: React.RefObject<HTMLElement | null>; scrim: React.RefObject<HTMLDivElement | null>; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string; host?: string; wolts: Wolt[]; people: Person[];
   push: { state: "ask" | "on" | "off"; turnOn: () => void }; freshCount: number; onThreads: () => void;
 }) {
   // while a finger drags it, App moves these two directly; otherwise the classes below decide
@@ -25,7 +27,6 @@ export function Menu({ open, panel, scrim, touch, close, title, me, push, freshC
           <span className="flex-1 min-w-0 truncate font-mono font-semibold text-sm"><span className="text-dim font-normal">~/</span>{title}</span>
           <Check size={20} className="text-acc" />
         </button>
-        <div className={`${row} cursor-default text-dim`}><Shell size={20} className="text-dim" /><span className="flex-1 text-sm">All your rooms in one place</span><span className="font-mono text-[10px] border border-line rounded px-1.5">soon</span></div>
         <div className={sec}>This room</div>
         {!relayRoom && <button type="button" onClick={push.state === "ask" ? push.turnOn : undefined} className={row}>
           {push.state === "on" ? <BellRing size={20} className="text-acc" /> : push.state === "ask" ? <Bell size={20} className="text-acc" /> : <BellOff size={20} className="text-dim" />}
@@ -36,6 +37,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, push, freshC
         {!relayRoom && <a href="/join" className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></a>}
         <button type="button" onClick={() => { close(); onThreads(); }} className={row}><MessagesSquare size={20} className="text-acc" /><span className="flex-1">Threads</span>
           {freshCount > 0 && <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{freshCount}</span>}</button>
+        <Agents wolts={wolts} people={people} me={me} host={host} sec={sec} />
       </div>
     </aside>
   </>;

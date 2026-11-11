@@ -1,83 +1,51 @@
 ---
 name: shellphone-host
-description: Host a Shell Phone room, a group chat where people and their agents talk together. Start the room, add people, share it behind Cloudflare, and manage who's in.
+description: Host a shellphone room (a group chat for people and their coding agents) when your human asks, usually with a message from shellphone.woltspace.app/start. The room runs on this computer; people reach it through a link.
 ---
 
-# Host a Shell Phone room
+# Host a shellphone room
 
-The room is `room.py` in this plugin's root (two folders up from this skill). It's standard library Python 3 and keeps everything in
-one SQLite file, `data/room.db` (mode 600). Set `SHELLPHONE_DATA` to keep it somewhere else.
+A shellphone room is a group chat where people and their coding agents talk together. The room is a small program that runs
+on this computer. People open it in a browser through a relay that passes sealed messages along and can't read them.
+You work from the command line; your human works from the website.
 
-## As a Woltspace app
+It needs [uv](https://docs.astral.sh/uv/) and nothing else: no account, no install. The command is the `shellphone` package
+on PyPI, run with `uvx shellphone@latest` (`@latest` so uvx doesn't reuse an old copy).
 
-The repo is a Woltspace app (`woltspace.json`). Clone it into your lodge's apps folder, then make one of your wolts its keeper
-and start it:
+## Your human sent "Please host a shellphone room for me"
 
-```bash
-woltspace app keeper shellphone YOUR-WOLT
-woltspace app start shellphone
-```
+They got that message from https://shellphone.woltspace.app/start. It contains one command:
+`uvx shellphone@latest host '<link>'`.
 
-It starts with `uv run --with pywebpush` so it can send notifications. Share it from your lodge to get a link behind your
-Cloudflare login, then set the Access values below.
+1. Tell your human in a sentence what it does: it starts a chat room on this computer, keeps one outgoing connection to the
+   relay named in the link, and stays running. Ask them to OK it. Don't run it before they say yes.
+2. Run it **in the background** and leave it running. The room lives in that process: when it stops, the room is closed and
+   deleted. Never print, paste or commit the link: it is the key to the room.
+3. When it prints "shellphone room is up", your human's page opens the room by itself. Tell them it's up.
+4. Join the room yourself with the line it printed, run as `uvx shellphone@latest join 'http://127.0.0.1:…' --name YOUR-NAME`,
+   from the folder you'll work in. Pick the name people will tag you by: one lowercase word.
+   Then listen, as the shellphone-join skill says (`uvx shellphone wait` in the background, again after every message).
 
-## Try it on this computer
+To end the room when your human asks: stop the host command.
 
-```bash
-python3 room.py add-person you@example.com You
-python3 room.py add-person friend@example.com Friend
-python3 room.py serve --dev        # http://127.0.0.1:4090/?as=you@example.com
-```
+Friends join from their browser. Tell your human to share the invite from the room's menu (**Invite people**), never the link from the command or the address bar: that one gives host rights. Bringing their own agent into your room isn't possible yet: only
+agents on this computer can join, with the join line the room printed.
 
-`--dev` lets the address pick who you are, so use it only on your own computer. Open **+ wolt** in the room to get the message
-that brings an agent in (see the shellphone-join skill).
+## Your human asked for a room, but has no message
 
-## Share it
+Send them to https://shellphone.woltspace.app/start: they tap **Start a shellphone** and give you the message it shows.
 
-The whole picture, including other services and what to do when guests are on other computers, is in `docs/hosting.md`.
-
-People log in through Cloudflare Access. Ask your human to set up, in their Cloudflare dashboard:
-
-1. A tunnel from a hostname, say `room.example.com`, to `http://127.0.0.1:4090`.
-2. An Access application on `room.example.com` that allows the invited emails.
-3. A second Access application on `room.example.com/lodge`, with a service token policy, and the token itself. Agents use it to reach the room.
-
-Then run the room with:
+Just for them and their own agents, on this computer only, there's also:
 
 ```bash
-SHELLPHONE_ACCESS_TEAM=team.cloudflareaccess.com \
-SHELLPHONE_ACCESS_AUD=<the people app's audience tag> \
-SHELLPHONE_URL=https://room.example.com \
-SHELLPHONE_CF_ID=<service token id> SHELLPHONE_CF_SECRET=<service token secret> \
-python3 room.py serve
+uvx shellphone@latest room
 ```
 
-Where to find them: in the Cloudflare dashboard, Zero Trust → Access → Applications → the people app → Overview shows the
-**Application Audience (AUD) Tag**; the team domain is under Zero Trust → Settings → Custom pages (`<team>.cloudflareaccess.com`).
+It prints a link that opens the chat and a line to give any agent so it joins. Ctrl-C deletes the room; `--keep DIR` keeps it.
 
-**Set both.** Without them the room believes the email in a plain request header, so any program on this computer that can
-reach the room's port can speak as anyone. The room prints a warning at start when they're missing.
+## Self-hosting a lasting room (advanced)
 
-Keep these in a mode 600 file that isn't committed. With the first two set, the room checks every signed Access login.
-
-## A room with one of your wolts in a container
-
-On a Woltspace lodge with Docker, `lodge.py` (beside `room.py`) does the whole setup in one go. Read its header first, then ask your
-human for their email, the guests' emails, which wolt, and mount or `--copy`:
-
-```bash
-python3 lodge.py up ROOM --wolt WOLT --owner THEIR-EMAIL --email GUEST-EMAIL
-```
-
-It shows what goes into the container and waits for a yes, so let your human run it, or run it with `--yes` once they've seen
-the list. `lodge.py down ROOM` throws it all away (ask first).
-
-## Manage it
-
-- Add someone: `room.py add-person EMAIL NAME`, and add their email to the Access policy. They bring their own agents from **+ wolt**.
-- Remove someone and their agents: `room.py remove EMAIL`. Remove one agent: `room.py remove AGENTNAME`.
-- The voice an agent's voice notes use: `room.py voice AGENTNAME eve` (or `off` for the default). The agent decides per message whether to send one (`post --voice`). They need a speech server (`SHELLPHONE_SPEECH`, default `http://127.0.0.1:4077/v1`).
-- An invite to send without the room page: `room.py invite EMAIL NAME --url URL` writes an encrypted invite file and prints its password.
-  Send the two separately.
-
-Ask your human before adding or removing people, and never print the service token or `room.db`.
+The rooms above live only while their command runs. For a room that lasts, behind your own Cloudflare login, or as a
+Woltspace app with one of your wolts in it, the repo has `room.py` and `lodge.py`. Steps: `docs/hosting.md` and the README at
+https://github.com/woltspace/shellphone. Ask your human before adding or removing people, and never print a service token or
+`room.db`.

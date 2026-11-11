@@ -93,6 +93,8 @@ def con():
         CON.executescript(SCHEMA)
         if "guest" not in [c[1] for c in CON.execute("pragma table_info(people)")]:  # rooms from before guests existed
             CON.execute("alter table people add column guest integer not null default 0")
+        if "paused" not in [c[1] for c in CON.execute("pragma table_info(wolts)")]:  # rooms from before agents could be paused
+            CON.execute("alter table wolts add column paused integer not null default 0")
         os.chmod(DB, 0o600)
     return CON
 
@@ -131,7 +133,7 @@ def people():
 
 
 def wolts():
-    return q("select wolt, owner, creature, voice from wolts order by rowid")
+    return q("select wolt, owner, creature, voice, paused from wolts order by rowid")
 
 
 def as_message(row):
@@ -234,7 +236,7 @@ def mark_asked(text, email):
     """Tagged wolts light up the moment the message lands, even before their connector picks it up."""
     with tx() as c:
         for l in wolts():
-            if asks({"kind": "human", "email": email, "text": text}, l["wolt"], l["owner"]):
+            if not l["paused"] and asks({"kind": "human", "email": email, "text": text}, l["wolt"], l["owner"]):
                 set_working(c, l["wolt"], ASKED_FOR)
 
 
@@ -453,7 +455,36 @@ def transcribe(path):
 
 def members():
     return {"people": [{"email": e, **p} for e, p in people().items()],
-            "wolts": [{"wolt": l["wolt"], "owner": l["owner"], "creature": l["creature"], "voice": bool(l["voice"])} for l in wolts()]}
+            "wolts": [{"wolt": l["wolt"], "owner": l["owner"], "creature": l["creature"], "voice": bool(l["voice"]),
+                       **({"paused": True} if l["paused"] else {})} for l in wolts()]}
+
+
+# An agent in the room is on or paused. A paused one is off: it hears nothing, a tag included, and can't post, read back
+# or bring itself back (see for_wolt), so it costs nothing. The room's host can pause, bring back or remove any agent; a
+# person can do so with their own agents; nobody else can. An agent can pause itself, and that is all: bringing one back
+# is a person's switch. Removed, its key stops working at once.
+def host():
+    """The room's host: the first person put on its list who isn't a guest (the one who opened the room)."""
+    row = q("select email from people where guest = 0 order by rowid limit 1")
+    return row[0]["email"] if row else None
+
+
+def set_paused(wolt, paused):
+    with tx() as c:
+        if not c.execute("update wolts set paused = ? where wolt = ?", (1 if paused else 0, wolt)).rowcount:
+            return None
+        if paused:
+            stop_working(c, wolt)
+    return {"wolt": wolt, "paused": bool(paused)}
+
+
+def remove_wolt(wolt):
+    with tx() as c:
+        if not c.execute("delete from wolts where wolt = ?", (wolt,)).rowcount:
+            return None
+        stop_working(c, wolt)
+        c.execute("delete from unreachable where wolt = ?", (wolt,))
+    return {"wolt": wolt, "removed": True}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -529,7 +560,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return key_hash(auth[7:].strip()) if auth.startswith("Bearer ") else None
 
     def lodge(self):
-        row = q("select wolt, owner, creature, voice from wolts where key_hash = ?", self.bearer())
+        row = q("select wolt, owner, creature, voice, paused from wolts where key_hash = ?", self.bearer())
         return row[0] if row else None
 
     def invite(self):
@@ -605,7 +636,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send(409, {"error": f"{wolt} is taken in this room: pick another name"})
                     key = secrets.token_urlsafe(32)
                     c.execute("delete from wolts where wolt = ?", (wolt,))  # a wolt joining again gets a fresh key
-                    c.execute("insert into wolts values (?, ?, ?, ?, ?)", (wolt, key_hash(key), inv["owner"], creature, voice))
+                    c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), inv["owner"], creature, voice))
                     if inv["once"]:  # codes from the join page work once
                         c.execute("delete from invites where code_hash = ?", (self.bearer(),))
                 return self.send(200, {"key": key, "wolt": wolt, "owner": inv["owner"], "voice": voice})
@@ -643,6 +674,8 @@ def for_wolt(req, l):
     path, q = req.path, req.q
     if req.method not in ("GET", "POST"):
         return reply(405, {"error": "only GET and POST"})
+    if l.get("paused") and (req.method, path) not in (("GET", "/lodge/messages"), ("POST", "/lodge/reach")):
+        return reply(403, {"error": "you're paused in this room: you hear nothing and can't post until the room's host or your keeper brings you back"})
     if req.method == "GET":
         after = int(q.get("after", ["0"])[0] or 0)
         if path == "/lodge/thread":  # a wolt answering in a thread reads it whole, however long ago it started
@@ -654,6 +687,9 @@ def for_wolt(req, l):
             return reply(200, {"owner": l["owner"], "members": members(), "messages": main[-max(1, min(last, 500)):]})
         if path == "/lodge/messages":
             new = messages(after)
+            if l.get("paused"):  # paused: nothing said in the room is handed over, a tag included. Each message keeps its
+                # number, so the wolt's place in the room moves on and nothing piles up for the day it is brought back
+                new = [m if m["kind"] not in ("human", "wolt") else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
             fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
                 m["kind"] == "human" or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]
             read = [m["id"] for m in new if m["kind"] == "human"]
@@ -676,6 +712,10 @@ def for_wolt(req, l):
         with tx() as c:
             (set_working(c, l["wolt"], ASKED_FOR) if data.get("working") else stop_working(c, l["wolt"]))
         return reply(200, {"ok": True})
+    if path == "/lodge/state":  # an agent pauses itself ({"paused": true}); the room's host or its keeper brings it back
+        if data.get("paused") is not True or str(data.get("wolt") or l["wolt"]) != l["wolt"]:
+            return reply(403, {"error": "an agent can pause itself, nothing else: the room's host or an agent's keeper pauses it and brings it back"})
+        return reply(200, set_paused(l["wolt"], True))
     if path == "/lodge/reach":  # the connector couldn't hand this wolt its messages ({"ok": false}), or now it could again
         with tx() as c:
             (c.execute("delete from unreachable where wolt = ?", (l["wolt"],)) if data.get("ok") else
@@ -716,7 +756,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "messages": messages(after)})
         m = re.fullmatch(r"/voice/([0-9a-f]{32}\.(mp3|webm|mp4|m4a|ogg))", path)
         if m and (VOICE / m.group(1)).is_file():
             kind = "audio/mpeg" if m.group(2) == "mp3" else f"audio/{m.group(2)}"
@@ -741,6 +781,18 @@ def for_person(req, email):
                     return reply(400, {"error": "not a push subscription"})
                 c.execute("insert or replace into push values (?, ?, ?)", (sub["endpoint"], email, json.dumps(sub)))
         return reply(200, {"ok": True})
+    if path == "/api/wolt":  # pause an agent, bring it back, or remove it ({"wolt": name, "state": "on" | "paused" | "removed"})
+        data = json.loads(req.read(200_000) or b"{}")
+        who, state = str(data.get("wolt") or ""), data.get("state")
+        if state not in ("on", "paused", "removed"):
+            return reply(400, {"error": "state is on, paused or removed"})
+        if people().get(email, {}).get("guest"):
+            return reply(403, {"error": "guests can't change who is in the room"})
+        owner = next((l["owner"] for l in wolts() if l["wolt"] == who), None)
+        if email != host() and (owner is None or canon(email) != canon(owner)):  # not the host, and not this agent's own keeper
+            return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
+        done = remove_wolt(who) if state == "removed" else set_paused(who, state == "paused")
+        return reply(200, done) if done else reply(404, {"error": f"there's no {who} in this room"})
     if path == "/api/messages":
         data = json.loads(req.read(200_000) or b"{}")
         text = str(data.get("text", "")).strip()[:8000]
@@ -789,7 +841,7 @@ def lodge_file(wolt, owner, creature, voice, base_url):
     key = secrets.token_urlsafe(32)
     with tx() as c:  # one key per wolt; a new one replaces the old
         c.execute("delete from wolts where wolt = ?", (wolt,))
-        c.execute("insert into wolts values (?, ?, ?, ?, ?)", (wolt, key_hash(key), owner, creature, voice))
+        c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), owner, creature, voice))
     return {"room_url": base_url, "key": key, "wolt": wolt}
 
 

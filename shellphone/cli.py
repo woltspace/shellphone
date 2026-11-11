@@ -7,14 +7,14 @@
 
 The room is the same one as room.py; the agent side is the same connector.py. This is only the front door.
 """
-import argparse, contextlib, hmac, importlib.util, io, ipaddress, json, os, re, secrets, shlex, shutil, signal, socket, sys, tempfile, threading, urllib.error, urllib.parse
+import argparse, contextlib, hashlib, hmac, importlib.util, io, ipaddress, json, os, re, secrets, shlex, shutil, signal, socket, sys, tempfile, threading, urllib.error, urllib.parse
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PREFIX = "shellphone-room-"
 THROWAWAY = "throwaway.pid"  # only in a room made to be deleted: the pid of the command that owns it
 HOST_EMAIL = "host@shellphone.local"  # the room keys people by email; a local room has one person, the host
-CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "version")
+CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "pause", "version")
 
 
 def me():
@@ -140,7 +140,7 @@ Both links are keys to this room: share them only with your own agents.
 Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "Everything in it is deleted."))
 
 
-SHARED = {("GET", "/api/state"), ("POST", "/api/messages")}  # what a page may ask through the relay, for now: text chat
+SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt")}  # what a page may ask through the relay, for now: text chat, and pausing or removing an agent (the room refuses guests)
 MAX_GUESTS = 50  # people who may come in through one run's invite link
 
 
@@ -231,6 +231,8 @@ def host(a):
     ws = relay.replace("http", "ws", 1) + f"/r/{seal.b64e(room_id)}/host"
     link = threading.Thread(target=pipe.serve, daemon=True, kwargs=dict(
         url=ws, key=os.environ.get("SHELLPHONE_RELAY_KEY", ""), stop=stop, on_state=on_state, news=news,
+        # only the host's link holds all three, and the hash gives none of them away: the relay keeps it to know its room's host again
+        claim=seal.b64e(hashlib.sha256(b"shellphone-claim\0" + room_id + secret + token.encode()).digest()),
         new_pipe=lambda: pipe.HostPipe(room_id, {"h": secret, "i": invite_secret}, answer)))
     link.start()
     threading.Thread(target=watch, daemon=True).start()
@@ -300,7 +302,7 @@ def main():
             sys.argv[2:2] = ["--config", os.environ.get("SHELLPHONE_CONFIG", "shellphone/lodge.json")]
         return connector().main()
     ap = argparse.ArgumentParser(prog="shellphone", description="A chat room for you and your coding agents, on your own computer.",
-                                 epilog="After join: shellphone wait | post | history | working | run (the connector's commands).")
+                                 epilog="After join: shellphone wait | post | history | working | pause | run (the connector's commands).")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("room", help="open a room on this computer")
     s.add_argument("--name", default=os.environ.get("USER") or "you", help="your name in the room")

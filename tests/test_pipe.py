@@ -202,6 +202,96 @@ class HostSide(unittest.TestCase):
             states, waits, knocks = turned_away(status)
             self.assertEqual((states[0][:8], waits, knocks), ("refused:", [], 1))  # not allowed, or already hosted: once is enough
 
+    def test_a_host_that_lost_its_connection_keeps_asking_while_the_relay_still_sees_the_old_one(self):
+        class Taken(Exception):
+            response = type("R", (), {"status_code": 409})
+
+        class Cut:  # a connection that opens, then is cut without a goodbye, as when the relay is updated
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def recv(self, timeout=None): raise ConnectionError("cut")
+
+        def run(answers, seconds_per_wait, stop_at=None):
+            states, waits, clock = [], [], [0.0]
+
+            class Stop:
+                def is_set(self): return False
+                def wait(self, seconds):
+                    waits.append(seconds)
+                    clock[0] += seconds_per_wait
+                    return len(waits) == stop_at
+
+            def connect(*a, **k):
+                if not answers:
+                    raise KeyboardInterrupt  # the script ran out: end the test here
+                answer = answers.pop(0)
+                if answer == "taken":
+                    raise Taken()
+                if answer == "away":
+                    raise ConnectionError("no network")
+                return Cut()
+            real = pipe.time.monotonic
+            pipe.time.monotonic = lambda: clock[0]
+            try:
+                pipe.serve("ws://relay.test/r/x/host", "", lambda: None, Stop(), on_state=states.append, connect=connect)
+            except KeyboardInterrupt:
+                pass
+            finally:
+                pipe.time.monotonic = real
+            return states, waits
+        # Up, cut, then "taken" twice before the relay lets it back in: the room comes up again.
+        states, waits = run(["up", "taken", "taken", "up"], 1)
+        self.assertEqual(states[:5], ["up", "down", "down", "down", "up"])
+        self.assertFalse([s for s in states if s.startswith("refused")])
+        # Still "taken" a minute after the cut: someone else does host this room, and it stops.
+        states, waits = run(["up"] + ["taken"] * 50, 20)
+        self.assertEqual(states[-1][:8], "refused:")
+        # paced, and the time allowed runs from the first "taken", not from each try: each wait takes 20 s here, so
+        # the first "taken" comes at 20 s and the last one that is still waited on at 160 s, inside TAKEN_WAIT
+        self.assertEqual(waits, [1, 2, 4, 8, 15, 30, 30, 30, 30])
+        self.assertGreater(pipe.TAKEN_WAIT, 60 + 30)  # longer than the relay's minute of silence plus the slowest retry
+        # Away for minutes (asleep, no network), then "taken" on coming back: the minute starts then, and the room comes up.
+        states, waits = run(["up"] + ["away"] * 10 + ["taken", "taken", "up"], 9)  # 90 s without a network, then 18 s of "taken"
+        self.assertEqual(states.count("up"), 2)
+        self.assertFalse([s for s in states if s.startswith("refused")])
+        # Stopped while it waits to ask again: it ends there, quietly.
+        states, waits = run(["up"] + ["taken"] * 50, 1, stop_at=3)
+        self.assertEqual((states[-1], len(waits)), ("down", 3))
+        self.assertFalse([s for s in states if s.startswith("refused")])
+
+    def test_the_host_shows_its_claim_and_says_it_is_here_every_twenty_seconds(self):
+        sent, seen, clock, stop = [], {}, [0.0], threading.Event()
+
+        class Relay:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def send(self, text): sent.append((clock[0], text))
+            def recv(self, timeout=None):
+                clock[0] += 1  # a quiet room: a second goes by on every look
+                if clock[0] >= 45:
+                    stop.set()
+                raise TimeoutError
+
+        def connect(url, additional_headers=None, **k):
+            seen.update(additional_headers)
+            return Relay()
+        real = pipe.time.monotonic
+        pipe.time.monotonic = lambda: clock[0]
+        try:
+            pipe.serve("ws://relay.test/r/x/host", "relay-key", lambda: None, stop, connect=connect, claim="C" * 43)
+        finally:
+            pipe.time.monotonic = real
+        self.assertEqual(seen, {"Authorization": "Bearer relay-key", "X-Shellphone-Claim": "C" * 43})
+        self.assertEqual(sent, [(20.0, '{"ping":1}'), (40.0, '{"ping":1}')])  # nothing else is said in a quiet room
+        seen.clear()
+        stop.clear(); clock[0] = 0.0
+        pipe.time.monotonic = lambda: clock[0]
+        try:
+            pipe.serve("ws://relay.test/r/x/host", "", lambda: None, stop, connect=connect)
+        finally:
+            pipe.time.monotonic = real
+        self.assertEqual(seen, {})  # no claim given, none shown
+
     def test_an_answer_too_long_to_send_is_refused_plainly(self):
         c = Client(self.make(lambda *_: (200, {"blob": "x" * (pipe.MAX_ANSWER + 1)})))
         self.assertEqual(c.ask(), {"t": "res", "id": 1, "status": 502, "body": {"error": "too much to send at once"}})
@@ -466,7 +556,7 @@ class ThroughTheRelay(unittest.TestCase):
         ask = self.page(link)
         for _ in range(2):
             state = ask(cmd="request", method="GET", path="/api/state?after=0")
-            self.assertEqual(state["status"], 200)
+            self.assertEqual(state.get("status"), 200, {**state, "states": ask(cmd="states")["states"]} if "body" not in state else state["status"])  # if it fails, say how
             texts = [m["text"] for m in state["body"]["messages"] if m["kind"] == "human"]
             self.assertEqual((len(texts), texts[0], texts[-1]), (170, '"' * 7990 + " 0", '"' * 7990 + " 169"))
         self.assertGreater(sum(len(f) for f in ask(cmd="wire")["wire"]), 2_500_000)  # it really was that much
@@ -563,6 +653,10 @@ class RoomCap(unittest.TestCase):
         today = got["days"][0] if got["days"] else {"rooms_opened": 0, "connections": 0, "frames": 0, "refused": 0}
         return got["open_rooms"], today
 
+    def taps(self):
+        got = json.load(urllib.request.urlopen(urllib.request.Request(self.base + "/stats", headers={"Authorization": "Bearer test-host-key"})))
+        return {t["what"]: t["n"] for t in got["taps"]}
+
     def close(self, host):
         """Stop a host, and wait until the desk has heard: the relay learns of it a moment after the process is gone."""
         before = self.stats()[0]
@@ -572,6 +666,51 @@ class RoomCap(unittest.TestCase):
         while self.stats()[0] != before - 1 and time.time() < end:
             time.sleep(0.1)
         self.assertEqual(self.stats()[0], before - 1)
+
+    def test_a_host_that_went_silent_is_replaced_only_by_its_own_claim(self):
+        from websockets.sync.client import connect
+        from websockets.exceptions import ConnectionClosed, InvalidStatus
+        relay, base = start_relay("HOST_KEY:test-host-key", "QUIET_SECONDS:2")
+        self.addCleanup(stop_relay, relay)
+        room = "/r/" + "Q" * 22
+        up = lambda: json.load(urllib.request.urlopen(base + room + "/up"))["up"]
+
+        def host(claim=None):
+            return connect(base.replace("http", "ws", 1) + room + "/host", open_timeout=15,
+                           additional_headers={"Authorization": "Bearer test-host-key", **({"X-Shellphone-Claim": claim} if claim else {})})
+
+        def refused(claim=None):
+            with self.assertRaises(InvalidStatus) as no:
+                host(claim)
+            return no.exception.response.status_code
+        mine, other = "m" * 43, "o" * 43
+        first = self.enterContext(host(mine))
+        self.assertTrue(up())
+        self.assertEqual(refused(mine), 409)  # just let in: nobody takes its place
+        for _ in range(4):  # it says it's here, and the relay answers by itself, for longer than the silence allowed
+            first.send('{"ping":1}')
+            self.assertEqual(first.recv(timeout=5), '{"pong":1}')
+            time.sleep(0.8)
+        self.assertTrue(up())
+        self.assertEqual(refused(mine), 409)
+        time.sleep(2.5)  # now it says nothing, though its connection is still open: as when a computer sleeps
+        self.assertFalse(up())
+        self.assertEqual(refused(other), 409)
+        self.assertEqual(refused(), 409)
+        second = self.enterContext(host(mine))  # the room's own host, on a new connection
+        self.assertTrue(up())
+        with self.assertRaises(ConnectionClosed) as closed:
+            first.recv(timeout=5)
+        self.assertEqual(closed.exception.rcvd.code, 4409)
+        second.send('{"ping":1}')
+        self.assertEqual(second.recv(timeout=5), '{"pong":1}')
+        second.close()
+        # a host that shows no claim is the host of before: silent for as long, it is still the room, and stays
+        old = self.enterContext(host())
+        time.sleep(2.5)
+        self.assertTrue(up())
+        self.assertEqual(refused(mine), 409)
+        old.close()
 
     def test_rooms_are_capped_places_come_back_and_the_counts_say_what_happened(self):
         for key in ("", "wrong"):  # the counts are for the key's holder only
@@ -643,6 +782,19 @@ class RoomCap(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as no:
             urllib.request.urlopen(urllib.request.Request(self.base + "/live", method="POST", data=b"{}"))
         self.assertEqual(no.exception.code, 404)
+        def tap(query, method="POST"):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(self.base + "/tap" + query, method=method, data=b"" if method == "POST" else None)) as r:
+                    return r.status, r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, None
+        self.assertEqual([tap("?what=mic"), tap("?what=mic"), tap("?what=file"), tap("?what=more")], [(204, b"")] * 4)  # counted, and nothing comes back
+        self.assertEqual([tap("?what=camera")[0], tap("")[0], tap("?what=mic", "GET")[0]], [404, 404, 404])  # only the things it knows, only by POST
+        end = time.time() + 5  # the count is written after the answer is given
+        while time.time() < end and len(self.taps()) < 3:
+            time.sleep(0.1)
+        self.assertEqual(self.taps(), {"file": 1, "mic": 2, "more": 1})
+        self.assertNotIn("taps", json.load(urllib.request.urlopen(self.base + "/live")))  # the public number stays one number
         for gone in ("/numbers", "/numbers.html"):  # the site has no page for the private counts: whoever runs the relay reads /stats themselves
             with self.assertRaises(urllib.error.HTTPError) as no:
                 urllib.request.urlopen(self.base + gone)
