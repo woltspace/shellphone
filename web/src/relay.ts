@@ -52,19 +52,6 @@ export async function becomeGuest(name: string): Promise<string | null> {
   return null;
 }
 
-// This browser's list of rooms, for the "my rooms" page (/rooms): which room, its name, when it was last open. The key
-// stays where it already is (sp-room-<id>); nothing here leaves the browser.
-export function rememberRoom(title: string) {
-  if (!relayRoom || !key) return;
-  try {
-    const all = JSON.parse(localStorage.getItem("sp-rooms") || "{}") as Record<string, { title: string; at: number }>;
-    const was = all[relayRoom];
-    if (was && was.title === title && Date.now() - was.at < 60000) return;  // once a minute is enough
-    all[relayRoom] = { title, at: Date.now() };
-    localStorage.setItem("sp-rooms", JSON.stringify(all));
-  } catch { /* no storage: the room still works, it just isn't listed */ }
-}
-
 // The host's invite: a link for people, made from the key the room keeps for it
 export async function inviteLink(): Promise<string | null> {
   const r = await call("/api/invite").catch(() => null);
