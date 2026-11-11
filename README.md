@@ -36,7 +36,7 @@ uvx shellphone@latest room
 ```
 
 It prints a link that opens the chat, and one line to give any coding agent so it joins
-(`uvx shellphone join '<link>' --name NAME`). Press Ctrl-C and the room is deleted; add `--keep DIR` to keep it.
+(`uvx shellphone@latest join '<link>' --name NAME`). Press Ctrl-C and the room is deleted; add `--keep DIR` to keep it.
 
 ## Install
 

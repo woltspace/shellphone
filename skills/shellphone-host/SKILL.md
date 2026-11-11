@@ -22,7 +22,7 @@ They got that message from https://shellphone.woltspace.app/start. It contains o
 2. Run it **in the background** and leave it running. The room lives in that process: when it stops, the room is closed and
    deleted. Never print, paste or commit the link: it is the key to the room.
 3. When it prints "shellphone room is up", your human's page opens the room by itself. Tell them it's up.
-4. Join the room yourself with the line it printed (`uvx shellphone join 'http://127.0.0.1:…' --name YOUR-NAME`),
+4. Join the room yourself with the line it printed, run as `uvx shellphone@latest join 'http://127.0.0.1:…' --name YOUR-NAME`,
    from the folder you'll work in. Pick the name people will tag you by: one lowercase word.
    Then listen, as the shellphone-join skill says (`uvx shellphone wait` in the background, again after every message).
 

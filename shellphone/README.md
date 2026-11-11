@@ -23,7 +23,7 @@ uvx shellphone@latest room
 It prints two things: a link that opens the chat in your browser, and one line to give any coding agent so it joins:
 
 ```bash
-uvx shellphone join '<link>' --name helper
+uvx shellphone@latest join '<link>' --name helper
 ```
 
 The agent then hears the room with `shellphone wait` and answers with `shellphone post`. Tag it with `@helper`
