@@ -227,6 +227,8 @@ class HostSide(unittest.TestCase):
                 answer = answers.pop(0)
                 if answer == "taken":
                     raise Taken()
+                if answer == "away":
+                    raise ConnectionError("no network")
                 return Cut()
             real = pipe.time.monotonic
             pipe.time.monotonic = lambda: clock[0]
@@ -244,7 +246,11 @@ class HostSide(unittest.TestCase):
         # Still "taken" a minute after the cut: someone else does host this room, and it stops.
         states, waits = run(["up"] + ["taken"] * 50, 20)
         self.assertEqual(states[-1][:8], "refused:")
-        self.assertEqual(waits, [1, 2, 4])  # paced, and the minute runs from the cut, not from each try: each wait takes 20 s here, so the third "taken" comes at the minute and is the last
+        self.assertEqual(waits, [1, 2, 4, 8])  # paced, and the minute runs from the first "taken", not from each try: each wait takes 20 s here, so the fourth comes at the minute and is the last
+        # Away for minutes (asleep, no network), then "taken" on coming back: the minute starts then, and the room comes up.
+        states, waits = run(["up"] + ["away"] * 10 + ["taken", "taken", "up"], 9)  # 90 s without a network, then 18 s of "taken"
+        self.assertEqual(states.count("up"), 2)
+        self.assertFalse([s for s in states if s.startswith("refused")])
         # Stopped while it waits to ask again: it ends there, quietly.
         states, waits = run(["up"] + ["taken"] * 50, 1, stop_at=3)
         self.assertEqual((states[-1], len(waits)), ("down", 3))
