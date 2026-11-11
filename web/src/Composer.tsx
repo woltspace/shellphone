@@ -6,6 +6,7 @@ import { File as FileIcon, Mic, Paperclip, Pause, SendHorizontal, X } from "luci
 import { relayRoom } from "./relay";
 import type { Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
+import { handle as handleOf, mentionNames } from "./mentions.js";
 
 // What you were typing, kept per box (the main chat, each thread) while you go back and forth.
 const drafts = new Map<string, string>();
@@ -33,11 +34,11 @@ export function Composer({ draft, wolts, people = [], working = {}, host, me, on
   };
   const unattach = (i: number) => { if (files[i].url) URL.revokeObjectURL(files[i].url!); setFiles(files.filter((_, j) => j !== i)); };
   const tag = text.match(/(?:^|\s)@([\w-]*)$/);
-  const handle = (p: Person) => p.name.trim().split(/\s+/)[0].replace(/[^\w-]/g, "");  // what @ inserts for a human
+  const handle = (p: Person) => handleOf(p.name);  // what @ inserts for a human (mentions.js)
   const tagOpts = tag ? wolts.filter((w) => w.wolt.toLowerCase().startsWith(tag[1].toLowerCase())) : [];
   const tagPeople = tag ? people.filter((p) => handle(p) && handle(p).toLowerCase().startsWith(tag[1].toLowerCase())) : [];
   const mirror = useRef<HTMLDivElement>(null);
-  const known = new Set([...wolts.map((w) => w.wolt.toLowerCase()), ...people.map((p) => handle(p).toLowerCase())]);
+  const known = mentionNames(wolts, people);
   const keep = (e: React.MouseEvent) => e.preventDefault();  // tapping a name keeps the keyboard up, so the list does not jump away under the finger
   const owner = (email: string) => people.find((p) => p.email === email);
   // a paused agent is off: it stays in the @ list, greyed, and a tag for it says so above the box (only the room's host

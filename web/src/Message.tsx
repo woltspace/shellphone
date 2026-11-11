@@ -5,6 +5,7 @@ import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
+import { mentionNames } from "./mentions.js";
 
 export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number) => void; retry?: (cid: string) => void };
 
@@ -12,7 +13,7 @@ const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|we
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
 function Words({ text, ctx }: { text: string; ctx: Ctx }) {
-  const names = new Set([...ctx.wolts.map((w) => w.wolt.toLowerCase()), ...ctx.people.map((p) => p.name.toLowerCase())]);
+  const names = mentionNames(ctx.wolts, ctx.people);  // same rule as the @ picker (mentions.js)
   // a little markdown, like the classic page: links, **bold**, `code`, and @tags
   return <>{text.split(/(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\*\*[^*\n]+\*\*|`[^`\n]+`|(?:^|\s)@[\w-]+)/g).map((part, i) => {
     if (/^https?:\/\//.test(part)) return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-acc underline break-all">{part}</a>;
