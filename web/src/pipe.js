@@ -36,6 +36,7 @@ export function open(link, options = {}) {
   const WS = options.WebSocket || globalThis.WebSocket;
   const timeout = options.timeout ?? 20000, waits = options.waits || [1000, 2000, 4000, 8000, 15000];
   const helloWait = options.helloWait ?? 8000;  // how long the host gets to answer the handshake
+  const pingEvery = options.pingEvery ?? 20000;  // "still here", said to the relay this often: it answers by itself, and learns when a page has gone without a goodbye
   const address = origin.replace(/^http/, "ws") + `/r/${room}/ws`, roomBytes = b64d(room, 16);
 
   let state = "connecting", ws = null, session = null, tries = 0, refusals = 0, nextId = 0, timer = null;
@@ -82,6 +83,11 @@ export function open(link, options = {}) {
     const sock = ws = new WS(address);
     let client = null, established = false, hello = null;
     sock.onopen = () => {
+      const beat = setInterval(() => {
+        if (sock !== ws || sock.readyState !== 1) return clearInterval(beat);
+        try { sock.send('{"ping":1}'); } catch { /* closing: the next turn clears it */ }
+      }, pingEvery);
+      beat.unref?.();  // under node (tests) it mustn't keep the process alive; a browser's timer has no such thing
       client = new Client(roomBytes, secret, kind);
       hello = setTimeout(() => {  // no answer to the handshake: give up on this socket now, without waiting for it to close politely
         if (established || sock !== ws) return;

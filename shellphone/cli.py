@@ -7,7 +7,7 @@
 
 The room is the same one as room.py; the agent side is the same connector.py. This is only the front door.
 """
-import argparse, contextlib, hmac, importlib.util, io, ipaddress, json, os, re, secrets, shlex, shutil, signal, socket, sys, tempfile, threading, urllib.error, urllib.parse
+import argparse, contextlib, hashlib, hmac, importlib.util, io, ipaddress, json, os, re, secrets, shlex, shutil, signal, socket, sys, tempfile, threading, urllib.error, urllib.parse
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -231,6 +231,8 @@ def host(a):
     ws = relay.replace("http", "ws", 1) + f"/r/{seal.b64e(room_id)}/host"
     link = threading.Thread(target=pipe.serve, daemon=True, kwargs=dict(
         url=ws, key=os.environ.get("SHELLPHONE_RELAY_KEY", ""), stop=stop, on_state=on_state, news=news,
+        # only the host's link holds all three, and the hash gives none of them away: the relay keeps it to know its room's host again
+        claim=seal.b64e(hashlib.sha256(b"shellphone-claim\0" + room_id + secret + token.encode()).digest()),
         new_pipe=lambda: pipe.HostPipe(room_id, {"h": secret, "i": invite_secret}, answer)))
     link.start()
     threading.Thread(target=watch, daemon=True).start()
