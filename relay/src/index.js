@@ -58,7 +58,9 @@ export default {
       return answer;
     }
     if (url.pathname === "/tap") {
-      // A tap on something that isn't built yet. All that arrives is which thing: no room, no person, no words.
+      // A tap on something that isn't built yet. All we record is which thing: no room, no person, no words.
+      // (The request itself still has what any request has, an address and headers; none of it is kept. And a
+      // count is only a count: anyone can send a tap, so it shows interest, not people.)
       const what = url.searchParams.get("what");
       if (request.method !== "POST" || !TAPS.includes(what)) return new Response("not found", { status: 404 });
       const now = Math.floor(Date.now() / 1000);
