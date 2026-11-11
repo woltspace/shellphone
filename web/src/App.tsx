@@ -7,9 +7,9 @@ import { Message, type Ctx } from "./Message";
 import { say, send, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
-import { ThreadFooter, ThreadList, threadColor, threadTitle, unread, useSeen } from "./Threads";
+import { InboxSheet, ThreadFooter, threadColor, threadTitle, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
-import { ChevronLeft, Menu as MenuIcon, MessagesSquare, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, X } from "lucide-react";
 import { usePush } from "./push";
 
 // iPhone Safari doesn't shrink the page for the keyboard, so size the app to the part of the screen still visible.
@@ -53,34 +53,122 @@ function Gnaw({ ctx, working, away = {} }: { ctx: Ctx; working: Record<string, u
 
 // Pictures full screen, like WhatsApp: swipe left and right through the ones sent together ("2 / 3" up top).
 // Always a way out: the ✕ (dark, so it shows on any picture), a tap, a swipe down, or Escape. A double tap zooms in.
+type Zoomer = { toggle: (x: number, y: number) => void; reset: () => void };
+
+// One picture you can pinch, pan and double-tap, like any picture on the web. The page itself never zooms (the room
+// would jump around), so the viewer does it: two fingers zoom around where they are, one finger moves a zoomed picture.
+function Zoomable({ src, bind, onZoom }: { src: string; bind: (z: Zoomer | null) => void; onZoom: (on: boolean) => void }) {
+  const box = useRef<HTMLDivElement>(null), img = useRef<HTMLImageElement>(null);
+  const s = useRef({ k: 1, x: 0, y: 0 });
+  const g = useRef<{ d: number; k: number; mx: number; my: number; x: number; y: number } | null>(null);
+  const last = useRef<{ x: number; y: number } | null>(null);
+  const said = useRef(onZoom); said.current = onZoom;
+  const center = () => { const r = box.current!.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, W: r.width, H: r.height }; };
+  const draw = (anim = false) => {
+    const el = img.current; if (!el) return;
+    el.style.transition = anim ? "transform .22s cubic-bezier(.2,.8,.2,1)" : "none";
+    el.style.transform = `translate(${s.current.x}px, ${s.current.y}px) scale(${s.current.k})`;
+    said.current(s.current.k > 1.02);
+  };
+  // zoom to k around the screen point (fx, fy), keeping what's under it in place
+  const zoomAt = (k: number, fx: number, fy: number, from = s.current) => {
+    const { cx, cy } = center(); k = Math.min(6, Math.max(1, k));
+    const ux = (fx - cx - from.x) / from.k, uy = (fy - cy - from.y) / from.k;
+    s.current = { k, x: fx - cx - k * ux, y: fy - cy - k * uy };
+  };
+  // a zoomed picture can't be pushed off screen; back at 1x it sits in the middle again
+  const settle = () => {
+    const el = img.current; if (!el) return;
+    const { W, H } = center(), { k } = s.current;
+    if (k < 1.05) { s.current = { k: 1, x: 0, y: 0 }; return draw(true); }
+    const mx = Math.max(0, (el.offsetWidth * k - W) / 2), my = Math.max(0, (el.offsetHeight * k - H) / 2);
+    s.current.x = Math.max(-mx, Math.min(mx, s.current.x)); s.current.y = Math.max(-my, Math.min(my, s.current.y));
+    draw(true);
+  };
+  useEffect(() => {
+    bind({
+      toggle: (x, y) => { if (s.current.k > 1.02) s.current = { k: 1, x: 0, y: 0 }; else zoomAt(2.5, x, y); settle(); },
+      reset: () => { s.current = { k: 1, x: 0, y: 0 }; draw(); },
+    });
+    return () => bind(null);
+  }, []);
+  useEffect(() => {
+    const el = box.current!;
+    const pts = (e: TouchEvent) => [...e.touches].map((t) => ({ x: t.clientX, y: t.clientY }));
+    const start = (e: TouchEvent) => {
+      const p = pts(e);
+      if (p.length === 2) { e.preventDefault(); g.current = { d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y), k: s.current.k, mx: (p[0].x + p[1].x) / 2, my: (p[0].y + p[1].y) / 2, x: s.current.x, y: s.current.y }; }
+      last.current = p.length === 1 ? p[0] : null;
+    };
+    const move = (e: TouchEvent) => {
+      const p = pts(e);
+      if (p.length === 2 && g.current) {
+        e.preventDefault();
+        const G = g.current, d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y), mx = (p[0].x + p[1].x) / 2, my = (p[0].y + p[1].y) / 2;
+        zoomAt(G.k * d / G.d, G.mx, G.my, { k: G.k, x: G.x, y: G.y });
+        s.current.x += mx - G.mx; s.current.y += my - G.my;  // the fingers carry the picture as they go
+        draw();
+      } else if (p.length === 1 && s.current.k > 1.02 && last.current) {
+        e.preventDefault();  // zoomed in: one finger moves the picture, not the carousel
+        s.current.x += p[0].x - last.current.x; s.current.y += p[0].y - last.current.y; last.current = p[0];
+        draw();
+      }
+    };
+    const end = (e: TouchEvent) => {
+      if (e.touches.length < 2) g.current = null;
+      last.current = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+      if (!e.touches.length) settle();
+    };
+    // a trackpad pinch arrives as a wheel with ctrl held; a plain wheel moves a zoomed picture
+    const wheel = (e: WheelEvent) => {
+      if (e.ctrlKey) { e.preventDefault(); zoomAt(s.current.k * Math.exp(-e.deltaY / 100), e.clientX, e.clientY); draw(); clearTimeout(wt); wt = window.setTimeout(settle, 150); }
+      else if (s.current.k > 1.02) { e.preventDefault(); s.current.x -= e.deltaX; s.current.y -= e.deltaY; draw(); clearTimeout(wt); wt = window.setTimeout(settle, 150); }
+    };
+    let wt = 0;
+    const no = (e: Event) => e.preventDefault();  // Safari's own page pinch
+    el.addEventListener("touchstart", start, { passive: false }); el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end); el.addEventListener("touchcancel", end); el.addEventListener("wheel", wheel, { passive: false });
+    el.addEventListener("gesturestart", no); el.addEventListener("gesturechange", no);
+    return () => {
+      el.removeEventListener("touchstart", start); el.removeEventListener("touchmove", move); el.removeEventListener("touchend", end);
+      el.removeEventListener("touchcancel", end); el.removeEventListener("wheel", wheel); el.removeEventListener("gesturestart", no); el.removeEventListener("gesturechange", no);
+    };
+  }, []);
+  return <div ref={box} className="flex-none w-full h-full grid place-items-center snap-center snap-always overflow-hidden">
+    <img ref={img} src={src} alt="" draggable={false} className="max-w-[94vw] max-h-[86dvh] object-contain rounded-md will-change-transform select-none" style={{ transformOrigin: "50% 50%" }} /></div>;
+}
+
 function Viewer({ urls, at, close }: { urls: string[]; at: number; close: () => void }) {
-  const [big, setBig] = useState(false), [i, setI] = useState(at);
-  const strip = useRef<HTMLDivElement>(null), tap = useRef(0), from = useRef<{ x: number; y: number } | null>(null);
+  const [zoomed, setZoomed] = useState(false), [i, setI] = useState(at);
+  const strip = useRef<HTMLDivElement>(null), tap = useRef(0), lastTap = useRef(0), from = useRef<{ x: number; y: number } | null>(null);
+  const zoomers = useRef<Record<number, Zoomer | null>>({});
   const go = (to: number) => { const s = strip.current; if (s) s.scrollTo({ left: Math.max(0, Math.min(urls.length - 1, to)) * s.clientWidth, behavior: "smooth" }); };
-  useLayoutEffect(() => { const s = strip.current; if (s) s.scrollLeft = i * s.clientWidth; }, [big]);  // opening, and back from zoom, on the same picture
+  useLayoutEffect(() => { const s = strip.current; if (s) s.scrollLeft = i * s.clientWidth; }, []);  // opens on the picture you tapped
+  useEffect(() => { for (const [j, z] of Object.entries(zoomers.current)) if (+j !== i) z?.reset(); }, [i]);  // the others back to 1x
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") close(); if (e.key === "ArrowRight") go(i + 1); if (e.key === "ArrowLeft") go(i - 1); };
     addEventListener("keydown", key); return () => removeEventListener("keydown", key);
   }, [i]);
   const btn = "fixed w-11 h-11 grid place-items-center rounded-full bg-[#000c] border-2 border-white text-white text-xl cursor-pointer shadow-[0_2px_8px_#0008]";
   return <div className="fixed inset-0 z-[3000] bg-[#000e]"
-    onClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; clearTimeout(tap.current); if (!big) tap.current = window.setTimeout(close, 260); }}
-    onDoubleClick={() => { clearTimeout(tap.current); setBig(!big); }}
+    // one tap closes (unless zoomed in), two quick taps zoom in where you tapped, or back out
+    onClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; clearTimeout(tap.current);
+      if (Date.now() - lastTap.current < 300) { lastTap.current = 0; zoomers.current[i]?.toggle(e.clientX, e.clientY); return; }
+      lastTap.current = Date.now(); if (!zoomed) tap.current = window.setTimeout(close, 300); }}
     onTouchStart={(e) => { from.current = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }}
     onTouchEnd={(e) => { const f = from.current, t = e.changedTouches[0]; from.current = null;
-      if (f && !big && t.clientY - f.y > 80 && Math.abs(t.clientX - f.x) < 60) close(); }}>
-    {big ? <div className="w-full h-full overflow-auto grid place-items-center"><img src={urls[i]} alt="" className="max-w-none w-[250vw]" /></div>
-      : <div ref={strip} onScroll={(e) => setI(Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth))}
-          className="w-full h-full flex overflow-x-auto snap-x snap-mandatory overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {urls.map((u) => <div key={u} className="flex-none w-full h-full grid place-items-center snap-center snap-always">
-            <img src={u} alt="" draggable={false} className="max-w-[94vw] max-h-[86dvh] object-contain rounded-md" /></div>)}
-        </div>}
+      if (f && !zoomed && t.clientY - f.y > 80 && Math.abs(t.clientX - f.x) < 60) close(); }}>
+    <div ref={strip} onScroll={(e) => setI(Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth))}
+      className={`w-full h-full flex ${zoomed ? "overflow-hidden" : "overflow-x-auto"} snap-x snap-mandatory overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}
+      style={{ touchAction: zoomed ? "none" : "pan-x" }}>
+      {urls.map((u, j) => <Zoomable key={u} src={u} bind={(z) => { zoomers.current[j] = z; }} onZoom={setZoomed} />)}
+    </div>
     {urls.length > 1 && <>
       <div className="fixed top-[calc(22px+env(safe-area-inset-top))] left-0 right-0 text-center font-mono text-sm text-white pointer-events-none">{i + 1} / {urls.length}</div>
       <div className="fixed bottom-[calc(18px+env(safe-area-inset-bottom))] left-0 right-0 flex justify-center gap-1.5 pointer-events-none">
         {urls.map((u, j) => <i key={u} className={`w-1.5 h-1.5 rounded-full ${j === i ? "bg-white" : "bg-[#fff6]"}`} />)}</div>
-      {!big && i > 0 && <button type="button" aria-label="Previous" onClick={() => go(i - 1)} className={btn + " left-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>‹</button>}
-      {!big && i < urls.length - 1 && <button type="button" aria-label="Next" onClick={() => go(i + 1)} className={btn + " right-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>›</button>}
+      {!zoomed && i > 0 && <button type="button" aria-label="Previous" onClick={() => go(i - 1)} className={btn + " left-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>‹</button>}
+      {!zoomed && i < urls.length - 1 && <button type="button" aria-label="Next" onClick={() => go(i + 1)} className={btn + " right-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>›</button>}
     </>}
     <button type="button" aria-label="Close" onClick={close} className={btn + " top-[calc(12px+env(safe-area-inset-top))] right-3"}>✕</button>
   </div>;
@@ -92,20 +180,16 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick }:
   list: Msg[]; ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number>; replies?: Map<string, Msg[]>; seen?: Record<string, number>;
   open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<(on?: boolean) => void>;
 }) {
-  const scroller = useRef<HTMLDivElement>(null), stuck = useRef(true);
-  stick.current = (on = true) => { stuck.current = on; };
-  const last = list.at(-1);
-  useLayoutEffect(() => { const s = scroller.current; if (s && stuck.current) s.scrollTop = s.scrollHeight; }, [list.length, last?.pending, working, replies]);
-  // the keyboard opening, the suggestion bar, or the text box growing a line all shrink the chat: keep the last message in view
-  useEffect(() => {
-    const s = scroller.current; if (!s) return;
-    const ro = new ResizeObserver(() => { if (stuck.current) s.scrollTop = s.scrollHeight; });
-    ro.observe(s);
-    return () => ro.disconnect();
-  }, []);
-  const onScroll = () => { const s = scroller.current!; stuck.current = s.scrollHeight - s.scrollTop - s.clientHeight < 80; };
+  // The chat is laid out from the bottom up (column-reverse), like chat apps do: the browser itself keeps the newest
+  // message in place while pictures, players and cards load, and while new messages arrive. No pinning code to fight it.
+  // scrollTop is 0 at the bottom and goes negative as you read back up.
+  const scroller = useRef<HTMLDivElement>(null);
+  const [far, setFar] = useState(false);  // scrolled well up: show the jump-to-the-bottom button
+  const toBottom = (smooth = true) => scroller.current?.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
+  stick.current = (on = true) => { if (on) toBottom(false); };  // sending, or coming back after a while: the newest
+  const onScroll = () => setFar(-scroller.current!.scrollTop > 600);
   let lastDay = "", lastWho = "";
-  return <div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain pt-1">
+  return <div className="flex-1 min-h-0 relative flex flex-col"><div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain flex flex-col-reverse"><div className="pt-1">
     {list.length === 0 && <p className="text-center text-dim font-mono text-xs mt-10 px-6">Nobody has said anything yet. Tag a wolt with @ to bring it in.</p>}
     {list.map((m, i) => {
       const d = new Date(m.at * 1000), day = d.toLocaleDateString([], { day: "numeric", month: "long" });
@@ -126,6 +210,10 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick }:
       </div>;
     })}
     <Gnaw ctx={ctx} working={working} away={away} />
+  </div></div>
+    {far && <button type="button" aria-label="Jump to the newest" onClick={() => toBottom()}
+      className="absolute right-3 bottom-3 z-10 w-11 h-11 rounded-full bg-panel border border-line text-acc grid place-items-center shadow-[0_2px_10px_#18100a2e] cursor-pointer animate-[fadein_.15s_ease-out]">
+      <ChevronDown size={22} /></button>}
   </div>;
 }
 // Swipes move the screen itself, frame by frame, without redrawing the chat: smooth under your finger.
@@ -144,6 +232,41 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 };
 
 // Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
+// A thread pops up over the main chat, like the voice-note sheet: you're still in the room, just looking closer.
+// Drag the handle down, tap above it, or tap ✕ to drop back.
+function ThreadSheet({ color, title, count, close, children }: { color: string; title: string; count: number; close: () => void; children: React.ReactNode }) {
+  const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null), [full, setFull] = useState(false);
+  // the handle on top and the strip down the right edge both move the sheet with your finger: far enough down, it closes
+  const grip = {
+    onTouchStart: (e: React.TouchEvent) => setDrag({ y: e.touches[0].clientY, dy: 0 }),
+    onTouchMove: (e: React.TouchEvent) => drag && setDrag({ ...drag, dy: e.touches[0].clientY - drag.y }),
+    // up far enough: full screen; down from full screen: back to the tray; down from the tray: closed
+    onTouchEnd: () => { if (drag) { if (drag.dy < -60) setFull(true); else if (drag.dy > 80) { if (full) setFull(false); else close(); } } setDrag(null); },
+  };
+  return <div className="absolute inset-0 z-[1580]">
+    <div onClick={close} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
+    <div role="dialog" aria-label="Thread" style={{ transform: drag ? `translateY(${Math.max(full ? 0 : -96, drag.dy)}px)` : undefined, transition: drag ? "none" : "top .25s cubic-bezier(.2,.8,.2,1), transform .25s cubic-bezier(.2,.8,.2,1)" }}
+      className={`absolute inset-x-0 bottom-0 ${full ? "top-[env(safe-area-inset-top)]" : "top-[calc(env(safe-area-inset-top)+96px)]"} max-w-[640px] mx-auto bg-[#f5f1e88c] backdrop-blur-sm rounded-t-[18px] flex flex-col overflow-hidden shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]`}>
+      <div className="flex-none touch-none bg-[#fffdf680] border-b border-line" style={{ boxShadow: `inset 0 3px 0 ${color}` }}
+        {...grip}>
+        <div className="w-10 h-[5px] rounded-full bg-line mx-auto mt-2" />
+        <div className="flex items-center gap-2 pl-4 pr-1.5 pb-1.5">
+          <div className="min-w-0 flex-1">
+            <div className="font-mono font-semibold truncate" style={{ color }}>{title}</div>
+            <div className="font-mono text-[11px] text-dim">thread · {count} {count === 1 ? "reply" : "replies"}</div>
+          </div>
+          <button type="button" aria-label="Close the thread" onClick={close} className="flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={20} /></button>
+        </div>
+      </div>
+      {children}
+      <div {...grip} aria-hidden className="absolute right-0 top-14 bottom-24 w-6 touch-none z-10 flex justify-center">
+        <i className="mt-[30%] w-[4px] h-14 rounded-full bg-line" /></div>
+      <div {...grip} aria-hidden className="absolute left-0 top-14 bottom-24 w-6 touch-none z-10 flex justify-center">
+        <i className="mt-[30%] w-[4px] h-14 rounded-full bg-line" /></div>
+    </div>
+  </div>;
+}
+
 function useSwipeBack(close: () => void) {
   const el = useRef<HTMLDivElement>(null), s = useRef<Pt | null>(null), v = useRef(0);
   const back = () => { glide(el.current, "translateX(100%)"); setTimeout(close, 200); };
@@ -257,7 +380,7 @@ export function App() {
     return { main, replies };
   }, [msgs]);
   const root = thread ? msgs.find((m) => m.id === thread) : undefined;
-  const [listOpen, setListOpen] = useState(() => !location.hash.includes("m="));  // home: the threads list
+  const [listOpen, setListOpen] = useState(false);  // the inbox sheet; home is always the main chat
   const [menu, setMenu] = useState(false);
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
@@ -269,6 +392,12 @@ export function App() {
   const threadsSeen = useRef(false); threadsSeen.current = replies.size > 0;
   useEffect(() => { if (!settled.current && state.me) { settled.current = true; if (!replies.size) setListOpen(false); } }, [state.me]);
   const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
+  // the main chat counts as read while it's on screen; what arrives while you're in a thread waits in the inbox
+  const mainFresh = main.filter((m) => m.n > (seen.main || 0) && !(m.kind === "human" && m.email === state.me));
+  useEffect(() => { if (!thread && main.length) mark("main", main.at(-1)!.n); }, [thread, main]);
+  const inboxCount = freshCount + mainFresh.length;
+  const hdr = useRef<HTMLElement>(null), [hdrH, setHdrH] = useState(0);
+  useLayoutEffect(() => { const el = hdr.current; if (!el) return; const ro = new ResizeObserver(() => setHdrH(el.offsetHeight)); ro.observe(el); return () => ro.disconnect(); }, []);
   const swipe = useSwipeBack(() => setThread(""));
 
   // Where the app opens. A tapped notification lands on its message: inside its thread if it's a reply, or the main
@@ -304,7 +433,7 @@ export function App() {
     const seen = () => {
       if (document.hidden) { hidden = Date.now(); return; }
       noted();
-      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(threadsSeen.current); setMenu(false); stickMain.current(); }
+      if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(false); setMenu(false); stickMain.current(); }
     };
     document.addEventListener("visibilitychange", seen);
     return () => { navigator.serviceWorker?.removeEventListener("message", fromNote); document.removeEventListener("visibilitychange", seen); };
@@ -330,8 +459,8 @@ export function App() {
     const h = new URLSearchParams(location.hash.slice(1));
     if (h.get("m") && !target.current && (listOpen || (h.get("t") || "") !== thread)) history.replaceState(null, "", location.pathname);
   }, [thread, listOpen]);
-  const listSwipe = useSwipeBack(() => setListOpen(false));
-  const menuSwipe = useMenuSwipe(menu, setMenu, !thread && !listOpen);
+
+  const menuSwipe = useMenuSwipe(menu, setMenu, !listOpen);
 
   // New voice notes from wolts play one after another, unless you picked something to hear yourself.
   const playing = useRef<HTMLAudioElement | null>(null);
@@ -346,7 +475,7 @@ export function App() {
     a.play().catch(() => { playing.current = null; setError("Tap to hear new voice notes"); });
   }, [fresh, msgs]);
   useEffect(() => {
-    const tap = () => { if (error === "Tap to hear new voice notes") setError(""); setFresh((f) => [...f]); };
+    const tap = () => { if (error === "Tap to hear new voice notes") { setError(""); setFresh((f) => [...f]); } };  // only when it asked for a tap: any other tap is yours
     const mine = (e: Event) => { document.querySelectorAll("audio").forEach((a) => a !== e.target && a.pause()); playing.current?.pause(); playing.current = null; setFresh([]); };
     document.addEventListener("pointerdown", tap); document.addEventListener("play", mine, true);
     return () => { document.removeEventListener("pointerdown", tap); document.removeEventListener("play", mine, true); };
@@ -446,7 +575,7 @@ export function App() {
   const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
   return (
     <div className="h-full flex flex-col relative" {...menuSwipe.screen}>
-      <header className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
+      <header ref={hdr} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
         {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
         <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={() => setMenu(!menu)}
           className={`relative ${menu ? "z-[1720]" : ""} flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-[10px]`}>
@@ -458,26 +587,19 @@ export function App() {
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
           <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
         </div>
-        <button type="button" aria-label="Threads" onClick={() => setListOpen(true)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
-          <MessagesSquare size={22} />{freshCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{freshCount}</span>}
+        <button type="button" aria-label="Inbox" onClick={() => setListOpen(!listOpen)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
+          <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>
       </header>
       <Feed list={main} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
       {!thread && composer}
-      {listOpen && !thread && <div ref={listSwipe.el} {...listSwipe.handlers} className="absolute inset-0 z-[1500] will-change-transform">
-        <ThreadList roots={roots} replies={replies} ctx={ctx} seen={seen} onOpen={open} onClose={listSwipe.back} /></div>}
-      {thread && <div ref={swipe.el} {...swipe.handlers} className="absolute inset-0 z-[1550] bg-paper flex flex-col will-change-transform animate-[slidein_.22s_cubic-bezier(.2,.8,.2,1)]">
-        <header className="flex-none flex items-center gap-2 px-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line" style={{ boxShadow: `inset 4px 0 0 ${threadColor(thread)}` }}>
-          <button type="button" aria-label="Back" onClick={swipe.back} className="w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>
-          <div className="min-w-0 flex-1">
-            <div className="font-mono font-semibold truncate" style={{ color: threadColor(thread) }}>{threadTitle(root)}</div>
-            <div className="font-mono text-[11px] text-dim truncate">{(replies.get(thread) || []).length} replies · started by {root ? (root.kind === "human" ? person(root.email).name : root.wolt) : ""}</div>
-          </div>
-        </header>
+      {listOpen && <InboxSheet top={hdrH} main={mainFresh} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
+        onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
+      {thread && <ThreadSheet color={threadColor(thread)} title={threadTitle(root)} count={(replies.get(thread) || []).length} close={() => setThread("")}>
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
-      </div>}
-      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={freshCount} onThreads={() => { setThread(""); setListOpen(true); }} />
+      </ThreadSheet>}
+      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} />
       {naming && <NameFirst done={() => setNaming(false)} />}
       {relayRoom && (relayKeyMissing || (link !== "open" && !(naming && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}

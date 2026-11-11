@@ -1,6 +1,6 @@
 // One bubble: who said it, the words (with @tags), a voice note with its words, a file or picture, a card.
 import { relayRoom } from "./relay";
-import { useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
@@ -23,22 +23,47 @@ function Words({ text, ctx }: { text: string; ctx: Ctx }) {
   })}</>;
 }
 
-// A round play button and a line that fills as it plays. Only one sound at a time: the app pauses the others.
-function Player({ src, seconds }: { src?: string; seconds?: number }) {
-  const a = useRef<HTMLAudioElement>(null);
-  const [on, setOn] = useState(false), [at, setAt] = useState(0), [len, setLen] = useState(seconds || 0);
+// A round play button, a waveform that fills as it plays, and the length. The bars aren't the real sound: they're
+// drawn from the note itself so each one looks its own and you can see there's something in it.
+function bars(seed: string, n: number) {
+  let h = [...seed].reduce((x, c) => (x * 31 + c.charCodeAt(0)) >>> 0, 2166136261);
+  const rnd = () => ((h = (h * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  return Array.from({ length: n }, (_, i) => { const edge = Math.min(1, (i + 1) / 3, (n - i) / 3); return Math.max(0.15, (0.35 + 0.65 * rnd()) * edge); });
+}
+function Player({ src, seconds, seed, guess }: { src?: string; seconds?: number; seed: string; guess?: number }) {
+  // The button follows your taps, never the audio's own events: tap = play, tap again = pause, as fast as you like.
+  // The sound catches up with the last tap. A ring spins while it's meant to play but nothing is coming out yet.
+  const a = useRef<HTMLAudioElement>(null), tap = useRef(0);
+  const [want, setWant] = useState(false), [sounding, setSounding] = useState(false);
+  const [at, setAt] = useState(0), [len, setLen] = useState(seconds || 0), [pressed, setPressed] = useState(false);
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const shape = useMemo(() => bars(seed, 32), [seed]);
+  const shown = len || guess || 0, done = len ? at / len : 0;
+  const toggle = () => {
+    const el = a.current; if (!el) return;
+    const mine = ++tap.current;
+    if (want) { setWant(false); setSounding(false); el.pause(); return; }
+    setWant(true);
+    el.play().catch(() => { if (tap.current === mine) { setWant(false); setSounding(false); } });  // a later tap already decided
+  };
   return <div className="flex items-center gap-2.5 h-9">
-    <audio ref={a} src={src} preload="none" onPlay={() => setOn(true)} onPause={() => setOn(false)} onEnded={() => { setOn(false); setAt(0); }}
-      onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)} onLoadedMetadata={(e) => isFinite(e.currentTarget.duration) && setLen(e.currentTarget.duration)} />
-    <button type="button" aria-label={on ? "Pause" : "Play"} disabled={!src} onClick={() => (on ? a.current?.pause() : a.current?.play())}
-      className="flex-none w-8 h-8 rounded-full bg-acc grid place-items-center border-0 cursor-pointer disabled:opacity-40">
-      <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white">{on ? <path d="M7 5h4v14H7zM13 5h4v14h-4z" /> : <path d="M8 5v14l11-7z" />}</svg>
+    <audio ref={a} src={src} preload="none"
+      onPause={(e) => { if (!e.currentTarget.ended) { setWant(false); setSounding(false); } }}  // paused from elsewhere: another note started
+      onEnded={() => { setWant(false); setSounding(false); setAt(0); }}
+      onWaiting={() => setSounding(false)}
+      onTimeUpdate={(e) => { const t = e.currentTarget.currentTime; setAt(t); if (t > 0.05 && !e.currentTarget.paused) setSounding(true); }}
+      onDurationChange={(e) => isFinite(e.currentTarget.duration) && e.currentTarget.duration > 0 && setLen(e.currentTarget.duration)} />
+    <button type="button" aria-label={want ? "Pause" : "Play"} disabled={!src} onClick={toggle}
+      onPointerDown={() => setPressed(true)} onPointerUp={() => setPressed(false)} onPointerLeave={() => setPressed(false)} onPointerCancel={() => setPressed(false)}
+      style={{ transform: pressed ? "scale(.85)" : undefined }}
+      className="relative flex-none w-8 h-8 rounded-full bg-acc grid place-items-center border-0 cursor-pointer disabled:opacity-40 transition-transform duration-100 touch-manipulation">
+      {want && !sounding && <i className="absolute -inset-[3px] rounded-full border-2 border-[#c4531e33] border-t-acc animate-spin" />}
+      <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white">{want ? <path d="M7 5h4v14H7zM13 5h4v14h-4z" /> : <path d="M8 5v14l11-7z" />}</svg>
     </button>
-    <div className="flex-1 h-1 rounded bg-line overflow-hidden cursor-pointer" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); if (a.current && len) a.current.currentTime = ((e.clientX - r.left) / r.width) * len; }}>
-      <div className="h-full bg-acc" style={{ width: `${len ? Math.min(100, (at / len) * 100) : 0}%` }} />
+    <div className="flex-1 h-7 flex items-center gap-[2px] cursor-pointer" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); if (a.current && len) a.current.currentTime = ((e.clientX - r.left) / r.width) * len; }}>
+      {shape.map((v, i) => <i key={i} className={`flex-1 rounded-full transition-colors ${(i + 0.5) / shape.length <= done ? "bg-acc" : "bg-[#c4b8a4]"}`} style={{ height: `${Math.round(v * 100)}%` }} />)}
     </div>
-    <span className="font-mono text-[11px] text-dim tabular-nums">{fmt(on || at ? at : len)}</span>
+    <span className="flex-none font-mono text-[11px] text-dim tabular-nums">{shown ? (!len ? "~" : "") + fmt(want || at ? at : shown) : "–:––"}</span>
   </div>;
 }
 
@@ -53,7 +78,7 @@ function Voice({ m, ctx }: { m: Msg; ctx: Ctx }) {
   const [open, setOpen] = useState(false);
   const src = m.localUrl || (m.audio && m.audio !== "local" && !relayRoom ? "/voice/" + m.audio : undefined);  // through the relay: words only, for now
   return <div className="w-[min(260px,68vw)]">
-    <Player src={src} seconds={m.seconds} />
+    <Player src={src} seconds={m.seconds} seed={m.id || m.cid || "v"} guess={m.text ? Math.max(1, m.text.split(/\s+/).length / 2.6) : undefined} />
     {m.failed ? <Unsent m={m} ctx={ctx} /> : m.pending
       ? <div className="h-5 leading-5 mt-1.5 text-xs text-dim flex items-center gap-1.5 animate-[pulse-soft_1.4s_ease-in-out_infinite]"><i className="w-[11px] h-[11px] border-2 border-line border-t-acc rounded-full animate-spin" />transcribing</div>
       : m.text ? <div data-tap onClick={() => setOpen(!open)} className={`mt-1.5 text-sm leading-snug whitespace-pre-wrap cursor-pointer ${open ? "" : "line-clamp-1 text-dim"}`}>
