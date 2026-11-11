@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My rooms · shellphone</title>
+<link rel="icon" href="/icon-180.png">
+<style>
+  :root { --bg:#f5f1e8; --panel:#fbf9f3; --ink:#18100a; --soft:#5c4d3c; --muted:#8a7a68; --line:#ddd5c5; --acc:#c4531e; --ok:#5e7a2c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system,BlinkMacSystemFont,system-ui,sans-serif; }
+  nav { border-bottom:1px solid var(--line); padding:14px 18px; }
+  nav a { font:600 21px ui-monospace,Menlo,monospace; letter-spacing:-.5px; text-decoration:none; color:var(--ink); } nav i { color:var(--acc); font-style:normal; }
+  main { max-width:560px; margin:0 auto; padding:30px 18px 60px; }
+  h1 { font-size:30px; line-height:1.1; letter-spacing:-1px; margin:0 0 12px; }
+  p { color:var(--soft); margin:0 0 16px; }
+  button { padding:12px 15px; font:600 15px -apple-system,system-ui,sans-serif; border:1px solid var(--acc); background:var(--acc); color:#fff; cursor:pointer; }
+  button.alt { background:var(--panel); color:var(--ink); border-color:var(--line); }
+  ul { list-style:none; margin:0 0 18px; padding:0; border:1px solid var(--line); background:var(--panel); }
+  li { display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--line); }
+  li:last-child { border-bottom:0; }
+  li a.open { flex:1; min-width:0; display:flex; align-items:center; gap:12px; padding:14px; color:var(--ink); text-decoration:none; }
+  li b { display:block; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  li small { display:block; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  li span.t { min-width:0; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--line); flex:none; } .dot.ok { background:var(--ok); }
+  li button.x { padding:8px 14px; background:none; border:0; color:var(--muted); font-size:18px; }
+  .empty { border:1px dashed var(--line); background:var(--panel); padding:14px; color:var(--soft); margin:0 0 18px; }
+  .add { border:1px solid var(--acc); background:var(--panel); padding:14px; margin:0 0 18px; }
+  .add ul { margin:10px 0 12px; }
+  .add li { padding:10px 14px; display:block; }
+  .row { display:flex; gap:8px; } .row > * { flex:1; }
+  .small { font-size:13px; color:var(--muted); }
+  label { display:block; font-size:13px; color:var(--muted); margin:18px 0 4px; }
+  input { width:100%; font:14px ui-monospace,Menlo,monospace; padding:10px; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
+  a { color:var(--acc); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<nav><a href="/">shellphone<i>.</i></a></nav>
+<main>
+  <h1>My rooms</h1>
+  <div class="add" id="adding" hidden>
+    <b>Add these rooms to this list?</b>
+    <ul id="toadd"></ul>
+    <div class="row"><button id="yes">Add them</button><button id="no" class="alt">No</button></div>
+  </div>
+  <ul id="list" hidden></ul>
+  <div class="empty" id="empty" hidden>No rooms on this device yet. A room you open here shows up on its own.</div>
+  <label for="link">Add a room by its link</label>
+  <div class="row"><input id="link" placeholder="https://…" autocomplete="off" spellcheck="false"><button id="go" style="flex:none">Add</button></div>
+  <p class="small" style="margin-top:14px">This list lives in this browser only: its names and links aren't sent anywhere. A green dot means the room is up right now: for rooms that run through shellphone.woltspace.app, this page asks the relay about each one by its id.</p>
+</main>
+<script>
+// Two kinds of rooms. Rooms through this relay (/r/<id>) are listed by the room page itself when you open one
+// (sp-rooms: name and when; the key is in sp-room-<id>, where the room page keeps it). Rooms that run straight from
+// their own address (a lodge's room) live on another site, so this page can't see them: they are added once, by
+// hand or with a link a wolt makes, /rooms#add=<base64url JSON [[name, url], …]>, and kept in sp-links. No keys there.
+const $ = (id) => document.getElementById(id);
+const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || "null") || d; } catch { return d; } };
+const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const ID = /^[A-Za-z0-9_-]{22}$/;
+const ago = (t) => { if (!t) return ""; const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? "open just now" : m < 60 ? `open ${m} min ago` : m < 1440 ? `open ${Math.round(m / 60)} h ago` : `open ${Math.round(m / 1440)} d ago`; };
+// a room's address: https, or http on this computer only. Anything else (javascript:, data:, a user:password@) is refused,
+// when it's added and again before it becomes a link
+const web = (u) => { try { const x = new URL(u);
+  const ok = x.protocol === "https:" || (x.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(x.hostname));
+  return ok && !x.username && !x.password ? x : null; } catch { return null; } };
+
+function rooms() {
+  const seen = read("sp-rooms", {}), out = [];
+  const ids = new Set(Object.keys(seen));
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("sp-room-")) ids.add(k.slice(8)); } } catch {}
+  for (const id of ids) {
+    if (!ID.test(id)) continue;
+    let has = false; try { has = !!localStorage.getItem("sp-room-" + id); } catch {}
+    if (!has) continue;  // without its key the room can't be opened from here
+    out.push({ relay: id, name: seen[id]?.title || "Room " + id.slice(0, 6), url: "/r/" + id, at: seen[id]?.at || 0 });
+  }
+  for (const l of read("sp-links", [])) { const u = l && typeof l.name === "string" && web(l.url); if (u) out.push({ name: l.name, url: u.href, at: l.at || 0 }); }
+  return out.sort((a, b) => b.at - a.at || a.name.localeCompare(b.name));
+}
+
+function forget(r) {
+  if (r.relay) {
+    if (!confirm(`Forget "${r.name}" on this device? Its key goes too: you'd need the link again to get back in.`)) return;
+    const seen = read("sp-rooms", {}); delete seen[r.relay]; write("sp-rooms", seen);
+    try { localStorage.removeItem("sp-room-" + r.relay); localStorage.removeItem("sp-guest-" + r.relay); } catch {}
+  } else write("sp-links", read("sp-links", []).filter((l) => l.url !== r.url));
+  show();
+}
+
+function opened(r) {  // a room on another site: remember when, so the list keeps the ones you use on top
+  if (r.relay) return;
+  write("sp-links", read("sp-links", []).map((l) => l.url === r.url ? { ...l, at: Date.now() } : l));
+}
+
+function show() {
+  const all = rooms(), list = $("list");
+  list.replaceChildren(...all.map((r) => {
+    const li = document.createElement("li"), a = document.createElement("a"), dot = document.createElement("span"), t = document.createElement("span");
+    a.className = "open"; a.href = r.url; a.onclick = () => opened(r);
+    dot.className = "dot"; t.className = "t";
+    const b = document.createElement("b"), s = document.createElement("small");
+    b.textContent = r.name; s.textContent = r.relay ? ago(r.at) : web(r.url)?.host || r.url;
+    t.append(b, s); a.append(dot, t);
+    const x = document.createElement("button"); x.className = "x"; x.textContent = "×"; x.setAttribute("aria-label", "Forget " + r.name); x.onclick = () => forget(r);
+    li.append(a, x);
+    if (r.relay) fetch(`/r/${r.relay}/up`, { cache: "no-store" }).then((x) => x.ok && x.json()).then((u) => { if (u && u.up) dot.className = "dot ok"; }).catch(() => {});
+    else dot.style.visibility = "hidden";
+    return li;
+  }));
+  list.hidden = !all.length; $("empty").hidden = !!all.length;
+}
+
+function add(items) {  // [[name, url], …]: only web addresses, and nothing already listed
+  const have = new Set(read("sp-links", []).map((l) => l.url));
+  const fresh = items.filter(([n, u]) => typeof n === "string" && web(u) && !have.has(web(u).href)).map(([n, u]) => ({ name: n.slice(0, 80), url: web(u).href, at: 0 }));
+  write("sp-links", [...read("sp-links", []), ...fresh]);
+  show();
+}
+
+// a link someone (or a wolt) made: show what it adds that isn't listed yet, and add only on a yes
+let offered = [];
+function offer() {
+  const m = location.hash.match(/^#add=([A-Za-z0-9_-]+)$/);
+  if (!m) return;
+  history.replaceState(null, "", location.pathname);
+  try { offered = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(m[1].replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)))); } catch { offered = []; }
+  const have = new Set(read("sp-links", []).map((l) => l.url));
+  offered = Array.isArray(offered) ? offered.filter((x) => Array.isArray(x) && typeof x[0] === "string" && web(x[1]) && !have.has(web(x[1]).href)).slice(0, 100) : [];
+  $("toadd").replaceChildren(...offered.map(([n, u]) => { const li = document.createElement("li"), b = document.createElement("b"), s = document.createElement("small");
+    b.textContent = n; s.textContent = web(u).host; li.append(b, s); return li; }));
+  $("adding").hidden = !offered.length;
+}
+offer();
+addEventListener("hashchange", offer);  // a link opened while this page is already open
+$("yes").onclick = () => { add(offered); $("adding").hidden = true; };
+$("no").onclick = () => { $("adding").hidden = true; };
+
+$("go").onclick = () => {
+  const v = $("link").value.trim(), u = web(v);
+  if (!u) { $("link").focus(); return; }
+  if (u.origin === location.origin && /^\/r\/[A-Za-z0-9_-]{22}\/?$/.test(u.pathname)) return location.assign(u.href);  // a room here: opening it lists it, key and all
+  add([[u.host.split(".")[0], u.href]]); $("link").value = "";
+};
+$("link").onkeydown = (e) => { if (e.key === "Enter") $("go").click(); };
+show();
+</script>
+</body>
+</html>
