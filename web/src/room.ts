@@ -1,6 +1,6 @@
 // The room's log, as the page sees it. The room server is the only truth: this file only reads /api/state and posts back.
 import { useEffect, useRef, useState } from "react";
-import { call, needsName, onRelayNews, relayRoom, rememberRoom } from "./relay";
+import { call, needsName, onRelayNews, relayRoom } from "./relay";
 
 export type Person = { email: string; name: string; color: string; guest?: boolean };  // guest: came in with the invite link, name not checked
 export type Wolt = { wolt: string; owner: string; creature: string; voice?: string | null; paused?: boolean };  // paused: off, the room hands it nothing
@@ -64,7 +64,6 @@ export function useRoom() {
         else version.current = s.version;
         const { messages, news: _, ...rest } = s;
         setState(rest);
-        rememberRoom(rest.title);  // listed on this browser's "my rooms" page
         const patches = messages.filter((m) => m.kind === "patch");
         const added = messages.filter((m) => m.kind === "human" || m.kind === "wolt");
         for (const m of added) {
