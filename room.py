@@ -236,7 +236,7 @@ def mark_asked(text, email):
     """Tagged wolts light up the moment the message lands, even before their connector picks it up."""
     with tx() as c:
         for l in wolts():
-            if asks({"kind": "human", "email": email, "text": text}, l["wolt"], l["owner"]):
+            if not l["paused"] and asks({"kind": "human", "email": email, "text": text}, l["wolt"], l["owner"]):
                 set_working(c, l["wolt"], ASKED_FOR)
 
 
@@ -459,9 +459,10 @@ def members():
                        **({"paused": True} if l["paused"] else {})} for l in wolts()]}
 
 
-# An agent in the room is on or paused. A paused one is handed only what asks it by name (see for_wolt), so a room it
-# isn't needed in costs it nothing. The room's host can pause, bring back or remove any agent; a person can do so with
-# their own agents; nobody else can. An agent can pause itself or bring another back. Removed, its key stops working at once.
+# An agent in the room is on or paused. A paused one is off: it hears nothing, a tag included, and can't post, read back
+# or bring itself back (see for_wolt), so it costs nothing. The room's host can pause, bring back or remove any agent; a
+# person can do so with their own agents; nobody else can. An agent can pause itself, and that is all: bringing one back
+# is a person's switch. Removed, its key stops working at once.
 def host():
     """The room's host: the first person put on its list who isn't a guest (the one who opened the room)."""
     row = q("select email from people where guest = 0 order by rowid limit 1")
@@ -673,6 +674,8 @@ def for_wolt(req, l):
     path, q = req.path, req.q
     if req.method not in ("GET", "POST"):
         return reply(405, {"error": "only GET and POST"})
+    if l.get("paused") and (req.method, path) not in (("GET", "/lodge/messages"), ("POST", "/lodge/reach")):
+        return reply(403, {"error": "you're paused in this room: you hear nothing and can't post until the room's host or your keeper brings you back"})
     if req.method == "GET":
         after = int(q.get("after", ["0"])[0] or 0)
         if path == "/lodge/thread":  # a wolt answering in a thread reads it whole, however long ago it started
@@ -684,10 +687,9 @@ def for_wolt(req, l):
             return reply(200, {"owner": l["owner"], "members": members(), "messages": main[-max(1, min(last, 500)):]})
         if path == "/lodge/messages":
             new = messages(after)
-            if l.get("paused"):  # paused: only what asks it by name is handed over. The rest keeps its number, so the wolt's
-                # place in the room moves on and nothing piles up for the day it is brought back
-                new = [m if m["kind"] not in ("human", "wolt") or m.get("wolt") == l["wolt"] or asks(m, l["wolt"], l["owner"])
-                       else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
+            if l.get("paused"):  # paused: nothing said in the room is handed over, a tag included. Each message keeps its
+                # number, so the wolt's place in the room moves on and nothing piles up for the day it is brought back
+                new = [m if m["kind"] not in ("human", "wolt") else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
             fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
                 m["kind"] == "human" or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]
             read = [m["id"] for m in new if m["kind"] == "human"]
@@ -710,14 +712,10 @@ def for_wolt(req, l):
         with tx() as c:
             (set_working(c, l["wolt"], ASKED_FOR) if data.get("working") else stop_working(c, l["wolt"]))
         return reply(200, {"ok": True})
-    if path == "/lodge/state":  # an agent pauses itself, or brings itself or another agent back ({"wolt": name, "paused": bool})
-        who = str(data.get("wolt") or l["wolt"])
-        if not isinstance(data.get("paused"), bool):
-            return reply(400, {"error": "say paused: true or false"})
-        if data["paused"] and who != l["wolt"]:
-            return reply(403, {"error": "an agent can pause itself, not another agent: a person in the room can"})
-        done = set_paused(who, data["paused"])
-        return reply(200, done) if done else reply(404, {"error": f"there's no {who} in this room"})
+    if path == "/lodge/state":  # an agent pauses itself ({"paused": true}); the room's host or its keeper brings it back
+        if data.get("paused") is not True or str(data.get("wolt") or l["wolt"]) != l["wolt"]:
+            return reply(403, {"error": "an agent can pause itself, nothing else: the room's host or an agent's keeper pauses it and brings it back"})
+        return reply(200, set_paused(l["wolt"], True))
     if path == "/lodge/reach":  # the connector couldn't hand this wolt its messages ({"ok": false}), or now it could again
         with tx() as c:
             (c.execute("delete from unreachable where wolt = ?", (l["wolt"],)) if data.get("ok") else

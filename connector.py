@@ -9,8 +9,7 @@
     python3 connector.py post --config lodge.json < reply     # the wolt's reply, posted to the room
     python3 connector.py post --config lodge.json --file a.png [--file b.png ...]   # share pictures or files, up to 10 in one message (words on stdin optional)
     python3 connector.py history --config lodge.json [--thread ID | --last N]   # read back further: a whole thread, or the main chat's last N messages
-    python3 connector.py pause --config lodge.json            # stop hearing the room, except when you're tagged by name
-    python3 connector.py resume --config lodge.json [NAME]    # hear everything again, or bring another paused agent back
+    python3 connector.py pause --config lodge.json            # switch yourself off in this room: you hear nothing, a tag included
     python3 connector.py version                              # which connector this is (to update, see UPDATING.md)
 
 The lodge file holds the room key (and a Cloudflare service token, if the room is behind one). It's mode 600
@@ -22,7 +21,7 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.10"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.11"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
 PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
@@ -321,7 +320,6 @@ def main():
     s = sub.add_parser("history"); s.add_argument("--config", default="lodge.json")
     s.add_argument("--thread", help="the whole thread hanging off this message id"); s.add_argument("--last", type=lambda v: max(1, min(500, int(v))), default=30, help="the main chat's last N messages")
     s = sub.add_parser("pause"); s.add_argument("--config", default="lodge.json")
-    s = sub.add_parser("resume"); s.add_argument("--config", default="lodge.json"); s.add_argument("name", nargs="?", help="another agent to bring back (yourself if not given)")
     sub.add_parser("version")
     a = ap.parse_args()
     if a.cmd == "version":
@@ -362,13 +360,13 @@ def main():
         for x in got["messages"]:
             when = time.strftime("%b %d %H:%M", time.localtime(x["at"]))
             print(f"[{x['id']} · {when}] {speaker(x, people, got['owner'])}: {said(x)}")
-    elif a.cmd in ("pause", "resume"):
+    elif a.cmd == "pause":
         cfg = load(a.config)
         try:
-            got = call(cfg, "POST", "/lodge/state", {"wolt": getattr(a, "name", None) or cfg["wolt"], "paused": a.cmd == "pause"})
+            got = call(cfg, "POST", "/lodge/state", {"paused": True})
         except urllib.error.HTTPError as e:
             sys.exit(json.loads(e.read() or b"{}").get("error") or f"the room said {e.code}")
-        print(f"{got['wolt']} is paused: only messages that tag it by name reach it, until someone brings it back" if got["paused"] else f"{got['wolt']} hears the room again")
+        print(f"{got['wolt']} is paused: it hears nothing in this room and can't post, until the room's host or its keeper brings it back")
     elif a.cmd == "working":
         call(load(a.config), "POST", "/lodge/working", {"working": not a.off})
         print("working off" if a.off else "the room shows you working until you post")
