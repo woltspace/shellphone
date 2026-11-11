@@ -4,15 +4,16 @@
 import { useEffect, useRef, useState } from "react";
 import { File as FileIcon, Mic, Paperclip, Pause, SendHorizontal, X } from "lucide-react";
 import { relayRoom } from "./relay";
-import type { Wolt } from "./room";
+import type { Person, Wolt } from "./room";
+import { personAvatar, woltAvatar } from "./sprites";
 
 // What you were typing, kept per box (the main chat, each thread) while you go back and forth.
 const drafts = new Map<string, string>();
 const attached = new Map<string, { f: File; url?: string }[]>();  // and the files waiting with it
 const MOST = 10;  // files in one message (the room takes no more)
 
-export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder }: {
-  draft: string; wolts: Wolt[]; me: string; onText: (t: string) => void; onFiles: (f: File[], text: string) => void; onMic: () => void; placeholder?: string;
+export function Composer({ draft, wolts, people = [], working = {}, host, me, onText, onFiles, onMic, placeholder }: {
+  draft: string; wolts: Wolt[]; people?: Person[]; working?: Record<string, unknown>; host?: string; me: string; onText: (t: string) => void; onFiles: (f: File[], text: string) => void; onMic: () => void; placeholder?: string;
 }) {
   const [text, setTextNow] = useState(() => drafts.get(draft) || "");
   const setText = (t: string) => { setTextNow(t); if (t) drafts.set(draft, t); else drafts.delete(draft); };
@@ -32,7 +33,13 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
   };
   const unattach = (i: number) => { if (files[i].url) URL.revokeObjectURL(files[i].url!); setFiles(files.filter((_, j) => j !== i)); };
   const tag = text.match(/(?:^|\s)@([\w-]*)$/);
+  const handle = (p: Person) => p.name.trim().split(/\s+/)[0].replace(/[^\w-]/g, "");  // what @ inserts for a human
   const tagOpts = tag ? wolts.filter((w) => w.wolt.toLowerCase().startsWith(tag[1].toLowerCase())) : [];
+  const tagPeople = tag ? people.filter((p) => handle(p) && handle(p).toLowerCase().startsWith(tag[1].toLowerCase())) : [];
+  const mirror = useRef<HTMLDivElement>(null);
+  const known = new Set([...wolts.map((w) => w.wolt.toLowerCase()), ...people.map((p) => handle(p).toLowerCase())]);
+  const keep = (e: React.MouseEvent) => e.preventDefault();  // tapping a name keeps the keyboard up, so the list does not jump away under the finger
+  const owner = (email: string) => people.find((p) => p.email === email);
   // a paused agent is off: it stays in the @ list, greyed, and a tag for it says so above the box (only the room's host
   // or its keeper brings it back, from the menu); the ready-made asks leave it out
   const awake = wolts.filter((w) => !w.paused);
@@ -62,12 +69,28 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
   };
   const round = "flex-none w-[46px] h-[46px] rounded-full bg-acc grid place-items-center border-0 cursor-pointer";
   const menu = "absolute left-2.5 right-2.5 bottom-full mb-1 bg-panel border border-line rounded-[10px] overflow-hidden shadow-[0_2px_10px_#18100a1f]";
+  const sec = "px-3.5 pt-2.5 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
+  const who = "flex items-center gap-2.5 w-full text-left px-3.5 py-1.5 border-0 bg-transparent cursor-pointer active:bg-line";
   const item = "block w-full text-left px-3 py-2 font-mono text-[13px] border-0 bg-transparent cursor-pointer hover:bg-line";
 
   return (
     <div className="relative bg-panel border-t border-line px-2.5 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]" data-busy={text || files.length ? "" : undefined}>
-      {tagOpts.length > 0 && <div className={menu}>{tagOpts.map((w) => <button key={w.wolt} type="button" className={`${item} flex items-center gap-2 ${w.paused ? "text-dim" : ""}`} onClick={() => set(text.replace(/@[\w-]*$/, "@" + w.wolt + " "))}>@{w.wolt}
-        {w.paused && <><span className="inline-flex items-center gap-1 text-[11px] border border-line rounded-lg px-1.5"><Pause size={10} />paused</span><span className="ml-auto text-[11px]">can't hear you</span></>}</button>)}</div>}
+      {(tagOpts.length > 0 || tagPeople.length > 0) && <div className={menu + " z-20 max-h-[min(210px,34dvh)] overflow-y-auto overscroll-contain touch-pan-y"}>
+        {tagPeople.length > 0 && <div className={sec}>Humans · {tagPeople.length}</div>}
+        {tagPeople.map((p) => <button key={p.email} type="button" className={who} onMouseDown={keep} onClick={() => set(text.replace(/@[\w-]*$/, "@" + handle(p) + " "))}>
+          <img src={personAvatar(p.name, p.color)} alt="" className="w-[30px] h-[30px] rounded-full flex-none" />
+          <span className="flex-1 min-w-0"><span className="block font-mono font-semibold text-sm truncate">{p.name}</span>
+            <span className="block text-xs text-dim">{[p.email === host && "host", p.guest && "guest", p.email === me && "you"].filter(Boolean).join(" · ") || "member"}</span></span>
+        </button>)}
+        {tagOpts.length > 0 && <div className={sec}>Agents · {tagOpts.length}</div>}
+        {tagOpts.map((w) => { const o = owner(w.owner); return <button key={w.wolt} type="button" className={`${who} ${w.paused ? "opacity-50" : ""}`} onMouseDown={keep} onClick={() => set(text.replace(/@[\w-]*$/, "@" + w.wolt + " "))}>
+          <img src={woltAvatar(w.creature || "raccoon", o?.color || "#8a7a68")} alt="" className="pixel w-[30px] h-[30px] flex-none" />
+          <span className="flex-1 min-w-0"><span className="block font-mono font-semibold text-sm truncate">{w.wolt}</span>
+            <span className="block text-xs text-dim truncate">{o ? `${o.email === me ? "your" : o.name + "'s"} ${w.creature || "raccoon"}` : w.creature}</span></span>
+          {w.paused ? <span className="flex-none inline-flex items-center gap-1 text-[11px] font-mono text-dim border border-line rounded-lg px-1.5"><Pause size={10} />paused</span>
+            : w.wolt in working ? <span className="flex-none text-[11px] font-mono text-acc border border-line rounded-lg px-1.5">working…</span> : null}
+        </button>; })}
+      </div>}
       {slash.length > 0 && <div className={menu}>{slash.map((s) => <button key={s.tag} type="button" className={item} onClick={() => set(s.text)}><b className="text-acc">/{s.tag}</b> <span className="text-dim">{s.text}</span></button>)}</div>}
       {deaf.length > 0 && <div className="flex items-center gap-2 mx-1 mb-2 px-3 py-2 rounded-[10px] border border-acc bg-[#fbe9df] text-sm"><Pause size={15} className="flex-none text-acc" />
         <span><b className="font-mono">{deaf.join(", ")}</b> {deaf.length > 1 ? "are" : "is"} paused and won't get this.</span></div>}
@@ -90,14 +113,22 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
           {soon ? <X size={23} className="text-acc" /> : <Paperclip size={23} className="text-acc" />}
         </button>
         <input ref={pick} type="file" multiple hidden onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; if (f.length) attach(f); }} />
-        <textarea ref={box} rows={1} value={text} placeholder={placeholder || "$ message, @wolt, or /"}
-          onChange={(e) => { setText(e.target.value); grow(); }}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window)) { e.preventDefault(); send(); } }}
-          onPaste={(e) => {  // a pasted picture (or file) is attached like one from the paperclip; text pastes as usual
-            const f = [...e.clipboardData.items].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter((x): x is File => !!x);
-            if (f.length && !relayRoom) { e.preventDefault(); attach(f); }  // a room through the relay carries text only, for now
-          }}
-          className="flex-1 min-w-0 resize-none bg-paper border border-line rounded-[10px] px-3 py-2.5 text-base leading-snug outline-none focus:shadow-[0_0_0_1px_var(--color-acc)] placeholder:font-mono placeholder:text-dim" />
+        {/* the words are drawn by the layer underneath, so an @name shows in the room's colour as you type, like in a sent message;
+            the box on top stays a plain textarea (its own letters are transparent, its caret and selection are not) */}
+        <div className="relative flex-1 min-w-0">
+          <div ref={mirror} aria-hidden className="absolute inset-0 overflow-hidden pointer-events-none bg-paper border border-transparent rounded-[10px] px-3 py-2.5 text-base leading-snug text-ink whitespace-pre-wrap break-words">
+            {text.split(/((?:^|\s)@[\w-]+)/g).map((part, i) => { const m = part.match(/^(\s?)@([\w-]+)$/);
+              return m && known.has(m[2].toLowerCase()) ? <span key={i}>{m[1]}<span className="text-acc">@{m[2]}</span></span> : part; })}{"\u200b"}
+          </div>
+          <textarea ref={box} rows={1} value={text} placeholder={placeholder || "$ message, @wolt, or /"}
+            onChange={(e) => { setText(e.target.value); grow(); }} onScroll={(e) => { if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop; }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window)) { e.preventDefault(); send(); } }}
+            onPaste={(e) => {  // a pasted picture (or file) is attached like one from the paperclip; text pastes as usual
+              const f = [...e.clipboardData.items].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter((x): x is File => !!x);
+              if (f.length && !relayRoom) { e.preventDefault(); attach(f); }  // a room through the relay carries text only, for now
+            }}
+            className="relative block w-full resize-none bg-transparent text-transparent caret-ink border border-line rounded-[10px] px-3 py-2.5 text-base leading-snug outline-none focus:shadow-[0_0_0_1px_var(--color-acc)] placeholder:font-mono placeholder:text-dim" />
+        </div>
         {text.trim() || files.length || relayRoom
           // pressing send doesn't take focus from the box: otherwise the keyboard starts closing, the button moves away
           // under the finger, and the tap only closes the keyboard
