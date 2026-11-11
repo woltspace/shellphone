@@ -159,8 +159,10 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(len(r.state()["messages"]), said)
         self.assertEqual(paused()["helper"], True)
 
-        # An agent can bring another back, and pause itself, but not pause another.
-        self.assertIn("helper hears the room again", run("resume", "helper", cwd=other).stdout)
+        # Bringing an agent back is a person's switch (the host here): another agent can't, by any wording.
+        self.assertEqual(agent(other, "/lodge/state", {"wolt": "helper", "paused": False}), 403)
+        self.assertEqual(paused()["helper"], True)
+        self.assertEqual(page("/api/wolt", {"wolt": "helper", "state": "on"}), {"wolt": "helper", "paused": False})
         self.assertEqual(paused(), {"helper": False, "second": False})
         page("/api/messages", {"text": "back to everyone now"})
         again = run("wait", "--timeout", "5", cwd=work)
@@ -168,12 +170,12 @@ class FrontDoor(unittest.TestCase):
         self.assertNotIn("weather", again.stdout)  # nothing piled up while it was paused
         self.assertNotIn("one thing for you", again.stdout)
         as_agent = lambda body: agent(other, "/lodge/state", body)
-        self.assertEqual(as_agent({"wolt": "helper", "paused": True}), 403)
-        self.assertEqual(as_agent({"wolt": "nobody", "paused": False}), 404)
-        self.assertEqual(as_agent({"wolt": "helper"}), 400)
+        for body in ({"wolt": "helper", "paused": True}, {"wolt": "nobody", "paused": False}, {"wolt": "helper"}, {"paused": False}, {}):
+            self.assertEqual(as_agent(body), 403)  # an agent's only switch is pausing itself
+        self.assertEqual(paused(), {"helper": False, "second": False})
         self.assertIn("second is paused", run("pause", cwd=other).stdout)
         self.assertEqual(paused(), {"helper": False, "second": True})
-        self.assertNotEqual(run("resume", cwd=other).returncode, 0)  # having paused itself, it stays off until someone else brings it back
+        self.assertEqual(as_agent({"paused": False}), 403)  # having paused itself, it stays off until a person brings it back
         self.assertEqual(paused()["second"], True)
 
         # Removed: off the list, and its key is dead at once.
