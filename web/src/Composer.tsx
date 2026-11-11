@@ -2,7 +2,7 @@
 // they wait above the box until you send, like iMessage.
 // Typing @ suggests the room's wolts; typing / at the start offers a few ready-made asks.
 import { useEffect, useRef, useState } from "react";
-import { File as FileIcon, Mic, Paperclip, SendHorizontal, X } from "lucide-react";
+import { File as FileIcon, Mic, Paperclip, Pause, SendHorizontal, X } from "lucide-react";
 import { relayRoom } from "./relay";
 import type { Wolt } from "./room";
 
@@ -33,9 +33,13 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
   const unattach = (i: number) => { if (files[i].url) URL.revokeObjectURL(files[i].url!); setFiles(files.filter((_, j) => j !== i)); };
   const tag = text.match(/(?:^|\s)@([\w-]*)$/);
   const tagOpts = tag ? wolts.filter((w) => w.wolt.toLowerCase().startsWith(tag[1].toLowerCase())) : [];
-  const all = wolts.map((w) => "@" + w.wolt).join(" ");
-  const mine = wolts.filter((w) => w.owner === me).map((w) => "@" + w.wolt), others = wolts.filter((w) => w.owner !== me).map((w) => "@" + w.wolt);
-  const slash = text.startsWith("/") && !text.includes(" ") ? [
+  // a paused agent is off: it stays in the @ list, greyed, and a tag for it says so above the box (only the room's host
+  // or its keeper brings it back, from the menu); the ready-made asks leave it out
+  const awake = wolts.filter((w) => !w.paused);
+  const deaf = wolts.filter((w) => w.paused && new RegExp(`(?:^|\\s)@${w.wolt.replace(/[-]/g, "\\-")}(?![\\w-])`, "i").test(text)).map((w) => w.wolt);
+  const all = awake.map((w) => "@" + w.wolt).join(" ");
+  const mine = awake.filter((w) => w.owner === me).map((w) => "@" + w.wolt), others = awake.filter((w) => w.owner !== me).map((w) => "@" + w.wolt);
+  const slash = awake.length && text.startsWith("/") && !text.includes(" ") ? [
     { tag: "status", text: `${all} what are you each working on right now?` },
     { tag: "review", text: `${others[0] || all} please review ` },
     { tag: "summary", text: `${mine[0] || all} sum up what this room decided so far` },
@@ -62,8 +66,11 @@ export function Composer({ draft, wolts, me, onText, onFiles, onMic, placeholder
 
   return (
     <div className="relative bg-panel border-t border-line px-2.5 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]" data-busy={text || files.length ? "" : undefined}>
-      {tagOpts.length > 0 && <div className={menu}>{tagOpts.map((w) => <button key={w.wolt} type="button" className={item} onClick={() => set(text.replace(/@[\w-]*$/, "@" + w.wolt + " "))}>@{w.wolt}</button>)}</div>}
+      {tagOpts.length > 0 && <div className={menu}>{tagOpts.map((w) => <button key={w.wolt} type="button" className={`${item} flex items-center gap-2 ${w.paused ? "text-dim" : ""}`} onClick={() => set(text.replace(/@[\w-]*$/, "@" + w.wolt + " "))}>@{w.wolt}
+        {w.paused && <><span className="inline-flex items-center gap-1 text-[11px] border border-line rounded-lg px-1.5"><Pause size={10} />paused</span><span className="ml-auto text-[11px]">can't hear you</span></>}</button>)}</div>}
       {slash.length > 0 && <div className={menu}>{slash.map((s) => <button key={s.tag} type="button" className={item} onClick={() => set(s.text)}><b className="text-acc">/{s.tag}</b> <span className="text-dim">{s.text}</span></button>)}</div>}
+      {deaf.length > 0 && <div className="flex items-center gap-2 mx-1 mb-2 px-3 py-2 rounded-[10px] border border-acc bg-[#fbe9df] text-sm"><Pause size={15} className="flex-none text-acc" />
+        <span><b className="font-mono">{deaf.join(", ")}</b> {deaf.length > 1 ? "are" : "is"} paused and won't get this.</span></div>}
       {full && <div className="pl-11 pb-1 text-xs text-acc">{MOST} at most in one message</div>}
       {soon && <div className={menu + " right-auto min-w-60"}>
         {([[Mic, "Voice note", "mic"], [Paperclip, "Photo or file", "file"]] as const).map(([Icon, label, what]) => (
