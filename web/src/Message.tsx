@@ -4,11 +4,12 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
 import { PageTile } from "./Page";
+import { ShareButton } from "./Share";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void };
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void };
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -94,18 +95,21 @@ function Files({ m, ctx }: { m: Msg; ctx: Ctx }) {
   return <>
     {pics.length === 1 && <File f={pics[0]} ctx={ctx} />}
     {pics.length > 1 && <div className="grid grid-cols-2 gap-1 w-[min(260px,68vw)] mb-1">
-      {pics.map((f, i) => <img key={f.url} src={f.url} alt={f.name} onClick={() => ctx.view(pics.map((p) => p.url), i)} className="block w-full aspect-[3/4] object-cover rounded-lg cursor-zoom-in" />)}
+      {pics.map((f, i) => <img key={f.url} src={f.url} alt={f.name} onClick={() => ctx.view(pics.map((p) => p.url), i, pics.map((p) => p.name))} className="block w-full aspect-[3/4] object-cover rounded-lg cursor-zoom-in" />)}
     </div>}
     {rest.map((f) => <File key={f.url} f={f} ctx={ctx} />)}
   </>;
 }
 
 function File({ f, ctx }: { f: FileInfo; ctx: Ctx }) {
-  if (IMAGE.test(f.type)) return <img src={f.url} alt={f.name} onClick={() => ctx.view([f.url])} className="block max-w-[min(260px,68vw)] max-h-[320px] rounded-lg cursor-zoom-in mb-1" />;
-  if (VIDEO.test(f.type)) return <video src={f.url} controls playsInline preload="metadata" className="block max-w-[min(260px,68vw)] rounded-lg mb-1" />;
-  return <a href={f.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-2.5 py-2 mb-1 border border-line rounded-[10px] bg-paper no-underline text-ink">
+  if (IMAGE.test(f.type)) return <img src={f.url} alt={f.name} onClick={() => ctx.view([f.url], 0, [f.name])} className="block max-w-[min(260px,68vw)] max-h-[320px] rounded-lg cursor-zoom-in mb-1" />;
+  if (VIDEO.test(f.type)) return <div className="relative w-fit mb-1">
+    <video src={f.url} controls playsInline preload="metadata" className="block max-w-[min(260px,68vw)] rounded-lg" />
+    <ShareButton url={f.url} name={f.name} className="absolute top-1.5 right-1.5 bg-[#000a] text-white border-0" />
+  </div>;
+  return <div className="flex items-center gap-1 mb-1"><a href={f.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 px-2.5 py-2 border border-line rounded-[10px] bg-paper no-underline text-ink">
     <span className="text-xl">📄</span><span className="min-w-0"><span className="block font-semibold truncate">{f.name}</span><span className="block font-mono text-[11px] text-dim">{f.type.toUpperCase()} · {Math.max(1, Math.round(f.size / 1024))} KB</span></span>
-  </a>;
+  </a><ShareButton url={f.url} name={f.name} className="flex-none bg-transparent border-0 text-dim" /></div>;
 }
 
 // Changes to a page, said by the room in one line ("maya made 3 changes to Launch plan"): not someone talking, so

@@ -12,6 +12,7 @@ import { ThreadWho } from "./ThreadWho";
 import { InboxSheet, ThreadFooter, threadColor, threadTitle, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
+import { ShareButton } from "./Share";
 import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, X } from "lucide-react";
 const Desk = lazy(() => import("./Desk"));  // terminals and their library load only on a computer that opens the desk
 import { usePush } from "./push";
@@ -143,7 +144,7 @@ function Zoomable({ src, bind, onZoom }: { src: string; bind: (z: Zoomer | null)
     <img ref={img} src={src} alt="" draggable={false} className="max-w-[94vw] max-h-[86dvh] object-contain rounded-md will-change-transform select-none" style={{ transformOrigin: "50% 50%" }} /></div>;
 }
 
-function Viewer({ urls, at, close }: { urls: string[]; at: number; close: () => void }) {
+function Viewer({ urls, names, at, close }: { urls: string[]; names?: string[]; at: number; close: () => void }) {
   const [zoomed, setZoomed] = useState(false), [i, setI] = useState(at);
   const strip = useRef<HTMLDivElement>(null), tap = useRef(0), lastTap = useRef(0), from = useRef<{ x: number; y: number } | null>(null);
   const zoomers = useRef<Record<number, Zoomer | null>>({});
@@ -176,6 +177,7 @@ function Viewer({ urls, at, close }: { urls: string[]; at: number; close: () => 
       {!zoomed && i < urls.length - 1 && <button type="button" aria-label="Next" onClick={() => go(i + 1)} className={btn + " right-3 top-1/2 -translate-y-1/2 hidden sm:grid"}>›</button>}
     </>}
     <button type="button" aria-label="Close" onClick={close} className={btn + " top-[calc(12px+env(safe-area-inset-top))] right-3"}>✕</button>
+    {!zoomed && <ShareButton key={urls[i]} url={urls[i]} name={names?.[i]} className="fixed top-[calc(12px+env(safe-area-inset-top))] left-3 h-11 min-w-11 bg-[#000c] border-2 border-white text-white shadow-[0_2px_8px_#0008]" />}
   </div>;
 }
 
@@ -399,7 +401,7 @@ export function App() {
   const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
   useEffect(() => (relayRoom ? onRelayState(setLink) : undefined), []);
   const [listening, setListening] = useState<AudioContext | null | false>(false);
-  const [viewing, setViewing] = useState<{ urls: string[]; at: number } | null>(null);
+  const [viewing, setViewing] = useState<{ urls: string[]; names?: string[]; at: number } | null>(null);
   const [paging, setPaging] = useState("");  // the page open full screen, by id
   // the desk: on a wide screen, your wolts' terminals beside the chat (Desk.tsx). Remembered on this computer.
   const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 1100px)").matches;
@@ -410,7 +412,7 @@ export function App() {
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0) => setViewing({ urls, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined,
+  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined,
     // who's working where ("" the main chat, else a thread); a room that doesn't say where: everywhere, as before
     busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]) };
 
@@ -656,7 +658,7 @@ export function App() {
       {relayRoom && (relayKeyMissing || (link !== "open" && !(naming && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onSend={voiceStart} onDone={voice} />}
-      {viewing && <Viewer urls={viewing.urls} at={viewing.at} close={() => setViewing(null)} />}
+      {viewing && <Viewer urls={viewing.urls} names={viewing.names} at={viewing.at} close={() => setViewing(null)} />}
       {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>
   );
