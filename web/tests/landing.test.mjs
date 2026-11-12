@@ -85,3 +85,22 @@ test("a tap written while the notes are being read survives the clean-up of olde
   if (n.tap === "b") assert.equal(next.tap, "c", "C, newer than B, stays");
   assert.ok(!c.m.has(S + "landing-note/a"), "A, older than both, is gone");
 });
+
+test("a tap landed straight from the worker also retires older notes, and a newer one written meanwhile stays", async () => {
+  const c = store(), now = Date.now();
+  await c.put(S + "landing-note/a", note("a", now - 2000));  // A: never looked at
+  await c.put(S + "landing-note/b", note("b", now - 1000));  // B: arrives as a message and lands without pending()
+  await Promise.all([forget(c, S + "landing-note/b", now - 1000), c.put(S + "landing-note/c", note("c", now))]);
+  const next = await pending(c, now);
+  assert.equal(next?.tap, "c", "not A; C, newer, still waits");
+  await forget(c, next.key, next.at);
+  assert.equal(await pending(c, now), null);
+});
+
+test("without the tap's time, it's read from its note", async () => {
+  const c = store(), now = Date.now();
+  await c.put(S + "landing-note/a", note("a", now - 2000));
+  await c.put(S + "landing-note/b", note("b", now - 1000));
+  await forget(c, S + "landing-note/b");
+  assert.equal(await pending(c, now), null);
+});
