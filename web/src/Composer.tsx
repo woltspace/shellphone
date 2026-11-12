@@ -66,7 +66,7 @@ export function Composer({ draft, wolts, people = [], working = {}, host, me, on
     const t = text.trim();
     if (files.length) { onFiles(files.map((x) => x.f), t); files.forEach((x) => x.url && URL.revokeObjectURL(x.url)); setFiles([]); }
     else if (t) onText(t); else return;
-    set("");
+    setText(""); requestAnimationFrame(() => { grow(); box.current?.blur(); });  // sent: the keyboard goes down so you see the chat
   };
   const round = "flex-none w-[46px] h-[46px] rounded-full bg-acc grid place-items-center border-0 cursor-pointer";
   const menu = "absolute left-2.5 right-2.5 bottom-full mb-1 bg-panel border border-line rounded-[10px] overflow-hidden shadow-[0_2px_10px_#18100a1f]";
