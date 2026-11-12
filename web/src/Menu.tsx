@@ -1,6 +1,7 @@
 // The ☰ menu: this room and its settings. It slides in from the left, like Slack's.
 import { useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronRight, Inbox, Squirrel, UserPlus } from "lucide-react";
+import { Bell, BellOff, BellRing, Check, ChevronRight, FlaskConical, Inbox, ListTree, Squirrel, UserPlus } from "lucide-react";
+import { clearTrace, trace, traceText } from "./trace";
 import { inviteLink, relayHost, relayRoom } from "./relay";
 import { Agents } from "./Agents";
 import type { Person, Wolt } from "./room";
@@ -38,6 +39,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         <button type="button" onClick={() => { close(); onThreads(); }} className={row}><Inbox size={20} className="text-acc" /><span className="flex-1">Inbox</span>
           {freshCount > 0 && <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{freshCount}</span>}</button>
         <Agents wolts={wolts} people={people} me={me} host={host} sec={sec} />
+        {!relayRoom && push.state === "on" && <><div className={sec}>Testing</div><TestPush row={row} /><Trace row={row} /></>}
       </div>
     </aside>
   </>;
@@ -55,4 +57,38 @@ function Invite({ row }: { row: string }) {
   };
   return <button type="button" onClick={go} className={row}><UserPlus size={20} className="text-acc" />
     <span className="flex-1">Invite people<small className="block text-xs text-dim break-all">{note}</small></span><ChevronRight size={20} className="text-acc" /></button>;
+}
+
+// Two test notifications (main chat and a thread) arrive a few seconds after the tap, so you can close or background the
+// app first and see where each one lands. Only to you, from the room.
+function TestPush({ row }: { row: string }) {
+  const [note, setNote] = useState("Main chat + thread, 10s after you tap: close or background the app first");
+  const go = async () => {
+    trace("test push asked");
+    try {
+      const r = await fetch("/api/test-push", { method: "POST", body: JSON.stringify({ in: 10 }) });
+      const d = await r.json();
+      setNote(r.ok ? `Coming in ${d.in}s (${d.sent}). Close or background the app now.` : d.error || "The room said no");
+    } catch { setNote("Couldn't reach the room"); }
+  };
+  return <button type="button" onClick={go} className={row}><FlaskConical size={20} className="text-acc" />
+    <span className="flex-1">Test notifications<small className="block text-xs text-dim">{note}</small></span></button>;
+}
+
+// What the app noted while landing on tapped notifications, newest last: copy it into the room to show what happened.
+function Trace({ row }: { row: string }) {
+  const [open, setOpen] = useState(false), [text, setText] = useState(""), [copied, setCopied] = useState(false);
+  const show = () => { setText(traceText() || "Nothing yet. Tap a notification, then look again."); setOpen(!open); };
+  return <>
+    <button type="button" onClick={show} className={row}><ListTree size={20} className="text-acc" />
+      <span className="flex-1">Landing trace<small className="block text-xs text-dim">What happened on the last notification taps</small></span></button>
+    {open && <div className="px-4 pb-3">
+      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all bg-panel border border-line rounded-[10px] p-2.5 font-mono text-[11px] leading-[1.4] text-ink m-0 select-all">{text}</pre>
+      <div className="flex gap-2 mt-2">
+        <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* select it instead */ } }}
+          className="flex-1 font-mono text-xs py-2 rounded-lg border border-acc text-acc bg-transparent cursor-pointer">{copied ? "copied" : "copy"}</button>
+        <button type="button" onClick={() => { clearTrace(); setText(""); }} className="flex-1 font-mono text-xs py-2 rounded-lg border border-line text-dim bg-transparent cursor-pointer">clear</button>
+      </div>
+    </div>}
+  </>;
 }
