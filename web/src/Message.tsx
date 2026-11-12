@@ -116,7 +116,7 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
   return (
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
       <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
-      <div className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
+      <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
         style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) } : undefined}>
         {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5">[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
         {m.files?.length ? relayRoom ? <div className="font-mono text-xs text-dim mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}

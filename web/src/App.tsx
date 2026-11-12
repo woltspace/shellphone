@@ -190,7 +190,7 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick }:
   stick.current = (on = true) => { if (on) toBottom(false); };  // sending, or coming back after a while: the newest
   const onScroll = () => setFar(-scroller.current!.scrollTop > 600);
   let lastDay = "", lastWho = "";
-  return <div className="flex-1 min-h-0 relative flex flex-col"><div ref={scroller} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain flex flex-col-reverse"><div className="pt-1">
+  return <div className="flex-1 min-h-0 relative flex flex-col"><div ref={scroller} data-feed onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain flex flex-col-reverse"><div className="pt-1">
     {list.length === 0 && <p className="text-center text-dim font-mono text-xs mt-10 px-6">Nobody has said anything yet. Tag a wolt with @ to bring it in.</p>}
     {list.map((m, i) => {
       const d = new Date(m.at * 1000), day = d.toLocaleDateString([], { day: "numeric", month: "long" });
@@ -237,16 +237,25 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 // Drag the handle down, tap above it, or tap ✕ to drop back.
 function ThreadSheet({ color, title, count, close, children }: { color: string; title: string; count: number; close: () => void; children: React.ReactNode }) {
   const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null), [full, setFull] = useState(false);
+  const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
+  const bye = () => { if (leaving) return; setLeaving(true); setTimeout(close, 220); };
   // the handle on top and the strip down the right edge both move the sheet with your finger: far enough down, it closes
   const grip = {
     onTouchStart: (e: React.TouchEvent) => setDrag({ y: e.touches[0].clientY, dy: 0 }),
     onTouchMove: (e: React.TouchEvent) => drag && setDrag({ ...drag, dy: e.touches[0].clientY - drag.y }),
     // up far enough: full screen; down from full screen: back to the tray; down from the tray: closed
-    onTouchEnd: () => { if (drag) { if (drag.dy < -60) setFull(true); else if (drag.dy > 80) { if (full) setFull(false); else close(); } } setDrag(null); },
+    onTouchEnd: () => { if (drag) { if (drag.dy < -60) setFull(true); else if (drag.dy > 80) { if (full) setFull(false); else bye(); } } setDrag(null); },
+    onClick: (e: React.MouseEvent) => { if ((e.currentTarget as HTMLElement).dataset.side !== undefined) bye(); },  // a plain tap on a side edge: back to the chat
   };
   return <div className="absolute inset-0 z-[1580]">
-    <div onClick={close} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
-    <div role="dialog" aria-label="Thread" style={{ transform: drag ? `translateY(${Math.max(full ? 0 : -96, drag.dy)}px)` : undefined, transition: drag ? "none" : "top .25s cubic-bezier(.2,.8,.2,1), transform .25s cubic-bezier(.2,.8,.2,1)" }}
+    <div onClick={bye} className={`absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out] transition-opacity duration-200 ${leaving ? "opacity-0" : ""}`} />
+    <div role="dialog" aria-label="Thread" onClick={(e) => {  // like iMessage: a tap on the see-through space beside the messages drops you back to the chat
+      const t = e.target as HTMLElement;
+      if (t.closest("[data-bubble],[data-composer],button,a,input,textarea,img,audio,video,[role=button],[data-tap]") || !t.closest("[data-feed]")) return;
+      if (String(window.getSelection() || "")) return;  // selecting words, not leaving
+      bye();
+    }} style={{ transform: leaving ? "translateY(100%)" : drag ? `translateY(${Math.max(full ? 0 : -96, drag.dy)}px)` : undefined, opacity: leaving ? 0 : undefined,
+      transition: drag ? "none" : "top .25s cubic-bezier(.2,.8,.2,1), transform .22s cubic-bezier(.4,0,1,1), opacity .22s ease-in" }}
       className={`absolute inset-x-0 bottom-0 ${full ? "top-[env(safe-area-inset-top)]" : "top-[calc(env(safe-area-inset-top)+96px)]"} max-w-[640px] mx-auto bg-[#f5f1e88c] backdrop-blur-sm rounded-t-[18px] flex flex-col overflow-hidden shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]`}>
       <div className="flex-none touch-none bg-[#fffdf680] border-b border-line" style={{ boxShadow: `inset 0 3px 0 ${color}` }}
         {...grip}>
@@ -256,13 +265,13 @@ function ThreadSheet({ color, title, count, close, children }: { color: string; 
             <div className="font-mono font-semibold truncate" style={{ color }}>{title}</div>
             <div className="font-mono text-[11px] text-dim">thread · {count} {count === 1 ? "reply" : "replies"}</div>
           </div>
-          <button type="button" aria-label="Close the thread" onClick={close} className="flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={20} /></button>
+          <button type="button" aria-label="Close the thread" onClick={bye} className="flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={20} /></button>
         </div>
       </div>
       {children}
-      <div {...grip} aria-hidden className="absolute right-0 top-14 bottom-24 w-6 touch-none z-10 flex justify-center">
+      <div {...grip} data-side aria-hidden className="absolute right-0 top-14 bottom-24 w-6 touch-none z-10 flex justify-center">
         <i className="mt-[30%] w-[4px] h-14 rounded-full bg-line" /></div>
-      <div {...grip} aria-hidden className="absolute left-0 top-14 bottom-24 w-6 touch-none z-10 flex justify-center">
+      <div {...grip} data-side aria-hidden className="absolute left-0 top-14 bottom-24 w-6 touch-none z-10 flex justify-center">
         <i className="mt-[30%] w-[4px] h-14 rounded-full bg-line" /></div>
     </div>
   </div>;
