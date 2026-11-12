@@ -40,10 +40,11 @@ function useFit() {
 
 // Who's working: a fixed one-line slot under the last message, wolts side by side, chewing on a line of lore.
 // A wolt its connector can't reach shows that instead: its messages wait, in order, and arrive once it's back.
-function Gnaw({ ctx, working, away = {} }: { ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number> }) {
+function Gnaw({ ctx, working, away = {}, place }: { ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number>; place: string }) {
   const [tick, setTick] = useState(0);
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 2400); return () => clearInterval(t); }, []);
-  const on = ctx.wolts.filter((w) => working[w.wolt] || away[w.wolt]);
+  const here = ctx.busy ? ctx.busy(place) : ctx.wolts.filter((w) => working[w.wolt]);  // working in this feed only
+  const on = ctx.wolts.filter((w) => here.includes(w) || away[w.wolt]);
   return <div className="flex items-center gap-1.5 h-[38px] px-3 pb-2 overflow-hidden">
     {on.map((w) => { const lines = LORE[w.creature] || LORE.beaver;
       return <div key={w.wolt} className="gnaw-row flex-[0_1_auto] min-w-0 flex items-center gap-1.5 pl-[3px] pr-[9px] py-[3px] bg-[#fffdf6ee] border border-line rounded-lg font-mono font-semibold text-xs whitespace-nowrap">
@@ -179,8 +180,8 @@ function Viewer({ urls, at, close }: { urls: string[]; at: number; close: () => 
 
 // A list of messages that stays at the bottom while you're there, and leaves you alone if you scrolled up to read.
 // Used for the main chat and for a thread alike.
-function Feed({ list, ctx, working, away, replies, seen, open, divider, stick }: {
-  list: Msg[]; ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number>; replies?: Map<string, Msg[]>; seen?: Record<string, number>;
+function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, place = "" }: {
+  list: Msg[]; ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number>; replies?: Map<string, Msg[]>; seen?: Record<string, number>; place?: string;
   open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<(on?: boolean) => void>;
 }) {
   // The chat is laid out from the bottom up (column-reverse), like chat apps do: the browser itself keeps the newest
@@ -206,13 +207,13 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick }:
         <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
           onClick={(e) => { if (open && !m.pending && !m.failed && !(e.target as HTMLElement).closest("button,a,audio,video,img,[data-tap]")) open(m.id); }}>
           <Message m={m} ctx={ctx} firstOfRun={run} footer={thread.length > 0 && open ?
-            <ThreadFooter list={thread} fresh={unread(thread, seen?.[m.id], ctx.me)} ctx={ctx} onOpen={() => open(m.id)} /> : undefined} />
+            <ThreadFooter list={thread} fresh={unread(thread, seen?.[m.id], ctx.me)} ctx={ctx} onOpen={() => open(m.id)} busy={ctx.busy?.(m.id)} /> : undefined} />
         </div>
         {divider !== undefined && i === 0 && <div className="flex items-center gap-2.5 px-3.5 my-3 font-mono text-[11px] text-dim">
           <span>{divider} {divider === 1 ? "reply" : "replies"}</span><span className="flex-1 h-px bg-line" /></div>}
       </div>;
     })}
-    <Gnaw ctx={ctx} working={working} away={away} />
+    <Gnaw ctx={ctx} working={working} away={away} place={place} />
   </div></div>
     {far && <button type="button" aria-label="Jump to the newest" onClick={() => toBottom()}
       className="absolute right-3 bottom-3 z-10 w-11 h-11 rounded-full bg-panel border border-line text-acc grid place-items-center shadow-[0_2px_10px_#18100a2e] cursor-pointer animate-[fadein_.15s_ease-out]">
@@ -403,7 +404,9 @@ export function App() {
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0) => setViewing({ urls, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging };
+  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0) => setViewing({ urls, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging,
+    // who's working where ("" the main chat, else a thread); a room that doesn't say where: everywhere, as before
+    busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]) };
 
   // Threads the Matrix way: a reply carries the id of the message its thread hangs off. The main chat shows only the rest.
   const { main, replies } = useMemo(() => {
@@ -633,7 +636,7 @@ export function App() {
       {thread && <ThreadSheet key={thread} color={threadColor(thread)} title={threadTitle(root)} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} />}>
-        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} />
+        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} place={thread} />
         {composer}
       </ThreadSheet>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} onAgent={() => setAdding(true)} />
