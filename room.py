@@ -337,6 +337,13 @@ def who_now():
     if main:
         for row in q("select thread from thread_seen"):
             out.setdefault(row["thread"], {})[main] = "in"
+    # paused for the whole room is paused in every thread: the room's switch is the bigger one, and what each thread
+    # remembers comes back when the agent is brought back in the room
+    off = [l["wolt"] for l in wolts() if l["paused"]]
+    if off:
+        for row in q("select thread from thread_seen"):
+            for w in off:
+                out.setdefault(row["thread"], {})[w] = "paused"
     return out
 
 
@@ -344,6 +351,8 @@ def where_in(tid, wolt):
     """This agent in this thread: "in", "paused", or None when it is neither."""
     with tx() as c:
         seed(c, tid)
+    if any(l["wolt"] == wolt and l["paused"] for l in wolts()):  # paused for the whole room: paused here too
+        return "paused"
     if wolt == main_wolt():
         return "in"
     row = q("select state from thread_who where thread = ? and wolt = ?", tid, wolt)

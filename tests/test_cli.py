@@ -299,6 +299,14 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(page("/api/thread-who", {"thread": "nope", "wolt": "helper", "state": "in"}), 404)
         self.assertEqual(page("/api/thread-who", {"thread": top, "wolt": "helper", "state": "gone"}), 400)
 
+        # paused for the whole room is paused in every thread, and what the thread remembered comes back with it
+        self.assertEqual(r.state()["who"][side]["helper"], "in")
+        page("/api/wolt", {"wolt": "helper", "state": "paused"})
+        self.assertEqual({t: w.get("helper") for t, w in r.state()["who"].items()}, {top: "paused", side: "paused"})
+        self.assertEqual(agent(work, "/lodge/thread?id=" + side), 403)
+        page("/api/wolt", {"wolt": "helper", "state": "on"})
+        self.assertEqual(r.state()["who"][side]["helper"], "in")
+
     def test_agents_and_people_work_on_one_page(self):
         r = self.room(env={**ENV, "SHELLPHONE_ACTIVITY_AFTER": "1"})
         work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
