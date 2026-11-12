@@ -75,7 +75,7 @@ export function Composer({ draft, wolts, people = [], working = {}, host, me, on
   const item = "block w-full text-left px-3 py-2 font-mono text-[13px] border-0 bg-transparent cursor-pointer hover:bg-line";
 
   return (
-    <div className="relative bg-panel border-t border-line px-2.5 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]" data-busy={text || files.length ? "" : undefined}>
+    <div data-composer className="relative bg-panel border-t border-line px-2.5 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]" data-busy={text || files.length ? "" : undefined}>
       {(tagOpts.length > 0 || tagPeople.length > 0) && <div className={menu + " z-20 max-h-[min(210px,34dvh)] overflow-y-auto overscroll-contain touch-pan-y"}>
         {tagPeople.length > 0 && <div className={sec}>Humans · {tagPeople.length}</div>}
         {tagPeople.map((p) => <button key={p.email} type="button" className={who} onMouseDown={keep} onClick={() => set(text.replace(/@[\w-]*$/, "@" + handle(p) + " "))}>
