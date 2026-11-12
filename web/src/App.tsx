@@ -640,7 +640,7 @@ export function App() {
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
       {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onSend={voiceStart} onDone={voice} />}
       {viewing && <Viewer urls={viewing.urls} at={viewing.at} close={() => setViewing(null)} />}
-      {paging && <PageViewer id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
+      {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>
   );
 }

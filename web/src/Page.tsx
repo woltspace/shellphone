@@ -36,12 +36,15 @@ export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: n
   const [page, setPage] = useState<{ title?: string; by?: string; v: number; html: string } | null>(null);
   const [trouble, setTrouble] = useState<"" | "missing" | "unreachable">("");
   const cur = useRef<Open>({ v: 0, changes: [] }), ready = useRef(false), busy = useRef(false), again = useRef(false), retry = useRef(0);
+  const open = useRef(true);  // closed: a load still on its way is dropped, and nothing tries again
   const tell = (msg: object) => frame.current?.contentWindow?.postMessage({ shellphone: 1, ...msg }, "*");  // a sealed frame has no origin to name
 
   const load = async () => {
+    if (!open.current) return;
     if (busy.current) { again.current = true; return; }
     busy.current = true; clearTimeout(retry.current);
-    const r = await look(cur.current, (after, v) => get(`/api/page?id=${encodeURIComponent(id)}&after=${after}&v=${v}`));
+    const r = await look(cur.current, (after, v) => open.current ? get(`/api/page?id=${encodeURIComponent(id)}&after=${after}&v=${v}`) : Promise.resolve(null));
+    if (!open.current) return;
     if (r.error) {
       setTrouble(r.error);
       // couldn't reach the room: what's shown stays, and it tries again by itself (the room's state may not move meanwhile)
@@ -57,7 +60,7 @@ export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: n
     busy.current = false;
     if (again.current) { again.current = false; load(); }
   };
-  useEffect(() => () => clearTimeout(retry.current), []);
+  useEffect(() => () => { open.current = false; clearTimeout(retry.current); }, []);
   useEffect(() => { load(); }, [id, mark?.v, mark?.n]);
 
   useEffect(() => {
