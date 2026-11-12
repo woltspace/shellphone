@@ -86,6 +86,7 @@ create table if not exists page_changes(page text not null, n integer not null, 
                                         primary key(page, n));
 create table if not exists thread_who(thread text not null, wolt text not null, state text not null, primary key(thread, wolt));
 create table if not exists thread_seen(thread text primary key);
+create table if not exists working_in(wolt text not null, thread text not null, until real not null, primary key(wolt, thread));
 """
 CON = None
 
@@ -234,12 +235,24 @@ def asks(m, wolt, owner):
         m.get("kind") == "human" and canon(m.get("email") or "") == canon(owner) and bool(re.search(rf"\b{re.escape(wolt)}\b", low)))
 
 
-def set_working(c, wolt, seconds):
-    c.execute("insert into working values (?, ?) on conflict (wolt) do update set until = max(until, excluded.until)", (wolt, time.time() + seconds))
+def set_working(c, wolt, seconds, tid=""):
+    """The wolt is working in this thread ("" is the main chat)."""
+    c.execute("insert into working_in values (?, ?, ?) on conflict (wolt, thread) do update set until = max(until, excluded.until)", (wolt, tid or "", time.time() + seconds))
 
 
-def stop_working(c, wolt):
-    c.execute("delete from working where wolt = ?", (wolt,))
+def keep_working(c, wolt):
+    """The wolt says it's still at it, without saying where: wherever it was working stays lit, or the main chat if nowhere."""
+    now = time.time()
+    if not c.execute("update working_in set until = max(until, ?) where wolt = ? and until > ?", (now + ASKED_FOR, wolt, now)).rowcount:
+        set_working(c, wolt, ASKED_FOR)
+
+
+def stop_working(c, wolt, tid=None):
+    """The wolt stopped: in one thread ("" is the main chat), or everywhere when no thread is named."""
+    if tid is None:
+        c.execute("delete from working_in where wolt = ?", (wolt,))
+    else:
+        c.execute("delete from working_in where wolt = ? and thread = ?", (wolt, tid))
 
 
 def mark_asked(text, email, tid=None):
@@ -247,7 +260,7 @@ def mark_asked(text, email, tid=None):
     with tx() as c:
         for l in wolts():
             if not l["paused"] and asks({"kind": "human", "email": email, "text": text}, l["wolt"], l["owner"]) and (not tid or hears(tid, l["wolt"])):
-                set_working(c, l["wolt"], ASKED_FOR)
+                set_working(c, l["wolt"], ASKED_FOR, tid)
 
 
 # Who is in a thread. Each agent is in a thread, paused in it, or not in it yet. An agent comes in by being tagged there,
@@ -323,6 +336,8 @@ def set_who(tid, wolt, state):
     with tx() as c:
         seed(c, tid)
         c.execute("insert or replace into thread_who values (?, ?, ?)", (tid, wolt, state))
+        if state == "paused":
+            stop_working(c, wolt, tid)
     return {"thread": tid, "who": who_now().get(tid, {})}
 
 
@@ -338,7 +353,15 @@ def unreachable_now():
 
 
 def working_now():
-    return {row["wolt"]: True for row in q("select wolt from working where until > ?", time.time())}
+    return {row["wolt"]: True for row in q("select distinct wolt from working_in where until > ?", time.time())}
+
+
+def working_in_now():
+    """Where each working wolt is working: {wolt: [thread, ...]}, "" being the main chat."""
+    out = {}
+    for row in q("select wolt, thread from working_in where until > ? order by rowid", time.time()):
+        out.setdefault(row["wolt"], []).append(row["thread"])
+    return out
 
 
 def receipts():
@@ -892,7 +915,7 @@ def for_wolt(req, l):
             read = [m["id"] for m in new if m["kind"] == "human"]
             with tx() as c:  # the wolt is reading these now: a read receipt each, and it's working on them
                 for m in fresh:
-                    set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR)
+                    set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR, m.get("thread"))
                 c.executemany("insert or ignore into seen values (?, ?, ?)", [(i, l["wolt"], time.time()) for i in read])
             return reply(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
                                "connector": connector_version()})
@@ -907,12 +930,12 @@ def for_wolt(req, l):
         m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"),
                    text=q.get("text", [""])[0].strip()[:8000], files=save_uploads(q, req.read(UPLOAD_LIMIT * min(10, len(q.get("name", [""]))))), **where)
         with tx() as c:
-            stop_working(c, l["wolt"])
+            stop_working(c, l["wolt"], where.get("thread") or "")  # done here; still lit wherever else it is working
         return reply(200, m)
     data = json.loads(req.read(200_000) or b"{}")
     if path == "/lodge/working":
         with tx() as c:
-            (set_working(c, l["wolt"], ASKED_FOR) if data.get("working") else stop_working(c, l["wolt"]))
+            (keep_working(c, l["wolt"]) if data.get("working") else stop_working(c, l["wolt"]))
         return reply(200, {"ok": True})
     if path == "/lodge/thread-who":  # an agent takes itself out of a thread ({"thread": id}); a person brings it back
         where = thread_of(data.get("thread"))
@@ -948,7 +971,7 @@ def for_wolt(req, l):
                    page={"id": p["id"], "title": p["title"], "line": p["line"], "v": p["v"]}, **where)
         with tx() as c:
             c.execute("update pages set message = ? where id = ?", (m["id"], p["id"]))
-            stop_working(c, l["wolt"])
+            stop_working(c, l["wolt"], where.get("thread") or "")  # done here; still lit wherever else it is working
         return reply(200, m)
     if path == "/lodge/page/change":  # the wolt changes a page's board ({"id", "op"}): stamped with its name
         if "op" not in data:
@@ -968,7 +991,7 @@ def for_wolt(req, l):
         m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"), text=text,
                    **({"card": card} if card else {}), **where)
         with tx() as c:
-            stop_working(c, l["wolt"])
+            stop_working(c, l["wolt"], where.get("thread") or "")  # done here; still lit wherever else it is working
         if data.get("voice") is True:  # the wolt says per message whether it's a voice note
             threading.Thread(target=speak, args=(m, l["voice"]), daemon=True).start()
         return reply(200, m)
@@ -986,7 +1009,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "messages": messages(after)})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})

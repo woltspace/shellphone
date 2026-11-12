@@ -242,6 +242,22 @@ class FrontDoor(unittest.TestCase):
         page("/api/messages", {"text": "a word for everyone outside the thread"})
         self.assertIn("outside the thread", hear(work, 5))
 
+        # The room shows where each agent is working: in the thread whose message reached it, not everywhere.
+        self.assertEqual(agent(other, "/lodge/working", {"working": False}), 200), self.assertEqual(agent(work, "/lodge/working", {"working": False}), 200)
+        self.assertEqual(r.state()["working_in"], {})
+        page("/api/messages", {"text": "@second one more look, please", "thread": top})
+        self.assertEqual(r.state()["working_in"], {"second": [top]})  # lit the moment it is tagged, in that thread
+        self.assertEqual(r.state()["working"], {"second": True})  # older pages still see who is working
+        page("/api/messages", {"text": "@second and a word in the main chat"})
+        self.assertEqual(r.state()["working_in"], {"second": [top, ""]})
+        self.assertEqual(agent(other, "/lodge/messages", {"text": "looked", "thread": top}), 200)
+        self.assertEqual(r.state()["working_in"], {"second": [""]})  # answering in the thread ends it there only
+        self.assertEqual(agent(other, "/lodge/working", {"working": True}), 200)
+        self.assertEqual(r.state()["working_in"], {"second": [""]})  # "still at it" keeps what is lit, and adds nothing
+        self.assertEqual(agent(other, "/lodge/working", {"working": False}), 200)
+        self.assertEqual(r.state()["working_in"], {})
+        hear(other, 3)
+
         # Brought back by the switch, it hears the thread again and reads it whole.
         self.assertEqual(page("/api/thread-who", {"thread": top, "wolt": "helper", "state": "in"})["who"]["helper"], "in")
         page("/api/messages", {"text": "welcome back to the thread", "thread": top})

@@ -211,7 +211,7 @@ def host(a):
     stop, state, news = threading.Event(), {"now": None, "first": threading.Event()}, threading.Event()
 
     def snapshot():
-        return json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_now(), r.unreachable_now(), r.receipts(), r.pages_now(), r.who_now()], sort_keys=True, default=str)
+        return json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_in_now(), r.unreachable_now(), r.receipts(), r.pages_now(), r.who_now()], sort_keys=True, default=str)
 
     # Establish the baseline before any relay client can read the room.
     try:
