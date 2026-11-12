@@ -1,6 +1,6 @@
 // Shell Phone, our own page. Same room, same look as the classic page, but every piece is ours to change.
 import { becomeGuest, needsName, relayKeyMissing, relayRoom, onRelayState, type PipeState } from "./relay";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
@@ -12,7 +12,8 @@ import { ThreadWho } from "./ThreadWho";
 import { InboxSheet, ThreadFooter, threadColor, threadTitle, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
-import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, X } from "lucide-react";
+const Desk = lazy(() => import("./Desk"));  // terminals and their library load only on a computer that opens the desk
 import { usePush } from "./push";
 
 // iPhone Safari doesn't shrink the page for the keyboard, so size the app to the part of the screen still visible.
@@ -400,11 +401,16 @@ export function App() {
   const [listening, setListening] = useState<AudioContext | null | false>(false);
   const [viewing, setViewing] = useState<{ urls: string[]; at: number } | null>(null);
   const [paging, setPaging] = useState("");  // the page open full screen, by id
+  // the desk: on a wide screen, your wolts' terminals beside the chat (Desk.tsx). Remembered on this computer.
+  const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 1100px)").matches;
+  const [desk, setDeskOn] = useState(() => { try { return wide && localStorage.getItem("desk") === "1"; } catch { return false; } });
+  const setDesk = (on: boolean) => { setDeskOn(on); try { localStorage.setItem("desk", on ? "1" : "0"); } catch { /* private mode */ } };
+  const [focus, setFocus] = useState<{ wolt: string; at: number } | null>(null);
   const [thread, setThread] = useState("");
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0) => setViewing({ urls, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging,
+  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0) => setViewing({ urls, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined,
     // who's working where ("" the main chat, else a thread); a room that doesn't say where: everywhere, as before
     busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]) };
 
@@ -611,7 +617,9 @@ export function App() {
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
   const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
-  return (
+  // on the desk: the wolts of the open thread (or every wolt that isn't paused, in the main chat)
+  const deskWolts = state.members.wolts.filter((w) => !w.paused && (!thread || !state.who || state.main === w.wolt || state.who[thread]?.[w.wolt] === "in"));
+  const room = (
     <div className="h-full flex flex-col relative" {...menuSwipe.screen}>
       <header ref={hdr} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
         {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
@@ -625,6 +633,8 @@ export function App() {
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
           <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
         </div>
+        {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
+          className={`flex-none w-10 h-10 grid place-items-center border-0 cursor-pointer rounded-[10px] ${desk ? "bg-acc text-white" : "bg-transparent text-acc"}`}><Monitor size={20} /></button>}
         <button type="button" aria-label="Inbox" onClick={() => setListOpen(!listOpen)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>
@@ -650,4 +660,12 @@ export function App() {
       {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>
   );
+  if (!desk) return room;
+  return <div className="h-full flex">
+    <Suspense fallback={<div className="flex-1 bg-[#2a231c]" />}>
+      <Desk ctx={ctx} wolts={deskWolts} working={new Set(Object.keys(state.working || {}))} focus={focus} />
+    </Suspense>
+    {/* its own box for everything fixed inside (menu, sheets), so they stay in the chat column */}
+    <div className="flex-none w-[460px] h-full border-l border-line relative overflow-hidden [transform:translateZ(0)]">{room}</div>
+  </div>;
 }
