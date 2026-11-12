@@ -435,15 +435,15 @@ export function App() {
 
   // Where the app opens. A tapped notification lands on its message: inside its thread if it's a reply, or the main
   // chat scrolled to it. Opening it normally, or coming back after a while, lands home: the threads list.
-  const target = useRef<{ m: string; t: string; key?: string } | null>(null);  // key: the tap's note, removed once landed
+  const target = useRef<{ m: string; t: string; key?: string; at?: number } | null>(null);  // key: the tap's note, removed once landed
   const [landing, setLanding] = useState(0);
   const taps = useRef(new Set<string>());  // the taps already landed, so one arriving both ways lands once
-  const goTo = (url: string, key?: string, how = "address") => {
+  const goTo = (url: string, key?: string, how = "address", at?: number) => {
     const h = new URLSearchParams(new URL(url, location.href).hash.slice(1));
     if (key) { if (taps.current.has(key)) return; taps.current.add(key); }
-    if (!h.get("m")) { forget(key); return; }  // nowhere to go: nothing to keep it for
+    if (!h.get("m")) { forget(key, at); return; }  // nowhere to go: nothing to keep it for
     trace("goTo", { how, m: h.get("m"), t: h.get("t") || "" });
-    target.current = { m: h.get("m")!, t: h.get("t") || "", key };
+    target.current = { m: h.get("m")!, t: h.get("t") || "", key, at };
     // the address says where we're going until we get there, so a reload on the way (a room update) still lands
     history.replaceState(null, "", location.pathname + "#m=" + encodeURIComponent(h.get("m")!) + (h.get("t") ? "&t=" + encodeURIComponent(h.get("t")!) : ""));
     setMenu(false); setListOpen(false);
@@ -452,17 +452,17 @@ export function App() {
     // not there after 8s: give up on it (not a landing; the trace says so). Keeping the note would land here again, late, on
     // the next look, after you've moved on
     const mine = target.current; setTimeout(() => {
-      if (target.current === mine) { trace("gave up: message not found in 8s, tap dropped", { m: mine.m, t: mine.t }); target.current = null; forget(mine.key); history.replaceState(null, "", location.pathname); }
+      if (target.current === mine) { trace("gave up: message not found in 8s, tap dropped", { m: mine.m, t: mine.t }); target.current = null; forget(mine.key, mine.at); history.replaceState(null, "", location.pathname); }
     }, 8000);
   };
   // the note a tapped notification leaves behind (see sw.js and landing.ts). The tap and the app waking up race, so it's
   // looked for when the app starts or comes back, and again a few times just after
-  const noted = async () => { const n = await pendingTap(); if (n) goTo(n.url, n.key, "note"); };
+  const noted = async () => { const n = await pendingTap(); if (n) goTo(n.url, n.key, "note", n.at); };
   const timers = useRef<number[]>([]);
   const look = () => { noted(); timers.current.forEach(clearTimeout); timers.current = [300, 1000, 2500].map((ms) => window.setTimeout(noted, ms)); };
   useEffect(() => {
     goTo(location.href); look();
-    const off = onTap((t) => goTo(t.url, t.key, "message"));
+    const off = onTap((t) => goTo(t.url, t.key, "message", t.at));
     let hidden = 0;
     const seen = () => {
       if (document.hidden) { hidden = Date.now(); return; }
@@ -478,7 +478,7 @@ export function App() {
     const t = target.current; if (!t) return;
     const el = [...document.querySelectorAll<HTMLElement>(`[data-mid="${CSS.escape(t.m)}"]`)].at(-1); if (!el) return;
     target.current = null;  // the address keeps the spot until you leave it, so a reload for an update brings you back here
-    trace("landed", { m: t.m, t: t.t, open: thread }); forget(t.key);  // there: the tap's note has done its job
+    trace("landed", { m: t.m, t: t.t, open: thread }); forget(t.key, t.at);  // there: the tap's note has done its job
     // after the feeds have done their own scrolling for this render, so "stay at the bottom" doesn't undo it
     (t.t ? stickThread : stickMain).current(false);  // reading back here: stop following the newest
     // and again as the page settles (voice players, cards and pictures above it take their height after a cold start),
