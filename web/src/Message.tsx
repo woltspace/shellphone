@@ -131,8 +131,9 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
       <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
       <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
-        style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) } : undefined}>
-        {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5">[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
+        style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
+          : !human ? { background: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : undefined}>
+        {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5" style={!human ? { color: woltColor(m.wolt, ctx.wolts) } : undefined}>[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
         {m.files?.length ? relayRoom ? <div className="font-mono text-xs text-dim mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
         {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
         {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
@@ -148,6 +149,16 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
       </div>
     </div>
   );
+}
+
+// Each agent its own colour, so two agents of one person don't look alike: by its place in the room's list (the same on
+// every phone, and no two alike for the first eight), or from its name if it has left the room.
+const HUES = ["#2f6fa3", "#7a4fb0", "#2f7d6d", "#b0427a", "#8a6d1c", "#5b5bb5", "#3f8a3a", "#c4531e"];
+export function woltColor(name = "", wolts: Wolt[] = []) {
+  const i = wolts.findIndex((w) => w.wolt === name);
+  if (i >= 0) return HUES[i % HUES.length];
+  let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return HUES[h % HUES.length];
 }
 
 export function mix(hex: string, to: string, t: number) {  // blend a colour toward white, so text stays readable on it

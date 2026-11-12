@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { say, type Msg, type Wolt } from "./room";
-import type { Ctx } from "./Message";
+import { woltColor, type Ctx } from "./Message";
 import { woltAvatar } from "./sprites";
 
 type Mark = "in" | "paused" | "out";
@@ -84,8 +84,8 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
           return <div key={w.wolt} className="flex items-center gap-2.5 py-2 border-t border-line">
             <img src={face(w)} alt="" className={`pixel w-[30px] h-[30px] rounded-full ${yes ? "" : "grayscale opacity-50"}`} />
             <span className="flex-1 min-w-0">
-              <span className={`block truncate font-mono text-sm ${yes ? "text-ink" : "text-dim"}`}>{w.wolt}</span>
-              <small className="block text-xs text-dim">{w.paused ? "paused in the room" : w.wolt === main ? "main · always in every thread" : yes ? "in this thread" : m === "paused" ? "paused here · still active elsewhere" : "not in this thread"}</small>
+              <span className={`block truncate font-mono text-sm ${yes ? "" : "text-dim"}`} style={yes ? { color: woltColor(w.wolt, ctx.wolts) } : undefined}>{w.wolt}</span>
+              <small className="block text-xs text-dim">{(w.owner === ctx.me ? "yours" : `${ctx.person(w.owner).name}'s`) + " · "}{w.paused ? "paused in the room" : w.wolt === main ? "main · always in every thread" : yes ? "in this thread" : m === "paused" ? "paused here · still active elsewhere" : "not in this thread"}</small>
             </span>
             <button type="button" role="switch" aria-checked={yes} disabled={locked} aria-label={`${yes ? "Pause" : "Bring in"} ${w.wolt} here`}
               onClick={() => flip(w.wolt, yes ? "paused" : "in")}
