@@ -210,14 +210,20 @@ def host(a):
 
     stop, state, news = threading.Event(), {"now": None, "first": threading.Event()}, threading.Event()
 
+    def snapshot():
+        return json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_now(), r.unreachable_now(), r.receipts(), r.pages_now()], sort_keys=True, default=str)
+
+    # Establish the baseline before any relay client can read the room.
+    initial_snapshot = snapshot()
+
     def watch():  # anything a page would be shown differently is news: messages, who is working, who has read, who is here
-        seen = None
+        seen = initial_snapshot
         while not stop.wait(0.25):
             try:
-                now = json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_now(), r.unreachable_now(), r.receipts(), r.pages_now()], sort_keys=True, default=str)
+                now = snapshot()
             except Exception:  # the room is closing, or busy for a moment: look again next time
                 continue
-            if seen is not None and now != seen:
+            if now != seen:
                 news.set()
             seen = now
 
