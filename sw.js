@@ -9,14 +9,20 @@ self.addEventListener("push", (e) => {
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const url = new URL(e.notification.data.url, self.registration.scope).href;
+  const tap = Math.random().toString(36).slice(2) + Date.now().toString(36);  // this tap, so arriving both ways it lands once
+  const key = new URL("landing-note/" + tap, self.registration.scope).href;  // its own note: landing on it never removes a newer one
   // Also leave a note the page reads when it starts or comes back: a phone opening the app from closed may drop the
-  // address's #m=…, and a suspended page may miss the message below.
-  const note = caches.open("landing").then((c) => c.put(new URL("landing-note", self.registration.scope).href, new Response(JSON.stringify({ url, at: Date.now() })))).catch(() => {});
+  // address's #m=…, and a suspended or still-starting page may miss the message below. The page removes it once it lands.
+  const note = caches.open("landing").then((c) => c.put(key, new Response(JSON.stringify({ url, tap, at: Date.now() })))).catch(() => {});
   e.waitUntil(note.then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true })).then(async (open) => {
     // the chat page knows how to land on a message; any other page (like the invite one) is sent to the chat
     const chat = open.find((c) => new URL(c.url).pathname === new URL(self.registration.scope).pathname);
-    if (chat) { chat.postMessage({ type: "open", url }); return chat.focus(); }
-    if (open.length) { const c = await open[0].navigate(url).catch(() => null); if (c) return c.focus(); }
+    if (chat) {
+      chat.postMessage({ type: "open", url, key });
+      if (await chat.focus().catch(() => null)) return;  // it couldn't be brought up: open one on the message instead
+    } else if (open.length) {
+      const c = await open[0].navigate(url).catch(() => null); if (c && (await c.focus().catch(() => null))) return;
+    }
     return self.clients.openWindow(url);
   }));
 });
