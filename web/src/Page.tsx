@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileCode2, X } from "lucide-react";
 import { call, relayRoom } from "./relay";
 import { send, type Msg, type PageRef } from "./room";
-import { after, sealed, type Change } from "./pages.js";
+import { look, sealed, type Got, type Open } from "./pages.js";
 import type { Ctx } from "./Message";
 
 export function PageTile({ m, ctx }: { m: Msg; ctx: Ctx }) {
@@ -23,38 +23,41 @@ export function PageTile({ m, ctx }: { m: Msg; ctx: Ctx }) {
   </button>;
 }
 
-type Got = { id: string; title: string; line?: string; v: number; by?: string; n: number; html?: string; changes?: Change[]; error?: string };
-const get = async (url: string): Promise<Got | null> => {
+// the room's answer about a page: its contents, "missing" when the room has no such page, null when it couldn't be reached
+const get = async (url: string): Promise<Got> => {
   const r = await (relayRoom ? call(url) : fetch(url, { cache: "no-store" })).catch(() => null);
-  return r && r.ok ? ((await r.json().catch(() => null)) as Got | null) : null;
+  if (r && r.status === 404) return "missing";
+  return r && r.ok ? ((await r.json().catch(() => null)) as Got) : null;
 };
 
 // mark: where the room says this page stands ({v, n} from /api/state); when it moves, the viewer asks for what's new
 export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: number; n: number }; ctx: Ctx; close: () => void }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const [page, setPage] = useState<{ title: string; by?: string; v: number; html: string } | null>(null), [missing, setMissing] = useState(false);
-  const changes = useRef<Change[]>([]), ready = useRef(false), v = useRef(0), busy = useRef(false), again = useRef(false);
+  const [page, setPage] = useState<{ title?: string; by?: string; v: number; html: string } | null>(null);
+  const [trouble, setTrouble] = useState<"" | "missing" | "unreachable">("");
+  const cur = useRef<Open>({ v: 0, changes: [] }), ready = useRef(false), busy = useRef(false), again = useRef(false), retry = useRef(0);
   const tell = (msg: object) => frame.current?.contentWindow?.postMessage({ shellphone: 1, ...msg }, "*");  // a sealed frame has no origin to name
 
   const load = async () => {
     if (busy.current) { again.current = true; return; }
-    busy.current = true;
-    const last = changes.current.at(-1)?.n || 0;
-    const got = await get(`/api/page?id=${encodeURIComponent(id)}&after=${last}&v=${v.current}`);
-    if (!got) setMissing((m) => m || !page);
-    else if (got.html !== undefined && got.v !== v.current) {
-      // a new version of the page: it starts over, and gets the whole board once it says it's ready
-      v.current = got.v; ready.current = false; changes.current = [];
-      const all = got.changes && !last ? got.changes : (await get(`/api/page?id=${encodeURIComponent(id)}&after=0&v=${got.v}`))?.changes;
-      changes.current = after([], all);
-      setPage({ title: got.title, by: got.by, v: got.v, html: sealed(got.html) });
-    } else {
-      const fresh = after(changes.current, got.changes);
-      if (fresh.length) { changes.current = [...changes.current, ...fresh]; if (ready.current) tell({ type: "changes", changes: fresh }); }
+    busy.current = true; clearTimeout(retry.current);
+    const r = await look(cur.current, (after, v) => get(`/api/page?id=${encodeURIComponent(id)}&after=${after}&v=${v}`));
+    if (r.error) {
+      setTrouble(r.error);
+      // couldn't reach the room: what's shown stays, and it tries again by itself (the room's state may not move meanwhile)
+      if (r.error === "unreachable") retry.current = window.setTimeout(load, 3000);
+    } else if (r.page) {
+      // a new version, with its whole board: the frame starts over and gets the board once it says it's ready
+      cur.current = r.page; ready.current = false; setTrouble("");
+      setPage({ title: r.page.title, by: r.page.by, v: r.page.v, html: sealed(r.page.html || "") });
+    } else if (r.fresh) {
+      setTrouble("");
+      if (r.fresh.length) { cur.current = { ...cur.current, changes: [...cur.current.changes, ...r.fresh] }; if (ready.current) tell({ type: "changes", changes: r.fresh }); }
     }
     busy.current = false;
     if (again.current) { again.current = false; load(); }
   };
+  useEffect(() => () => clearTimeout(retry.current), []);
   useEffect(() => { load(); }, [id, mark?.v, mark?.n]);
 
   useEffect(() => {
@@ -64,7 +67,7 @@ export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: n
       if (d.type === "ready") {
         ready.current = true;
         const me = ctx.person(ctx.me);
-        tell({ type: "init", me: { name: me.name, color: me.color }, changes: changes.current });  // its board, and nothing else of the room
+        tell({ type: "init", me: { name: me.name, color: me.color }, changes: cur.current.changes });  // its board, and nothing else of the room
       } else if (d.type === "change" && d.op !== undefined) {
         const body = JSON.stringify({ id, op: d.op });
         if (body.length > 4200) return;  // the room takes 4 KB per change
@@ -91,7 +94,7 @@ export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: n
       <div className="mx-auto mt-2 h-[5px] w-10 rounded-full bg-line" />
       <div className="flex items-center gap-2 px-4 pb-2 pt-1">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-semibold">{page?.title || (missing ? "This page is gone" : "Opening…")}</div>
+          <div className="truncate text-base font-semibold">{page?.title || (trouble === "missing" ? "This page is gone" : "Opening…")}</div>
           <div className="truncate font-mono text-[11px] text-dim">{page ? `by ${page.by || "an agent"} · v${page.v} · swipe down for the chat` : " "}</div>
         </div>
         <button type="button" aria-label="Close the page" onClick={close} className="grid h-10 w-10 flex-none place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={22} /></button>
@@ -99,7 +102,8 @@ export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: n
     </div>
     {page ? <iframe ref={frame} key={page.v} title={page.title} srcDoc={page.html} sandbox="allow-scripts" referrerPolicy="no-referrer" allow=""
       className="m-2.5 min-h-0 flex-1 rounded-xl border border-line bg-white" />
-      : <div className="flex-1 grid place-items-center font-mono text-sm text-dim">{missing ? "The room doesn't have this page anymore." : "…"}</div>}
+      : <div className="flex-1 grid place-items-center font-mono text-sm text-dim">{trouble === "missing" ? "The room doesn't have this page anymore." : trouble ? "Can't reach the room, trying again…" : "…"}</div>}
+    {page && trouble === "unreachable" && <div className="flex-none text-center font-mono text-[11px] text-acc">Can't reach the room, trying again…</div>}
     <div className="flex-none px-4 pb-[max(10px,env(safe-area-inset-bottom))] text-center font-mono text-[10.5px] text-dim">
       🔒 Sealed: it can only save this board. It can't read the chat, your phone or the internet.</div>
   </div>;
