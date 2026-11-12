@@ -784,7 +784,10 @@ def for_person(req, email):
     if path == "/api/test-push":  # "send me a test notification": in a few seconds, one landing in the main chat and one in a thread
         if not pywebpush:
             return reply(400, {"error": "this room can't send notifications"})
-        delay = max(3, min(60, int(json.loads(req.read(1000) or b"{}").get("in", 10))))
+        try:
+            delay = max(3, min(60, int(json.loads(req.read(1000) or b"{}").get("in", 10))))
+        except (ValueError, TypeError, AttributeError):
+            return reply(400, {"error": "in is a number of seconds"})
         rows = [(r["id"], json.loads(r["data"])) for r in q("select id, data from messages where kind in ('human', 'wolt') order by n desc limit 400")]
         main = next((i for i, d in rows if not d.get("thread")), None)
         reply_ = next(((i, d["thread"]) for i, d in rows if d.get("thread")), None)
