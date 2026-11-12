@@ -22,7 +22,8 @@ export type State = {
   pages?: Record<string, { v: number; n: number }>;  // where each page stands: its version and its last change
   who?: Record<string, Record<string, "in" | "paused">>;  // per thread, the agents switched in or paused there (ThreadWho.tsx)
   who_default?: "in" | "out";
-  working_in?: Record<string, string[]>;  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it
+  working_in?: Record<string, string[]>;
+  main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it
 };
 
 // How many sends are on their way. The page doesn't reload itself for a new version while one is.
