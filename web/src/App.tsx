@@ -631,7 +631,8 @@ export function App() {
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
       {thread && <ThreadSheet key={thread} color={threadColor(thread)} title={threadTitle(root)} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
-        who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} />}>
+        who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
+          room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} />}>
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
       </ThreadSheet>}
