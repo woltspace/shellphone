@@ -235,6 +235,11 @@ def asks(m, wolt, owner):
         m.get("kind") == "human" and canon(m.get("email") or "") == canon(owner) and bool(re.search(rf"\b{re.escape(wolt)}\b", low)))
 
 
+def tagged(m, wolt):
+    """An explicit @tag. Only that brings a wolt into a thread: saying its name ("ok becky's paused") doesn't."""
+    return bool(re.search(rf"@{re.escape(wolt)}\b", (m.get("text") or "").lower()))
+
+
 def set_working(c, wolt, seconds, tid=""):
     """The wolt is working in this thread ("" is the main chat)."""
     c.execute("insert into working_in values (?, ?, ?) on conflict (wolt, thread) do update set until = max(until, excluded.until)", (wolt, tid or "", time.time() + seconds))
@@ -304,7 +309,7 @@ def brings_in(c, tid, m):
     if m["kind"] == "wolt":
         c.execute("insert or ignore into thread_who values (?, ?, 'in')", (tid, m["wolt"]))
     for l in wolts():
-        if asks(m, l["wolt"], l["owner"]):
+        if tagged(m, l["wolt"]):
             if m["kind"] == "human" and may_switch(m.get("email"), l["wolt"]):  # a tag from someone who holds the switch flips it
                 c.execute("insert or replace into thread_who values (?, ?, 'in')", (tid, l["wolt"]))
             else:
@@ -321,7 +326,7 @@ def seed(c, tid):
         if m["kind"] == "wolt" and m.get("wolt") in known:
             c.execute("insert or ignore into thread_who values (?, ?, 'in')", (tid, m["wolt"]))
         for name, owner in known.items():
-            if asks(m, name, owner):
+            if tagged(m, name):
                 c.execute("insert or ignore into thread_who values (?, ?, 'in')", (tid, name))
 
 

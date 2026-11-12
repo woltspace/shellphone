@@ -226,9 +226,11 @@ class FrontDoor(unittest.TestCase):
 
         # Paused in the thread: nothing from it, a tag included, and no posting there. Elsewhere it is on as ever.
         self.assertEqual(page("/api/thread-who", {"thread": top, "wolt": "helper", "state": "paused"}), {"thread": top, "who": {"helper": "paused"}})
-        page("/api/messages", {"text": "helper, your human says your name here", "thread": top})  # its keeper holds the switch: this brings it back
+        page("/api/messages", {"text": "helper, your human says your name here", "thread": top})  # its name alone doesn't bring it back
+        self.assertEqual(r.state()["who"][top]["helper"], "paused")
+        page("/api/messages", {"text": "@helper your human tags you here", "thread": top})  # its keeper holds the switch: a tag brings it back
         self.assertEqual(r.state()["who"][top]["helper"], "in")
-        self.assertIn("says your name here", hear(work, 5))
+        self.assertIn("tags you here", hear(work, 5))
         page("/api/thread-who", {"thread": top, "wolt": "helper", "state": "paused"})
         self.assertEqual(agent(other, "/lodge/messages", {"text": "@helper come and look", "thread": top}), 200)  # an agent speaks in a thread: it is in,
         self.assertEqual(r.state()["who"][top], {"helper": "paused", "second": "in"})  # but its tag doesn't bring a paused one back
@@ -305,6 +307,13 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual({t: w.get("helper") for t, w in r.state()["who"].items()}, {top: "paused", side: "paused"})
         self.assertEqual(agent(work, "/lodge/thread?id=" + side), 403)
         page("/api/wolt", {"wolt": "helper", "state": "on"})
+        self.assertEqual(r.state()["who"][side]["helper"], "in")
+
+        # only an @tag brings a paused wolt back: its human saying its name ("ok helper's paused") doesn't
+        page("/api/thread-who", {"thread": side, "wolt": "helper", "state": "paused"})
+        page("/api/messages", {"text": "ok helper is paused here", "thread": side})
+        self.assertEqual(r.state()["who"][side]["helper"], "paused")
+        page("/api/messages", {"text": "@helper come back", "thread": side})
         self.assertEqual(r.state()["who"][side]["helper"], "in")
 
     def test_agents_and_people_work_on_one_page(self):
