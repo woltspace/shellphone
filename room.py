@@ -189,7 +189,7 @@ def one_send(email, cid):
 def thread(mid):
     """The message a thread hangs off, then its replies in order."""
     root = message(mid)
-    return [root] + [as_message(row) for row in q("select * from messages where json_extract(data, '$.thread') = ? order by n", mid)] if root else []
+    return [root] + [as_message(row) for row in q("select * from messages where json_extract(data, '$.thread') = ? and kind in ('human', 'wolt') order by n", mid)] if root else []
 
 
 def thread_of(value):

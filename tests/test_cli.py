@@ -206,7 +206,9 @@ class FrontDoor(unittest.TestCase):
 
         (work / "plan.html").write_text("<h1>Plan</h1><script>shellphone.onChange(() => {})</script>")
         self.assertIn("needs --title", run("post", "--page", "plan.html", cwd=work, stdin="").stderr)
-        posted = run("post", "--page", "plan.html", "--title", "Launch plan", "--line", "5 steps", cwd=work, stdin="here's the plan")
+        root = ask("/api/messages", {"text": "Plan here"})["id"]
+        run("wait", "--timeout", "1", cwd=work)  # consume the root before the activity notice
+        posted = run("post", "--thread", root, "--page", "plan.html", "--title", "Launch plan", "--line", "5 steps", cwd=work, stdin="here's the plan")
         self.assertEqual(posted.returncode, 0, posted.stderr)
         tile = [m for m in r.state()["messages"] if m.get("page")][0]
         pid = tile["page"]["id"]
@@ -236,10 +238,20 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual([m["text"] for m in lines], [f"{host} and second made 2 changes to Launch plan"])
         self.assertEqual(lines[0]["activity"], {"page": pid, "title": "Launch plan", "wolt": "helper", "from": 1, "to": 2,
                                                 "by": [{"kind": "human", "name": host, "count": 1}, {"kind": "wolt", "name": "second", "count": 1}]})
+        key = json.loads((work / "shellphone" / "lodge.json").read_text())["key"]
+        thread = ask(f"/lodge/thread?id={root}", Authorization="Bearer " + key)["messages"]
+        self.assertEqual([m["id"] for m in thread], [root, tile["id"]])
+        self.assertEqual(lines[0]["thread"], root)
         heard = run("wait", "--timeout", "5", cwd=work).stdout
         self.assertIn("made 2 changes to Launch plan", heard)
         self.assertRegex(heard, rf"page changes {pid} --config \S+ --after 0")
         self.assertIn("Nobody is asking you anything", heard)
+        ask("/api/messages", {"text": "@helper still listening?", "thread": root})
+        reply = run("wait", "--timeout", "5", cwd=work)
+        self.assertEqual(reply.returncode, 0, reply.stderr)
+        self.assertIn("still listening?", reply.stdout)
+        self.assertNotIn("made 2 changes", reply.stdout)
+
 
         # any agent in the room can put a new version; the board carries over
         (other / "v2.html").write_text("<h1>Plan, tidier</h1>")
