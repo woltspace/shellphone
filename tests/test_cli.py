@@ -187,6 +187,84 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(page("/api/wolt", {"wolt": "second", "state": "removed"}), 404)
         self.assertEqual(page("/api/wolt", {"wolt": "helper", "state": "asleep"}), 400)
 
+    def test_agents_and_people_work_on_one_page(self):
+        r = self.room(env={**ENV, "SHELLPHONE_ACTIVITY_AFTER": "1"})
+        work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
+        work.mkdir(), other.mkdir()
+        self.assertEqual(run("join", r.agent, "--name", "helper", cwd=work).returncode, 0)
+        self.assertEqual(run("join", r.agent, "--name", "second", cwd=other).returncode, 0)
+        run("wait", "--timeout", "1", cwd=work)  # joins from now on
+        r.browser.open(r.open)
+        host = r.state()["members"]["people"][0]["name"]
+
+        def ask(path, body=None, **headers):
+            try:
+                return json.load(r.browser.open(urllib.request.Request(r.url + path, data=None if body is None else json.dumps(body).encode(),
+                                                                       headers={"Content-Type": "application/json", **headers})))
+            except urllib.error.HTTPError as e:
+                return e.code
+
+        (work / "plan.html").write_text("<h1>Plan</h1><script>shellphone.onChange(() => {})</script>")
+        self.assertIn("needs --title", run("post", "--page", "plan.html", cwd=work, stdin="").stderr)
+        posted = run("post", "--page", "plan.html", "--title", "Launch plan", "--line", "5 steps", cwd=work, stdin="here's the plan")
+        self.assertEqual(posted.returncode, 0, posted.stderr)
+        tile = [m for m in r.state()["messages"] if m.get("page")][0]
+        pid = tile["page"]["id"]
+        self.assertEqual((tile["kind"], tile["wolt"], tile["text"], tile["page"]), ("wolt", "helper", "here's the plan", {"id": pid, "title": "Launch plan", "line": "5 steps", "v": 1}))
+        self.assertEqual(r.state()["pages"], {pid: {"v": 1, "n": 0}})
+        got = ask(f"/api/page?id={pid}")
+        self.assertEqual((got["html"], got["changes"], got["by"], got["v"], got["n"]), ((work / "plan.html").read_text(), [], "helper", 1, 0))
+
+        # a person and an agent change the board: the room numbers the changes and says who made each, whatever the page claims
+        self.assertEqual(ask("/api/page", {"id": pid, "op": {"add": "book the venue"}, "by": {"kind": "human", "name": "someone else"}}), {"n": 1})
+        changed = run("page", "change", pid, cwd=other, stdin='{"add": "order the cake"}')
+        self.assertEqual((changed.returncode, changed.stdout.strip()), (0, "change 2 made"), changed.stderr)
+        changes = ask(f"/api/page?id={pid}&v=1")
+        self.assertNotIn("html", changes)  # the version they have: only the changes come
+        self.assertEqual([(c["n"], c["by"], c["op"]) for c in changes["changes"]],
+                         [(1, {"kind": "human", "name": host}, {"add": "book the venue"}), (2, {"kind": "wolt", "name": "second"}, {"add": "order the cake"})])
+        self.assertEqual([c["n"] for c in ask(f"/api/page?id={pid}&v=1&after=1")["changes"]], [2])
+        listed = run("page", "changes", pid, cwd=work).stdout
+        self.assertIn(f"{host}: " + '{"add": "book the venue"}', listed)
+        self.assertIn('second (an agent): {"add": "order the cake"}', listed)
+
+        # the chat hears about a burst of changes once, and the agent that posted the page is told
+        deadline = time.time() + 10
+        while time.time() < deadline and not [m for m in r.state()["messages"] if m["kind"] == "activity"]:
+            time.sleep(0.2)
+        lines = [m for m in r.state()["messages"] if m["kind"] == "activity"]
+        self.assertEqual([m["text"] for m in lines], [f"{host} and second made 2 changes to Launch plan"])
+        self.assertEqual(lines[0]["activity"], {"page": pid, "title": "Launch plan", "wolt": "helper", "from": 1, "to": 2,
+                                                "by": [{"kind": "human", "name": host, "count": 1}, {"kind": "wolt", "name": "second", "count": 1}]})
+        heard = run("wait", "--timeout", "5", cwd=work).stdout
+        self.assertIn("made 2 changes to Launch plan", heard)
+        self.assertRegex(heard, rf"page changes {pid} --config \S+ --after 0")
+        self.assertIn("Nobody is asking you anything", heard)
+
+        # any agent in the room can put a new version; the board carries over
+        (other / "v2.html").write_text("<h1>Plan, tidier</h1>")
+        put = run("page", "put", pid, "v2.html", cwd=other)
+        self.assertEqual(put.returncode, 0, put.stderr)
+        self.assertEqual(r.state()["pages"], {pid: {"v": 2, "n": 2}})
+        self.assertEqual(ask(f"/api/page?id={pid}&v=1&after=2"), {"id": pid, "title": "Launch plan", "line": "5 steps", "by": "helper", "v": 2, "n": 2, "html": "<h1>Plan, tidier</h1>", "changes": []})
+        fetched = run("page", "get", pid, "--out", "now.html", cwd=work)
+        self.assertEqual(fetched.returncode, 0, fetched.stderr)
+        self.assertEqual((work / "now.html").read_text(), "<h1>Plan, tidier</h1>")
+
+        # what the room refuses
+        self.assertEqual(ask("/api/page?id=nope"), 404)
+        self.assertEqual(ask("/api/page", {"id": "nope", "op": 1}), 404)
+        self.assertEqual(ask("/api/page", {"id": pid}), 400)  # no change in it
+        self.assertEqual(ask("/api/page", {"id": pid, "op": "x" * 5000}), 400)
+        self.assertEqual(ask("/api/page", {"id": pid, "op": 1}, Origin="null"), 403)  # a sealed page asking the room itself
+        self.assertIn("no such page", run("page", "get", "nope", cwd=work).stderr)
+        (work / "big.html").write_text("x" * 300_001)
+        self.assertIn("too big", run("post", "--page", "big.html", "--title", "Big", cwd=work, stdin="").stderr)
+        self.assertEqual(ask("/api/wolt", {"wolt": "second", "state": "paused"}), {"wolt": "second", "paused": True})
+        self.assertIn("paused", run("page", "change", pid, cwd=other, stdin="1").stderr)  # a paused agent is off here too
+        self.assertIn("paused", run("page", "get", pid, cwd=other).stderr)
+        self.assertEqual(r.state()["pages"], {pid: {"v": 2, "n": 2}})
+
     def test_a_guest_cant_pause_or_remove_an_agent(self):
         import importlib, io, contextlib
         from unittest import mock

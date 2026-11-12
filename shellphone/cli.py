@@ -14,7 +14,7 @@ HERE = Path(__file__).resolve().parent
 PREFIX = "shellphone-room-"
 THROWAWAY = "throwaway.pid"  # only in a room made to be deleted: the pid of the command that owns it
 HOST_EMAIL = "host@shellphone.local"  # the room keys people by email; a local room has one person, the host
-CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "pause", "version")
+CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "pause", "page", "version")
 
 
 def me():
@@ -140,7 +140,7 @@ Both links are keys to this room: share them only with your own agents.
 Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "Everything in it is deleted."))
 
 
-SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt")}  # what a page may ask through the relay, for now: text chat, and pausing or removing an agent (the room refuses guests)
+SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt"), ("GET", "/api/page"), ("POST", "/api/page")}  # what a page may ask through the relay, for now: text chat, pausing or removing an agent (the room refuses guests), and pages
 MAX_GUESTS = 50  # people who may come in through one run's invite link
 
 
@@ -214,7 +214,7 @@ def host(a):
         seen = None
         while not stop.wait(0.25):
             try:
-                now = json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_now(), r.unreachable_now(), r.receipts()], sort_keys=True, default=str)
+                now = json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_now(), r.unreachable_now(), r.receipts(), r.pages_now()], sort_keys=True, default=str)
             except Exception:  # the room is closing, or busy for a moment: look again next time
                 continue
             if seen is not None and now != seen:
