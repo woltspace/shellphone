@@ -187,6 +187,76 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(page("/api/wolt", {"wolt": "second", "state": "removed"}), 404)
         self.assertEqual(page("/api/wolt", {"wolt": "helper", "state": "asleep"}), 400)
 
+    def test_a_thread_reaches_the_agents_in_it(self):
+        r = self.room()
+        work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
+        work.mkdir(), other.mkdir()
+        self.assertEqual(run("join", r.agent, "--name", "helper", cwd=work).returncode, 0)
+        self.assertEqual(run("join", r.agent, "--name", "second", cwd=other).returncode, 0)
+        run("wait", "--timeout", "1", cwd=work), run("wait", "--timeout", "1", cwd=other)  # both join from now on
+        r.browser.open(r.open)
+
+        def page(path, body):
+            try:
+                return json.load(r.browser.open(urllib.request.Request(r.url + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+            except urllib.error.HTTPError as e:
+                return e.code
+        def agent(folder, path, body=None):
+            key = json.loads((folder / "shellphone" / "lodge.json").read_text())["key"]
+            try:
+                return urllib.request.urlopen(urllib.request.Request(r.url + path, data=None if body is None else json.dumps(body).encode(), headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})).status
+            except urllib.error.HTTPError as e:
+                return e.code
+        hear = lambda folder, seconds=2: run("wait", "--timeout", str(seconds), cwd=folder).stdout
+
+        # A person starts a thread and tags one agent: that one is in, the other is not.
+        top = page("/api/messages", {"text": "the plan for the launch"})["id"]
+        self.assertIn("plan for the launch", hear(work, 5))  # the main chat reaches everyone, as before
+        self.assertIn("plan for the launch", hear(other, 5))
+        page("/api/messages", {"text": "@helper what do you make of it?", "thread": top})
+        self.assertIn("what do you make of it", hear(work, 5))
+        self.assertEqual(r.state()["who"], {top: {"helper": "in"}})
+        self.assertEqual(r.state()["who_default"], "out")
+        page("/api/messages", {"text": "and the budget, anyone?", "thread": top})
+        self.assertIn("the budget", hear(work, 5))  # in the thread: it hears what is said there, tagged or not
+        quiet = hear(other)
+        self.assertNotIn("what do you make of it", quiet)  # not in it: nothing from the thread reaches it,
+        self.assertNotIn("the budget", quiet)
+        self.assertEqual(agent(other, "/lodge/thread?id=" + top), 403)  # and it can't read it
+
+        # Paused in the thread: nothing from it, a tag included, and no posting there. Elsewhere it is on as ever.
+        self.assertEqual(page("/api/thread-who", {"thread": top, "wolt": "helper", "state": "paused"}), {"thread": top, "who": {"helper": "paused"}})
+        page("/api/messages", {"text": "helper, your human says your name here", "thread": top})  # its keeper holds the switch: this brings it back
+        self.assertEqual(r.state()["who"][top]["helper"], "in")
+        self.assertIn("says your name here", hear(work, 5))
+        page("/api/thread-who", {"thread": top, "wolt": "helper", "state": "paused"})
+        self.assertEqual(agent(other, "/lodge/messages", {"text": "@helper come and look", "thread": top}), 200)  # an agent speaks in a thread: it is in,
+        self.assertEqual(r.state()["who"][top], {"helper": "paused", "second": "in"})  # but its tag doesn't bring a paused one back
+        deaf = hear(work)
+        self.assertNotIn("come and look", deaf)
+        self.assertEqual(agent(work, "/lodge/messages", {"text": "let me in", "thread": top}), 403)
+        self.assertEqual(agent(work, "/lodge/thread?id=" + top), 403)
+        self.assertEqual(agent(work, "/lodge/thread-who", {"thread": top, "state": "in"}), 403)  # it can't bring itself back
+        self.assertEqual(agent(other, "/lodge/thread-who", {"thread": top, "wolt": "helper", "state": "paused"}), 403)  # an agent has no switch over another
+        self.assertEqual(agent(work, "/lodge/messages", {"text": "still here in the main chat"}), 200)
+        page("/api/messages", {"text": "a word for everyone outside the thread"})
+        self.assertIn("outside the thread", hear(work, 5))
+
+        # Brought back by the switch, it hears the thread again and reads it whole.
+        self.assertEqual(page("/api/thread-who", {"thread": top, "wolt": "helper", "state": "in"})["who"]["helper"], "in")
+        page("/api/messages", {"text": "welcome back to the thread", "thread": top})
+        back = hear(work, 5)
+        self.assertIn("welcome back to the thread", back)
+        self.assertIn("come and look", back)  # what it missed is in the thread it is shown
+        self.assertEqual(agent(work, "/lodge/thread?id=" + top), 200)
+
+        # An agent takes itself out; the switch refuses what it doesn't know.
+        self.assertEqual(agent(other, "/lodge/thread-who", {"thread": top}), 200)
+        self.assertEqual(r.state()["who"][top]["second"], "paused")
+        self.assertEqual(page("/api/thread-who", {"thread": top, "wolt": "nobody", "state": "in"}), 404)
+        self.assertEqual(page("/api/thread-who", {"thread": "nope", "wolt": "helper", "state": "in"}), 404)
+        self.assertEqual(page("/api/thread-who", {"thread": top, "wolt": "helper", "state": "gone"}), 400)
+
     def test_agents_and_people_work_on_one_page(self):
         r = self.room(env={**ENV, "SHELLPHONE_ACTIVITY_AFTER": "1"})
         work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
