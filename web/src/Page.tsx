@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileCode2, X } from "lucide-react";
 import { call, relayRoom } from "./relay";
 import { send, type Msg, type PageRef } from "./room";
-import { look, sealed, type Got, type Open } from "./pages.js";
+import { changeGate, look, sealed, type Got, type Open } from "./pages.js";
 import type { Ctx } from "./Message";
 
 export function PageTile({ m, ctx }: { m: Msg; ctx: Ctx }) {
@@ -64,6 +64,7 @@ export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: n
   useEffect(() => { load(); }, [id, mark?.v, mark?.n]);
 
   useEffect(() => {
+    const acceptChange = changeGate(id);
     const hear = async (e: MessageEvent) => {
       const d = e.data;
       if (!frame.current || e.source !== frame.current.contentWindow || !d || d.shellphone !== 1) return;  // only this page's frame
@@ -72,8 +73,8 @@ export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: n
         const me = ctx.person(ctx.me);
         tell({ type: "init", me: { name: me.name, color: me.color }, changes: cur.current.changes });  // its board, and nothing else of the room
       } else if (d.type === "change" && d.op !== undefined) {
-        const body = JSON.stringify({ id, op: d.op });
-        if (body.length > 4200) return;  // the room takes 4 KB per change
+        const body = acceptChange(d.op);
+        if (body === null) return;  // malformed, oversized, or too frequent
         await send("/api/page", { method: "POST", headers: { "Content-Type": "application/json" }, body });
         load();  // the room's copy comes back stamped, and only then does the page draw it
       }

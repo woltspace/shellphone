@@ -62,3 +62,19 @@ export async function look(cur, get) {
   }
   return { fresh: after(cur.changes, got.changes) };
 }
+
+// Frame-originated changes are data, never evidence of a person's approval.
+// Limit each viewer to five accepted changes in any rolling second.
+export function changeGate(id, clock = () => performance.now()) {
+  let accepted = [];
+  return (op) => {
+    const now = clock();
+    accepted = accepted.filter(t => now - t < 1000);
+    if (accepted.length >= 5 || op === undefined) return null;
+    let body;
+    try { body = JSON.stringify({ id, op }); } catch { return null; }
+    if (body.length > 4200) return null;
+    accepted.push(now);
+    return body;
+  };
+}

@@ -214,7 +214,10 @@ def host(a):
         return json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_now(), r.unreachable_now(), r.receipts(), r.pages_now()], sort_keys=True, default=str)
 
     # Establish the baseline before any relay client can read the room.
-    initial_snapshot = snapshot()
+    try:
+        initial_snapshot = snapshot()
+    except Exception:  # A busy database must not prevent the host from starting.
+        initial_snapshot = None  # The watcher retries and announces its first good snapshot.
 
     def watch():  # anything a page would be shown differently is news: messages, who is working, who has read, who is here
         seen = initial_snapshot

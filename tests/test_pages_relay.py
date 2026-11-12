@@ -1,6 +1,7 @@
 """Pages through a real local relay, room and browser transport."""
-import json, re, tempfile, unittest
+import json, re, sys, tempfile, unittest
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_pipe
 from test_pipe import E2E
 from test_cli import run

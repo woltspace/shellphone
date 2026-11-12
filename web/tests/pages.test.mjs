@@ -68,3 +68,19 @@ test("same version: only the changes not seen yet", async () => {
   const out = await look(cur, r.get);
   assert.deepEqual(out.fresh.map((c) => c.n), [3]); assert.deepEqual(r.asked, [[2, 1]]);
 });
+
+test('frame changes are paced across a rolling second and recover afterward', async () => {
+  const { changeGate } = await import('../src/pages.js');
+  let now = 0;
+  const accept = changeGate('p', () => now);
+  for (let i = 0; i < 5; i++) assert.ok(accept({ i }));
+  now = 999; assert.equal(accept({ i: 5 }), null);
+  now = 1000; assert.ok(accept({ i: 6 }));
+});
+
+test('unserializable and oversized frame changes are dropped without spending the allowance', async () => {
+  const { changeGate } = await import('../src/pages.js');
+  const accept = changeGate('p', () => 0), cycle = {}; cycle.self = cycle;
+  for (const op of [1n, cycle, undefined, 'x'.repeat(5000)]) assert.equal(accept(op), null);
+  for (let i = 0; i < 5; i++) assert.ok(accept({ i }));
+});

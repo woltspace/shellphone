@@ -25,3 +25,13 @@ The relay integration test uses the real local Wrangler relay and browser transp
 ```
 RELAY_E2E=1 python tests/test_pages_relay.py
 ```
+
+## Page-change identity
+
+The room stamps a change with the identity of the viewer or agent that submitted
+it. An embedded page can submit programmatically: a human name means the change
+came through that person's open viewer, not that they deliberately approved it.
+Do not use page changes to authorize commands, spending, or other privileged
+operations. Approval controls must belong to the trusted room UI and authorize
+a specific action. The viewer drops malformed payloads and limits accepted page
+changes to five per rolling second; this pacing is not an authorization boundary.
