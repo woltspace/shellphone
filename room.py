@@ -781,6 +781,29 @@ def for_person(req, email):
                     return reply(400, {"error": "not a push subscription"})
                 c.execute("insert or replace into push values (?, ?, ?)", (sub["endpoint"], email, json.dumps(sub)))
         return reply(200, {"ok": True})
+    if path == "/api/test-push":  # "send me a test notification": in a few seconds, one landing in the main chat and one in a thread
+        if not pywebpush:
+            return reply(400, {"error": "this room can't send notifications"})
+        delay = max(3, min(60, int(json.loads(req.read(1000) or b"{}").get("in", 10))))
+        rows = [(r["id"], json.loads(r["data"])) for r in q("select id, data from messages where kind in ('human', 'wolt') order by n desc limit 400")]
+        main = next((i for i, d in rows if not d.get("thread")), None)
+        reply_ = next(((i, d["thread"]) for i, d in rows if d.get("thread")), None)
+        tests = ([{"title": "🧪 test · main chat", "body": "Tap me: I should land on the newest message in the main chat.", "url": f"./#m={main}"}] if main else []) + \
+                ([{"title": "🧪 test · thread 🧵", "body": "Tap me: I should open the newest thread reply.", "url": f"./#m={reply_[0]}&t={reply_[1]}"}] if reply_ else [])
+        subs = [json.loads(r["sub"]) for r in q("select sub from push where email = ?", email)]
+        if not subs:
+            return reply(400, {"error": "turn notifications on first"})
+        def later():  # only to the person who asked, even while their page is open
+            time.sleep(delay)
+            pem, _ = vapid()
+            for k, t in enumerate(tests):
+                for sub in subs:
+                    try:
+                        pywebpush.webpush(sub, json.dumps({**t, "tag": f"test-{k}-{time.time()}"}), vapid_private_key=pem, vapid_claims={"sub": "mailto:" + email}, ttl=300)
+                    except Exception as exc:
+                        print(f"test push failed: {exc}", flush=True)
+        threading.Thread(target=later, daemon=True).start()
+        return reply(200, {"ok": True, "in": delay, "sent": len(tests)})
     if path == "/api/wolt":  # pause an agent, bring it back, or remove it ({"wolt": name, "state": "on" | "paused" | "removed"})
         data = json.loads(req.read(200_000) or b"{}")
         who, state = str(data.get("wolt") or ""), data.get("state")
