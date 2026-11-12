@@ -6,10 +6,12 @@ export type Person = { email: string; name: string; color: string; guest?: boole
 export type Wolt = { wolt: string; owner: string; creature: string; voice?: string | null; paused?: boolean };  // paused: off, the room hands it nothing
 export type FileInfo = { name: string; type: string; url: string; size: number };
 export type CardNode = { type: string; props?: Record<string, any>; children?: CardNode[] };
+export type PageRef = { id: string; title: string; line?: string; v: number };  // a page an agent posted (Page.tsx)
+export type Activity = { page: string; title: string; by: { kind: string; name: string; count: number }[]; from: number; to: number };
 export type Msg = {
-  n: number; id: string; cid?: string; at: number; kind: "human" | "wolt" | "patch";
+  n: number; id: string; cid?: string; at: number; kind: "human" | "wolt" | "patch" | "activity";  // activity: "maya made 3 changes to …", said by the room
   email?: string; wolt?: string; owner?: string; creature?: string;
-  text?: string; audio?: string; seconds?: number; files?: FileInfo[]; file?: FileInfo; card?: CardNode; of?: string;
+  text?: string; audio?: string; seconds?: number; files?: FileInfo[]; file?: FileInfo; card?: CardNode; of?: string; page?: PageRef; activity?: Activity;
   localUrl?: string; pending?: boolean; failed?: boolean; thread?: string;
 };
 export type Tab = { slug: string; title: string; v: number };
@@ -17,6 +19,7 @@ export type State = {
   version?: string; title: string; me: string; host?: string;  // host: the person who can pause or remove any agent
   members: { people: Person[]; wolts: Wolt[] };
   working: Record<string, unknown>; unreachable?: Record<string, number>; seen: Record<string, string[]>; tabs: Tab[];
+  pages?: Record<string, { v: number; n: number }>;  // where each page stands: its version and its last change
 };
 
 // How many sends are on their way. The page doesn't reload itself for a new version while one is.
@@ -65,7 +68,7 @@ export function useRoom() {
         const { messages, news: _, ...rest } = s;
         setState(rest);
         const patches = messages.filter((m) => m.kind === "patch");
-        const added = messages.filter((m) => m.kind === "human" || m.kind === "wolt");
+        const added = messages.filter((m) => m.kind === "human" || m.kind === "wolt" || (m.kind === "activity" && !!m.activity));
         for (const m of added) {
           if (m.file && !m.files) m.files = [m.file];  // older messages carry one file
           for (const f of m.files || []) if (!/^(\/|https?:)/.test(f.url)) f.url = "/" + f.url;  // the room gives addresses relative to its root

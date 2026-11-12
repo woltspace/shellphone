@@ -3,11 +3,12 @@ import { relayRoom } from "./relay";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
+import { PageTile } from "./Page";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number) => void; retry?: (cid: string) => void };
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number) => void; retry?: (cid: string) => void; openPage?: (id: string) => void };
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -107,7 +108,20 @@ function File({ f, ctx }: { f: FileInfo; ctx: Ctx }) {
   </a>;
 }
 
+// Changes to a page, said by the room in one line ("maya made 3 changes to Launch plan"): not someone talking, so
+// small and centred. A tap opens the page.
+function Activity({ m, ctx }: { m: Msg; ctx: Ctx }) {
+  const a = m.activity!;
+  const who = a.by.map((b) => `${b.name}${b.count > 1 ? ` (${b.count})` : ""}`).join(", ");
+  return <div className="flex justify-center px-2.5 mt-2" id={m.id}>
+    <button type="button" data-tap onClick={() => ctx.openPage?.(a.page)}
+      className="max-w-[85%] truncate rounded-full border-0 bg-line/60 px-3 py-1 font-mono text-[11px] text-dim cursor-pointer">
+      ✎ {who} changed <b className="font-semibold text-ink">{a.title}</b> · {time(m.at)}</button>
+  </div>;
+}
+
 export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firstOfRun: boolean; footer?: ReactNode }) {
+  if (m.kind === "activity" && m.activity) return <Activity m={m} ctx={ctx} />;
   const human = m.kind === "human", mine = human && m.email === ctx.me;
   const owner = human ? m.email : m.owner, who = ctx.person(owner);
   const name = human ? who.name : `${m.wolt} · ${owner === ctx.me ? "yours" : who.name + "'s"}`;
@@ -123,6 +137,7 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
         {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
         {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
         <Card msg={m} all={ctx.all} />
+        {m.page && <PageTile m={m} ctx={ctx} />}
         <div className="flex justify-end items-center gap-1 mt-0.5 font-mono text-[10px] text-dim">
           {time(m.at)}
           {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
