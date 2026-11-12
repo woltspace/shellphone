@@ -24,19 +24,22 @@ function guess(list: Msg[], wolts: Wolt[]): Record<string, Mark> {
   return out;
 }
 
-export function ThreadWho({ thread, list, ctx, room, fallback }: {
+export function ThreadWho({ thread, list, ctx, room, fallback, host }: {
   thread: string; list: Msg[]; ctx: Ctx;
   room?: Record<string, "in" | "paused">;  // the room's switches for this thread; undefined: the room has none (mock)
-  fallback?: "in" | "out";                 // the room's rule for an agent with no switch here
+  fallback?: "in" | "out";                 // the room's rule for an agent with no switch here (none given: not in yet)
+  host?: string;
 }) {
   const real = room !== undefined;
   const [mock, setMock] = useState(load), [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(""), [note, setNote] = useState("");
   const [sent, setSent] = useState<Record<string, Mark>>({});  // switched here, until the room's state catches up
   const marks: Record<string, Mark> = real
-    ? { ...Object.fromEntries(ctx.wolts.map((w) => [w.wolt, (fallback || "in") as Mark])), ...room, ...sent }
+    ? { ...Object.fromEntries(ctx.wolts.map((w) => [w.wolt, (fallback || "out") as Mark])), ...room, ...sent }
     : { ...guess(list, ctx.wolts), ...(mock[thread] || {}) };
   const guest = !!ctx.people.find((p) => p.email === ctx.me)?.guest;
+  // same rights as a room pause: the host on every agent, otherwise your own (the room decides; this only hides what it would refuse)
+  const may = (w: Wolt) => !real || (!guest && (ctx.me === host || w.owner === ctx.me));
 
   const flip = async (wolt: string, m: Mark) => {
     if (!real) { const next = { ...mock, [thread]: { ...(mock[thread] || {}), [wolt]: m } }; setMock(next); save(next); return; }
@@ -76,7 +79,7 @@ export function ThreadWho({ thread, list, ctx, room, fallback }: {
           <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={18} /></button>
         </div>
         {ctx.wolts.map((w) => {
-          const m = marks[w.wolt], yes = on(w), locked = !!w.paused || guest || busy === w.wolt;
+          const m = marks[w.wolt], yes = on(w), locked = !!w.paused || !may(w) || busy === w.wolt;
           return <div key={w.wolt} className="flex items-center gap-2.5 py-2 border-t border-line">
             <img src={face(w)} alt="" className={`pixel w-[30px] h-[30px] rounded-full ${yes ? "" : "grayscale opacity-50"}`} />
             <span className="flex-1 min-w-0">
