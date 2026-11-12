@@ -238,7 +238,9 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 function ThreadSheet({ color, title, count, close, children }: { color: string; title: string; count: number; close: () => void; children: React.ReactNode }) {
   const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null), [full, setFull] = useState(false);
   const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
-  const bye = () => { if (leaving) return; setLeaving(true); setTimeout(close, 220); };
+  const timer = useRef(0);
+  useEffect(() => () => clearTimeout(timer.current), []);  // gone before the fade ended (another thread took its place): no late close
+  const bye = () => { if (leaving) return; setLeaving(true); timer.current = window.setTimeout(close, 220); };
   // the handle on top and the strip down the right edge both move the sheet with your finger: far enough down, it closes
   const grip = {
     onTouchStart: (e: React.TouchEvent) => setDrag({ y: e.touches[0].clientY, dy: 0 }),
@@ -624,7 +626,7 @@ export function App() {
       {!thread && composer}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
-      {thread && <ThreadSheet color={threadColor(thread)} title={threadTitle(root)} count={(replies.get(thread) || []).length} close={() => setThread("")}>
+      {thread && <ThreadSheet key={thread} color={threadColor(thread)} title={threadTitle(root)} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}>
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} />
         {composer}
       </ThreadSheet>}
