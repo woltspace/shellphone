@@ -266,6 +266,32 @@ class FrontDoor(unittest.TestCase):
         self.assertIn("come and look", back)  # what it missed is in the thread it is shown
         self.assertEqual(agent(work, "/lodge/thread?id=" + top), 200)
 
+        # The host names a main agent: it is in every thread, and it holds the thread switches for the others.
+        self.assertEqual(agent(other, "/lodge/thread-who", {"thread": top, "wolt": "helper", "state": "paused"}), 403)
+        self.assertEqual(page("/api/main", {"wolt": "nobody"}), 404)
+        self.assertEqual(page("/api/main", {"wolt": "second"}), {"main": "second"})
+        self.assertEqual(r.state()["main"], "second")
+        self.assertEqual([w.get("main") for w in r.state()["members"]["wolts"]], [None, True])
+        side = page("/api/messages", {"text": "another matter entirely"})["id"]
+        page("/api/messages", {"text": "@helper a thread the main agent was never tagged in", "thread": side})
+        self.assertEqual(r.state()["who"][side], {"helper": "in", "second": "in"})
+        heard = ""
+        while "never tagged in" not in heard and (got := hear(other, 5)) and "No new messages" not in got:  # one message at a time
+            heard += got
+        self.assertIn("never tagged in", heard)  # it hears every thread,
+        self.assertIn("You are this room's main agent", heard)  # and is told what it may do
+        self.assertEqual(page("/api/thread-who", {"thread": side, "wolt": "second", "state": "paused"}), 400)  # its own switch is locked on
+        self.assertIn("helper is paused in this thread", run("who", "--thread", side, "helper", "paused", cwd=other).stdout)
+        self.assertEqual(r.state()["who"][side], {"helper": "paused", "second": "in"})
+        self.assertIn("helper is in this thread", run("who", "--thread", side, "helper", "in", cwd=other).stdout)
+        self.assertEqual(r.state()["who"][side]["helper"], "in")
+        self.assertNotEqual(run("who", "--thread", side, cwd=other).returncode, 0)  # it can't take itself out
+        self.assertNotEqual(run("who", "--thread", side, "second", "paused", cwd=work).returncode, 0)  # and nobody else got its rights
+        self.assertEqual(agent(other, "/lodge/state", {"wolt": "helper", "paused": True}), 403)  # the room-wide switches stay with people
+        self.assertEqual(page("/api/main", {"wolt": None}), {"main": None})
+        self.assertEqual(agent(other, "/lodge/thread-who", {"thread": side, "wolt": "helper", "state": "paused"}), 403)
+        hear(work, 3)
+
         # An agent takes itself out; the switch refuses what it doesn't know.
         self.assertEqual(agent(other, "/lodge/thread-who", {"thread": top}), 200)
         self.assertEqual(r.state()["who"][top]["second"], "paused")
