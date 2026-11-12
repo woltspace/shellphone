@@ -449,8 +449,10 @@ export function App() {
     setMenu(false); setListOpen(false);
     if (target.current.t) open(target.current.t); else setThread("");  // no jump to the bottom: we're going to the message
     setLanding((x) => x + 1);
-    const mine = target.current; setTimeout(() => {  // not here after all: let it go
-      if (target.current === mine) { trace("message not found", { m: mine.m }); target.current = null; forget(mine.key); history.replaceState(null, "", location.pathname); }
+    // not there after 8s: give up on it (not a landing; the trace says so). Keeping the note would land here again, late, on
+    // the next look, after you've moved on
+    const mine = target.current; setTimeout(() => {
+      if (target.current === mine) { trace("gave up: message not found in 8s, tap dropped", { m: mine.m, t: mine.t }); target.current = null; forget(mine.key); history.replaceState(null, "", location.pathname); }
     }, 8000);
   };
   // the note a tapped notification leaves behind (see sw.js and landing.ts). The tap and the app waking up race, so it's

@@ -64,3 +64,24 @@ test("a note from before taps had ids still lands once", async () => {
   await forget(c, n.key);
   assert.equal(await pending(c, now), null);
 });
+
+test("after the newest lands, an older tap doesn't come back on the next look", async () => {
+  const c = store(), now = Date.now();
+  await c.put(S + "landing-note/a", note("a", now - 2000));
+  await c.put(S + "landing-note/b", note("b", now - 1000));
+  const n = await pending(c, now);
+  assert.equal(n.tap, "b");
+  await forget(c, n.key);  // landed on B
+  assert.equal(await pending(c, now + 300), null, "the 300ms check finds nothing, not A");
+});
+
+test("a tap written while the notes are being read survives the clean-up of older ones", async () => {
+  const c = store(), now = Date.now();
+  await c.put(S + "landing-note/a", note("a", now - 2000));
+  await c.put(S + "landing-note/b", note("b", now - 1000));
+  const [n] = await Promise.all([pending(c, now), c.put(S + "landing-note/c", note("c", now))]);
+  const next = await pending(c, now);
+  assert.ok(next, "something is still waiting");
+  if (n.tap === "b") assert.equal(next.tap, "c", "C, newer than B, stays");
+  assert.ok(!c.m.has(S + "landing-note/a"), "A, older than both, is gone");
+});
