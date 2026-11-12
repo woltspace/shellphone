@@ -12,6 +12,7 @@ import { InboxSheet, ThreadFooter, threadColor, threadTitle, unread, useSeen } f
 import { Menu } from "./Menu";
 import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, X } from "lucide-react";
 import { usePush } from "./push";
+import { forget, onTap, pendingTap } from "./landing";
 
 // iPhone Safari doesn't shrink the page for the keyboard, so size the app to the part of the screen still visible.
 function useFit() {
@@ -433,11 +434,11 @@ export function App() {
   // chat scrolled to it. Opening it normally, or coming back after a while, lands home: the threads list.
   const target = useRef<{ m: string; t: string } | null>(null);
   const [landing, setLanding] = useState(0);
-  const went = useRef({ m: "", at: 0 });  // the last message landed on, so the same tap arriving two ways lands once
-  const goTo = (url: string) => {
+  const taps = useRef(new Set<string>());  // the taps already landed, so one arriving both ways lands once
+  const goTo = (url: string, tap?: string) => {
     const h = new URLSearchParams(new URL(url, location.href).hash.slice(1));
-    if (!h.get("m") || (h.get("m") === went.current.m && Date.now() - went.current.at < 10_000)) return;
-    went.current = { m: h.get("m")!, at: Date.now() };
+    if (tap) { forget(tap); if (taps.current.has(tap)) return; taps.current.add(tap); }
+    if (!h.get("m")) return;
     target.current = { m: h.get("m")!, t: h.get("t") || "" };
     // the address says where we're going until we get there, so a reload on the way (a room update) still lands
     history.replaceState(null, "", location.pathname + "#m=" + encodeURIComponent(h.get("m")!) + (h.get("t") ? "&t=" + encodeURIComponent(h.get("t")!) : ""));
@@ -446,26 +447,23 @@ export function App() {
     setLanding((x) => x + 1);
     const mine = target.current; setTimeout(() => { if (target.current === mine) { target.current = null; history.replaceState(null, "", location.pathname); } }, 8000);  // not here after all: let it go
   };
-  // the note a tapped notification leaves behind (see sw.js), read once and only if it's fresh
-  const noted = async () => {
-    try {
-      const c = await caches.open("landing"), key = new URL("landing-note", location.href).href, r = await c.match(key);
-      if (!r) return; await c.delete(key);
-      const n = await r.json(); if (Date.now() - n.at < 60_000) goTo(n.url);  // a tap already handled the other way is skipped there
-    } catch { /* no caches here: the address and the message still work */ }
-  };
+  // the note a tapped notification leaves behind (see sw.js and landing.ts). The tap and the app waking up race, so it's
+  // looked for when the app starts or comes back, and again a few times just after
+  const noted = async () => { const n = await pendingTap(); if (n) { goTo(n.url, n.tap); if (!n.tap) forget(); } };  // (a note from before taps had ids: once)
+  const timers = useRef<number[]>([]);
+  const look = () => { noted(); timers.current.forEach(clearTimeout); timers.current = [300, 1000, 2500].map((ms) => window.setTimeout(noted, ms)); };
   useEffect(() => {
-    goTo(location.href); noted();
-    const fromNote = (e: MessageEvent) => { if (e.data?.type === "open") { goTo(e.data.url); noted(); } };
-    navigator.serviceWorker?.addEventListener("message", fromNote);
+    goTo(location.href); look();
+    const off = onTap((t) => goTo(t.url, t.tap));
     let hidden = 0;
     const seen = () => {
       if (document.hidden) { hidden = Date.now(); return; }
-      noted();
+      look();
       if (hidden && Date.now() - hidden > 10 * 60_000 && !target.current) { setThread(""); setListOpen(false); setMenu(false); stickMain.current(); }
     };
     document.addEventListener("visibilitychange", seen);
-    return () => { navigator.serviceWorker?.removeEventListener("message", fromNote); document.removeEventListener("visibilitychange", seen); };
+    window.addEventListener("pageshow", look); window.addEventListener("focus", look);  // iOS may restore a page without a visibility change
+    return () => { off(); timers.current.forEach(clearTimeout); document.removeEventListener("visibilitychange", seen); window.removeEventListener("pageshow", look); window.removeEventListener("focus", look); };
   }, []);
   // once that message is on screen, bring it into view and light it up for a moment
   useEffect(() => {
