@@ -104,3 +104,55 @@ export function ThreadList({ roots, replies, ctx, seen, onOpen, onClose }: {
     </div>
   </div>;
 }
+
+// One inbox for the room: new main-chat messages and threads with new replies on top, then earlier threads.
+// It slides up over wherever you are; tap a row to go there, tap outside (or swipe it down) to stay.
+export function InboxSheet({ top, main, roots, replies, ctx, seen, current, onMain, onOpen, onClose }: {
+  top: number; main: Msg[]; roots: Msg[]; replies: Map<string, Msg[]>; ctx: Ctx; seen: Record<string, number>; current: string;
+  onMain: () => void; onOpen: (id: string) => void; onClose: () => void;
+}) {
+  const items = roots.map((r) => { const list = replies.get(r.id)!; return { r, list, last: list.at(-1)!, fresh: unread(list, seen[r.id], ctx.me) }; })
+    .sort((a, b) => b.last.at - a.last.at);
+  const fresh = items.filter((i) => i.fresh), earlier = items.filter((i) => !i.fresh);
+  const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
+  const count = (n: number) => <span className="flex-none min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{n}</span>;
+  const newCount = (list: Msg[], id: string) => list.filter((m) => m.n > (seen[id] || 0) && !(m.kind === "human" && m.email === ctx.me)).length;
+  const sec = "px-4 pt-3.5 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
+  const row = (key: string, color: string, title: React.ReactNode, line: string, when: number, n: number, here: boolean, go: () => void) =>
+    <button key={key} type="button" onClick={go} style={{ borderLeft: `4px solid ${color}` }}
+      className={`block w-[calc(100%-20px)] mx-2.5 mb-2 text-left bg-panel border border-line rounded-[10px] px-3 py-2.5 cursor-pointer active:opacity-70 ${here ? "ring-2 ring-[#c4531e44]" : ""}`}>
+      <div className="flex items-center gap-2 font-mono text-[13px] font-semibold">
+        <span className="flex-1 min-w-0 truncate" style={{ color }}>{title}</span>
+        {n > 0 && count(n)}
+        <span className="flex-none text-[11px] font-normal text-dim">{ago(when)}</span>
+      </div>
+      <div className={`mt-0.5 text-sm truncate ${n ? "text-ink font-semibold" : "text-dim"}`}>{line}</div>
+    </button>;
+  const from = useState<{ y: number; dy: number } | null>(null), [drag, setDrag] = from;
+  return <div className="absolute inset-x-0 bottom-0 z-[1600]" style={{ top: 0 }}>
+    <div onClick={onClose} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
+    <div className="absolute inset-x-0 bottom-0 top-[calc(env(safe-area-inset-top)+96px)] bg-paper rounded-t-[18px] flex flex-col shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]"
+      style={drag ? { transform: `translateY(${Math.max(0, drag.dy)}px)` } : undefined}>
+      <div className="flex-none touch-none cursor-grab"
+        onTouchStart={(e) => setDrag({ y: e.touches[0].clientY, dy: 0 })}
+        onTouchMove={(e) => drag && setDrag({ ...drag, dy: e.touches[0].clientY - drag.y })}
+        onTouchEnd={() => { if (drag && drag.dy > 80) onClose(); setDrag(null); }}>
+        <div className="w-10 h-[5px] rounded-full bg-line mx-auto mt-2 mb-1.5" />
+        <div className="flex items-baseline gap-2 px-4 pb-2.5 border-b border-line">
+          <b className="font-mono font-semibold text-acc text-base">inbox</b>
+          <span className="font-mono text-[11px] text-dim">{main.length + fresh.length ? `${main.length + fresh.length} unread` : "all caught up 👍"}</span>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))]">
+        {(main.length > 0 || fresh.length > 0) && <div className={sec}>New</div>}
+        {main.length > 0 && row("main", "#c4531e", "# main chat", `${name(main.at(-1)!)}: ${preview(main.at(-1)!)}`, main.at(-1)!.at, main.length, false, onMain)}
+        {fresh.map(({ r, list, last }) => row(r.id, threadColor(r.id), threadTitle(r), `${name(last)}: ${preview(last)}`, last.at, newCount(list, r.id), r.id === current, () => onOpen(r.id)))}
+        {!main.length && !fresh.length && <p className="text-center text-dim font-mono text-xs my-5 px-6">Nothing new. You're all caught up.</p>}
+        {current && row("main-back", "#c4531e", "# main chat", "back to the main chat", Date.now() / 1000, 0, false, onMain)}
+        {earlier.length > 0 && <div className={sec}>Earlier threads</div>}
+        {earlier.map(({ r, last }) => row(r.id, threadColor(r.id), threadTitle(r), `${name(last)}: ${preview(last)}`, last.at, 0, r.id === current, () => onOpen(r.id)))}
+        {!items.length && <p className="text-center text-dim font-mono text-xs mt-2 px-6">No threads yet. Tap any message to start one.</p>}
+      </div>
+    </div>
+  </div>;
+}
