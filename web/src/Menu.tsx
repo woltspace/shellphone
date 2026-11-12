@@ -1,7 +1,8 @@
 // The ☰ menu: this room's settings (people and agents live on their own cards, pulled down on the chats). It slides in from the left, like Slack's.
 import { useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronRight, Moon, Squirrel, Sun, UserPlus } from "lucide-react";
+import { Bell, BellOff, BellRing, Check, ChevronRight, FlaskConical, ListTree, Moon, Squirrel, Sun, UserPlus } from "lucide-react";
 import { useSky } from "./Sky";
+import { clearTrace, trace, traceText } from "./trace";
 import { call, inviteLink, relayHost, relayRoom } from "./relay";
 import { LinkRoom } from "./LinkRoom";
 import type { Person, Wolt } from "./room";
@@ -42,6 +43,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         {relayRoom && guestAgents !== undefined && (relayHost || guestAgents) && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Bring your agent<small className="block text-xs text-dim">Experimental: your own agent, from your computer</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayHost && guestAgents !== undefined && <GuestAgents row={row} on={guestAgents} />}
         <Theme />
+        {!relayRoom && push.state === "on" && <><div className={sec}>Testing</div><TestPush row={row} /><Trace row={row} /></>}
       </div>
     </aside>
   </>;
@@ -84,4 +86,38 @@ function Theme() {
     <span className={`w-[42px] h-[25px] rounded-full relative flex-none transition-colors ${dark ? "bg-go" : "bg-line"}`}>
       <i className={`absolute top-[3px] w-[19px] h-[19px] rounded-full bg-white shadow transition-[left] ${dark ? "left-[20px]" : "left-[3px]"}`} /></span>
   </button>;
+}
+
+// Two test notifications (main chat and a thread) arrive a few seconds after the tap, so you can close or background the
+// app first and see where each one lands. Only to you, from the room.
+function TestPush({ row }: { row: string }) {
+  const [note, setNote] = useState("Main chat + thread, 10s after you tap: close or background the app first");
+  const go = async () => {
+    trace("test push asked");
+    try {
+      const r = await fetch("/api/test-push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ in: 10 }) });
+      const d = await r.json();
+      setNote(r.ok ? `Coming in ${d.in}s (${d.sent}). Close or background the app now.` : d.error || "The room said no");
+    } catch { setNote("Couldn't reach the room"); }
+  };
+  return <button type="button" onClick={go} className={row}><FlaskConical size={20} className="text-acc" />
+    <span className="flex-1">Test notifications<small className="block text-xs text-dim">{note}</small></span></button>;
+}
+
+// What the app noted while landing on tapped notifications, newest last: copy it into the room to show what happened.
+function Trace({ row }: { row: string }) {
+  const [open, setOpen] = useState(false), [text, setText] = useState(""), [copied, setCopied] = useState(false);
+  const show = () => { setText(traceText() || "Nothing yet. Tap a notification, then look again."); setOpen(!open); };
+  return <>
+    <button type="button" onClick={show} className={row}><ListTree size={20} className="text-acc" />
+      <span className="flex-1">Landing trace<small className="block text-xs text-dim">What happened on the last notification taps</small></span></button>
+    {open && <div className="px-4 pb-3">
+      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all bg-panel border border-line rounded-[10px] p-2.5 font-mono text-[11px] leading-[1.4] text-ink m-0 select-all">{text}</pre>
+      <div className="flex gap-2 mt-2">
+        <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* select it instead */ } }}
+          className="flex-1 font-mono text-xs py-2 rounded-lg border border-acc text-acc bg-transparent cursor-pointer">{copied ? "copied" : "copy"}</button>
+        <button type="button" onClick={() => { clearTrace(); setText(""); }} className="flex-1 font-mono text-xs py-2 rounded-lg border border-line text-dim bg-transparent cursor-pointer">clear</button>
+      </div>
+    </div>}
+  </>;
 }
