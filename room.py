@@ -78,6 +78,12 @@ create table if not exists working(wolt text primary key, until real not null);
 create table if not exists unreachable(wolt text primary key, since real not null);
 create table if not exists seen(msg text not null, wolt text not null, at real not null, primary key(msg, wolt));
 create table if not exists push(endpoint text primary key, email text not null, sub text not null);
+create table if not exists pages(id text primary key, title text not null, line text not null, by text not null, at real not null,
+                                 message text, told integer not null default 0);
+create table if not exists page_versions(page text not null, v integer not null, by text not null, at real not null, html text not null,
+                                         primary key(page, v));
+create table if not exists page_changes(page text not null, n integer not null, at real not null, by text not null, op text not null,
+                                        primary key(page, n));
 """
 CON = None
 
@@ -183,7 +189,7 @@ def one_send(email, cid):
 def thread(mid):
     """The message a thread hangs off, then its replies in order."""
     root = message(mid)
-    return [root] + [as_message(row) for row in q("select * from messages where json_extract(data, '$.thread') = ? order by n", mid)] if root else []
+    return [root] + [as_message(row) for row in q("select * from messages where json_extract(data, '$.thread') = ? and kind in ('human', 'wolt') order by n", mid)] if root else []
 
 
 def thread_of(value):
@@ -385,6 +391,106 @@ def check_card(card):
                 return problem
     problem = ok(card)
     return (None, problem) if problem else (card, None)
+
+
+# Pages: an agent can post one HTML page. The chat shows a tile; opened, the room's page runs it in a sealed frame, where it
+# can draw and nothing else. What people and agents do in it is a list of changes the room keeps: each gets the next
+# number and the name of whoever made it, given here and never taken from the page, so everyone ends with the same board
+# and nobody's change can be passed off as someone else's. Any agent in the room can put a new version of the HTML.
+PAGE_HTML, PAGE_OP, PAGE_CHANGES = 300_000, 4_000, 2000
+ACTIVITY_AFTER = float(os.environ.get("SHELLPHONE_ACTIVITY_AFTER") or 15)  # seconds: changes are told to the chat in one line per burst, not one per tap
+PAGES, PENDING = threading.RLock(), {}
+PAGE = ("select p.*, (select max(v) from page_versions where page = p.id) as v, "
+        "coalesce((select max(n) from page_changes where page = p.id), 0) as n from pages p")
+
+
+def page(pid):
+    rows = q(PAGE + " where p.id = ?", str(pid or ""))
+    return rows[0] if rows else None
+
+
+def pages_now():
+    """Where every page stands: its HTML's version and its last change's number. A page that is open looks again when either moves."""
+    return {p["id"]: {"v": p["v"], "n": p["n"]} for p in q(PAGE)}
+
+
+def page_view(pid, after=0, have=0):
+    """A page for whoever opens it: its HTML (unless they have this version) and the changes after the ones they have."""
+    p = page(pid)
+    if not p:
+        return None
+    out = {k: p[k] for k in ("id", "title", "line", "by", "v", "n")}
+    if have != p["v"]:
+        out["html"] = q("select html from page_versions where page = ? and v = ?", p["id"], p["v"])[0]["html"]
+    out["changes"] = [{"n": r["n"], "at": r["at"], "by": json.loads(r["by"]), "op": json.loads(r["op"])}
+                      for r in q("select n, at, by, op from page_changes where page = ? and n > ? order by n", p["id"], after)]
+    return out
+
+
+def put_page(wolt, html, title=None, line=None, pid=None):
+    """A new page, or a new version of one. (the page, None), or (None, why not)."""
+    title, line = (None if title is None else str(title).strip()[:80]), (None if line is None else str(line).strip()[:200])
+    if not isinstance(html, str) or not html.strip():
+        return None, "a page needs its HTML"
+    if len(html.encode()) > PAGE_HTML:
+        return None, "page too big (300 KB max)"
+    with PAGES, tx() as c:
+        if pid:
+            p = page(pid)
+            if not p:
+                return None, "there's no such page"
+            pid, v = p["id"], p["v"] + 1
+            c.execute("update pages set title = ?, line = ? where id = ?", (title or p["title"], p["line"] if line is None else line, pid))
+        else:
+            if not title:
+                return None, "a page needs a title"
+            pid, v = uuid.uuid4().hex, 1
+            c.execute("insert into pages (id, title, line, by, at) values (?, ?, ?, ?, ?)", (pid, title, line or "", wolt, time.time()))
+        c.execute("insert into page_versions values (?, ?, ?, ?, ?)", (pid, v, wolt, time.time(), html))
+    return page(pid), None
+
+
+def change_page(pid, by, op):
+    """One change to a page's board, by a person or an agent: it gets the next number. (n, None), or (None, why not)."""
+    raw = json.dumps(op)
+    if len(raw) > PAGE_OP:
+        return None, "change too big (4 KB max)"
+    with PAGES:
+        p = page(pid)
+        if not p:
+            return None, "there's no such page"
+        if q("select count(*) as c from page_changes where page = ?", p["id"])[0]["c"] >= PAGE_CHANGES:
+            return None, f"this page's board is full ({PAGE_CHANGES} changes)"
+        with tx() as c:
+            c.execute("insert into page_changes values (?, ?, ?, ?, ?)", (p["id"], p["n"] + 1, time.time(), json.dumps(by), raw))
+        if p["id"] not in PENDING:  # the first change of a burst: the chat hears about all of it in a moment, once
+            PENDING[p["id"]] = timer = threading.Timer(ACTIVITY_AFTER, tell_activity, args=(p["id"],))
+            timer.daemon = True
+            timer.start()
+    return p["n"] + 1, None
+
+
+def tell_activity(pid):
+    """One line in the chat for the changes made to a page since the last such line: who, and how many."""
+    with PAGES:
+        PENDING.pop(pid, None)
+        p = page(pid)
+        rows = q("select n, by from page_changes where page = ? and n > ? order by n", pid, p["told"]) if p else []
+        if not rows:
+            return
+        counts = {}
+        for r in rows:
+            by = json.loads(r["by"])
+            counts[(by["kind"], by["name"])] = counts.get((by["kind"], by["name"]), 0) + 1
+        names = [name for _, name in counts]
+        who = names[0] if len(names) == 1 else f"{names[0]} and {names[1]}" if len(names) == 2 else f"{names[0]}, {names[1]} and {len(names) - 2} more"
+        root = message(p["message"]) if p["message"] else None
+        with tx() as c:
+            c.execute("update pages set told = ? where id = ?", (rows[-1]["n"], pid))
+        append(kind="activity", text=f"{who} made {len(rows)} change{'s' if len(rows) != 1 else ''} to {p['title']}",
+               activity={"page": pid, "title": p["title"], "wolt": p["by"], "from": rows[0]["n"], "to": rows[-1]["n"],
+                         "by": [{"kind": kind, "name": name, "count": count} for (kind, name), count in counts.items()]},
+               **({"thread": root["thread"]} if root and root.get("thread") else {}))  # where the page was posted
 
 
 def connector_version():
@@ -689,7 +795,7 @@ def for_wolt(req, l):
             new = messages(after)
             if l.get("paused"):  # paused: nothing said in the room is handed over, a tag included. Each message keeps its
                 # number, so the wolt's place in the room moves on and nothing piles up for the day it is brought back
-                new = [m if m["kind"] not in ("human", "wolt") else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
+                new = [m if m["kind"] not in ("human", "wolt", "activity") else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
             fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
                 m["kind"] == "human" or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]
             read = [m["id"] for m in new if m["kind"] == "human"]
@@ -699,6 +805,9 @@ def for_wolt(req, l):
                 c.executemany("insert or ignore into seen values (?, ?, ?)", [(i, l["wolt"], time.time()) for i in read])
             return reply(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
                                "connector": connector_version()})
+        if path == "/lodge/page":  # a page's HTML and its changes (after=N: the ones after N; v=N: leave the HTML out if that's its version)
+            view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
+            return reply(200, view) if view else reply(404, {"error": "there's no such page"})
         return reply(404, {"error": "not found"})
     if path == "/lodge/files":  # a wolt shares pictures or files (up to 10, one message), with words alongside if it wants
         where = thread_of(q.get("thread", [""])[0])
@@ -728,6 +837,24 @@ def for_wolt(req, l):
         with tx() as c:
             c.execute("update wolts set voice = ? where wolt = ?", (voice, l["wolt"]))
         return reply(200, {"wolt": l["wolt"], "voice": voice})
+    if path == "/lodge/page":  # a new page ({"html", "title", "line"}, with "text" and "thread" like a message), or a new version of one ({"id", "html"})
+        where = thread_of(data.get("thread"))
+        p, problem = put_page(l["wolt"], data.get("html"), data.get("title"), data.get("line"), data.get("id"))
+        if problem:
+            return reply(404 if problem == "there's no such page" else 400, {"error": problem})
+        if data.get("id"):
+            return reply(200, {"id": p["id"], "v": p["v"]})
+        m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"), text=str(data.get("text", "")).strip()[:8000],
+                   page={"id": p["id"], "title": p["title"], "line": p["line"], "v": p["v"]}, **where)
+        with tx() as c:
+            c.execute("update pages set message = ? where id = ?", (m["id"], p["id"]))
+            stop_working(c, l["wolt"])
+        return reply(200, m)
+    if path == "/lodge/page/change":  # the wolt changes a page's board ({"id", "op"}): stamped with its name
+        if "op" not in data:
+            return reply(400, {"error": "a change needs an op"})
+        n, problem = change_page(data.get("id"), {"kind": "wolt", "name": l["wolt"]}, data["op"])
+        return reply(404 if problem == "there's no such page" else 400, {"error": problem}) if problem else reply(200, {"n": n})
     if path == "/lodge/messages":
         text = str(data.get("text", "")).strip()[:8000]
         card, problem = check_card(data.get("card"))
@@ -756,7 +883,10 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "messages": messages(after)})
+        if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
+            view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
+            return reply(200, view) if view else reply(404, {"error": "there's no such page"})
         m = re.fullmatch(r"/voice/([0-9a-f]{32}\.(mp3|webm|mp4|m4a|ogg))", path)
         if m and (VOICE / m.group(1)).is_file():
             kind = "audio/mpeg" if m.group(2) == "mp3" else f"audio/{m.group(2)}"
@@ -793,6 +923,12 @@ def for_person(req, email):
             return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
         done = remove_wolt(who) if state == "removed" else set_paused(who, state == "paused")
         return reply(200, done) if done else reply(404, {"error": f"there's no {who} in this room"})
+    if path == "/api/page":  # someone changed a page's board ({"id", "op"}): the name comes from who is asking, never from the page
+        data = json.loads(req.read(20_000) or b"{}")
+        if "op" not in data:
+            return reply(400, {"error": "a change needs an op"})
+        n, problem = change_page(data.get("id"), {"kind": "human", "name": people().get(email, {}).get("name") or email}, data["op"])
+        return reply(404 if problem == "there's no such page" else 400, {"error": problem}) if problem else reply(200, {"n": n})
     if path == "/api/messages":
         data = json.loads(req.read(200_000) or b"{}")
         text = str(data.get("text", "")).strip()[:8000]
