@@ -18,8 +18,9 @@ const ANCHOR: Record<string, { hx: number; ht: number; L: number[]; R: number[];
   beaver: { hx: 8.5, ht: 1, L: [3, 5], R: [8, 11], y: [4, 6] }, otter: { hx: 8.5, ht: 1, L: [4, 7], R: [10, 13], y: [3, 5] }, raccoon: { hx: 9.5, ht: 2, L: [4, 6], R: [11, 13], y: [7, 8] },
 };
 const GLASSES: Record<string, string[]> = { shades: ["#0b0b10", "#16161e", "#fff"], aviators: ["#c9a23a", "#2d4a5c", "#bfe6ff"], rose: ["#8a1f4a", "#ff5fa2", "#ffd6ea"], nerd: ["#111", "", ""] };
+export const hatUrl = (id: string): string | undefined => urls[`./card-assets/h-${id}.png`];  // a Hat Shop hat, for a person to wear too
 export const SKY = "#140f24";  // the top of the night sky: the phone's status strip takes this colour on home
-const W = 128, H = 64, G = 52;  // wider than the Hat Shop's 112, so on a phone the scene is a short band and home fits on one screen
+const W = 128, H = 74, G = 62;  // ten rows of sky more than the Hat Shop's scenes: the wolts stand clear of the title  // wider than the Hat Shop's 112, so on a phone the scene is a short band and home fits on one screen
 
 export type Standing = { name: string; look: Look; busy?: boolean; away?: boolean };
 

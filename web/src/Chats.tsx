@@ -7,7 +7,8 @@ import { woltColor, type Ctx } from "./Message";
 import type { Msg, State, Wolt } from "./room";
 import { LORE, personAvatar } from "./sprites";
 import { LookCanvas, normalizeLook } from "./CardLook";
-import { SKY, Squad } from "./Scene";
+import { hatUrl, SKY, Squad } from "./Scene";
+import { choices } from "./CardLook";
 
 export type Chat = { id: string; title: string; wolts: string[]; by?: string; at: number; last?: { text: string; who: string }; fresh: number };
 // where you are: the list of wolts, one wolt's chats, a new chat being addressed, a chat, or the room's shared chat
@@ -53,9 +54,10 @@ export function Face({ w, ctx, size = 46, bare, className = "" }: { w?: Wolt; ct
 }
 const SEC = "px-4 pt-2.5 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 const ROW = "flex w-full items-center gap-3 px-4 py-2 border-0 border-b border-[#ece4d6] text-left cursor-pointer active:opacity-70";
+const HEAD = "flex items-center px-4 pt-5 pb-1.5 font-mono font-bold text-[15px] text-ink";
 const AddButton = ({ label, onClick }: { label: string; onClick: () => void }) =>
-  <button type="button" onClick={onClick} className="flex-none flex items-center gap-1 -my-1 py-1 border-0 bg-transparent font-sans font-semibold text-[14px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
-    <Plus size={14} strokeWidth={3} />{label}</button>;
+  <button type="button" onClick={onClick} className="flex-none flex items-center gap-1 -my-1 py-1 border-0 bg-transparent font-sans font-semibold text-[15px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
+    <Plus size={15} strokeWidth={3} />{label}</button>;
 const Badge = ({ n }: { n: number }) => n > 0 ? <span className="inline-block min-w-5 h-5 px-1.5 rounded-full bg-acc text-white font-sans font-bold text-[11px] leading-5 text-center">{n}</span> : null;
 export const PlusButton = ({ label, onClick, small }: { label: string; onClick: () => void; small?: boolean }) =>
   <button type="button" aria-label={label} title={label} onClick={onClick}
@@ -87,6 +89,33 @@ function ChatRow({ c, ctx, here, group, onOpen, onRename }: { c: Chat; ctx: Ctx;
     <span className="flex-none text-right text-xs text-dim">{when(c.at)}{c.fresh > 0 && <><br /><Badge n={c.fresh} /></>}</span>
     {onRename && <button type="button" aria-label="Rename this chat" title="Rename" onClick={(e) => { e.stopPropagation(); setNaming(naming === null ? (c.title === "New chat" ? "" : c.title) : null); }}
       className="flex-none -mr-1.5 w-7 h-7 grid place-items-center rounded-full border-0 bg-[#f6e2d6] text-acc cursor-pointer"><Pencil size={13} /></button>}
+  </div>;
+}
+
+// A person: the same soft circle the wolts stand on, their letter in their colour, and the Hat Shop hat they picked.
+const hatOf = (face?: string) => (face?.startsWith("hat-") && hatUrl(face.slice(4)) ? face.slice(4) : "");
+export function PersonFace({ p, hat, size = 38 }: { p: { name: string; color: string }; hat?: string; size?: number }) {
+  return <span className="relative block mx-auto" style={{ width: size, height: size, marginTop: hat ? Math.round(size * 0.42) : 0 }}>
+    <span className="grid place-items-center w-full h-full rounded-full font-mono font-bold" style={{ background: p.color + "30", color: p.color, fontSize: Math.round(size * 0.45) }}>{(p.name || "?").trim()[0]?.toUpperCase()}</span>
+    {hat && <img src={hatUrl(hat)} alt="" className="pixel absolute left-1/2 -translate-x-1/2 pointer-events-none" style={{ width: Math.round(size * 0.84), bottom: Math.round(size * 0.8) }} />}
+  </span>;
+}
+// Pick the hat you wear in this room: everyone sees it on your circle.
+function HatPicker({ now, onPick, onClose }: { now: string; onPick: (hat: string) => Promise<string | null>; onClose: () => void }) {
+  const [problem, setProblem] = useState("");
+  const pick = async (h: string) => setProblem((await onPick(h)) || "");
+  return <div className="absolute inset-0 z-[1550]">
+    <div onClick={onClose} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
+    <div role="dialog" aria-label="Pick your hat" className="absolute inset-x-0 bottom-0 max-h-[70%] flex flex-col bg-paper rounded-t-[18px] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]">
+      <div className="flex-none flex items-center px-4 pt-3 pb-2"><b className="flex-1 font-mono text-[15px]">Your hat</b>
+        <button type="button" onClick={onClose} className="border-0 bg-transparent font-mono font-semibold text-[13px] text-acc cursor-pointer">Done</button></div>
+      <div className="flex-1 overflow-y-auto grid grid-cols-5 gap-2 px-3 pb-[calc(16px+env(safe-area-inset-bottom))]">
+        {choices.hat.map((h) => <button key={h || "none"} type="button" onClick={() => pick(h)} aria-label={h ? h.replaceAll("-", " ") : "No hat"} aria-pressed={now === h}
+          className={`aspect-square grid place-items-center rounded-[12px] border cursor-pointer ${now === h ? "border-acc bg-[#f6e2d6]" : "border-line bg-panel"}`}>
+          {h ? <img src={hatUrl(h)} alt="" className="pixel w-[60%]" /> : <span className="font-mono text-[11px] text-dim">none</span>}</button>)}
+      </div>
+      {problem && <p className="flex-none m-0 px-4 pb-3 font-mono text-xs text-acc">&gt; {problem}</p>}
+    </div>
   </div>;
 }
 
@@ -123,7 +152,7 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
   const moods = state.members.wolts.map((w) => ({ w, m: mood(w, state) })), awake = moods.filter((x) => x.m.awake).length;
   return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKY }}>
     {/* a short band that ends on a clean line: the scene keeps its size and loses only the strip of ground under the wolts' feet */}
-    <div className="max-h-[172px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
+    <div className="max-h-[210px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
     <div className="absolute inset-x-0 top-[env(safe-area-inset-top)] flex items-start gap-2 px-4 pt-3">
       <div className="min-w-0 flex-1 text-white">
         <h1 className="m-0 font-mono font-bold text-[22px] truncate [text-shadow:0_2px_0_#0006]">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
@@ -136,21 +165,22 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
 }
 
 // Home: your wolts like contacts, then the groups, then everyone. On a computer it is the left column, without the scene.
-export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWolt, onChat, onEveryone, onNew, bell, onBell, onInvite, onDesk, onAgent, onRename }: {
+export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWolt, onChat, onEveryone, onNew, bell, onBell, onInvite, onDesk, onAgent, onRename, onHat }: {
   state: State; ctx: Ctx; chats: Chat[]; everyone: { at?: number; fresh: number }; compact?: boolean; sel?: string; here?: string;
-  onWolt: (w: string) => void; onChat: (id: string) => void; onEveryone: () => void; onNew: () => void; bell: number; onBell: () => void; onInvite?: () => void; onDesk?: () => void; onAgent?: () => void; onRename?: (id: string, title: string) => Promise<string | null>;
+  onWolt: (w: string) => void; onChat: (id: string) => void; onEveryone: () => void; onNew: () => void; bell: number; onBell: () => void; onInvite?: () => void; onDesk?: () => void; onAgent?: () => void; onRename?: (id: string, title: string) => Promise<string | null>; onHat?: (face: string) => Promise<string | null>;
 }) {
+  const [hats, setHats] = useState(false);
   const yours = state.members.wolts.filter((w) => w.owner === state.me), others = state.members.wolts.filter((w) => w.owner !== state.me);
   const groups = chats.filter((c) => c.wolts.length > 1);
   const row = (w: Wolt) => {
     const own = chats.filter((c) => c.wolts.length === 1 && c.wolts[0] === w.wolt), top = own[0], fresh = own.reduce((n, c) => n + c.fresh, 0), m = mood(w, state);
     // no chat with it yet: the last thing it said in the room
     const said = top ? undefined : [...ctx.all].reverse().find((x) => x.kind === "wolt" && x.wolt === w.wolt);
-    return <button key={w.wolt} type="button" onClick={() => onWolt(w.wolt)} className={`${ROW} !py-1 ${sel === w.wolt ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
-      <span className="relative flex-none"><Face w={w} ctx={ctx} size={38} />
+    return <button key={w.wolt} type="button" onClick={() => onWolt(w.wolt)} className={`${ROW} !py-[9px] ${sel === w.wolt ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
+      <span className="relative flex-none"><Face w={w} ctx={ctx} size={46} />
         <i className={`absolute right-px bottom-px w-3 h-3 rounded-full border-2 border-paper ${m.awake ? "bg-go" : "bg-[#c9bfae]"}`} /></span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-1.5 font-mono font-semibold text-[15px]"><span className="truncate">{w.wolt}</span>
+        <span className="flex items-baseline gap-1.5 font-mono font-semibold text-[16px]"><span className="truncate">{w.wolt}</span>
           {m.word && (m.awake ? <span className="flex-none font-normal text-[11px] text-go">{m.word}</span>
             : <span className="flex-none font-normal text-[11px] text-dim bg-[#efe8da] rounded-lg px-[7px] py-px">{m.word}</span>)}</span>
         <span className={`block text-[13px] truncate ${fresh ? "text-ink font-semibold" : "text-dim"}`}>{top?.last?.text || (said ? preview(said) : w.owner === state.me ? "Say hi" : `${ctx.person(w.owner).name}'s ${w.creature}`)}</span>
@@ -159,6 +189,7 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
     </button>;
   };
   return <div className="relative h-full flex flex-col bg-paper">
+    {hats && onHat && <HatPicker now={hatOf(state.faces?.[state.me])} onPick={async (h) => { const e = await onHat(h ? "hat-" + h : ""); if (!e) setHats(false); return e; }} onClose={() => setHats(false)} />}
     {compact ? <header className="flex-none flex items-center gap-2 pl-2 pr-3 h-[60px] border-b border-line">
       <h1 className="m-0 pl-2 flex-1 min-w-0 truncate font-mono font-bold text-lg">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
       {onDesk && <button type="button" aria-label="Show the terminals" title="desk: your wolts' terminals" onClick={onDesk} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><Monitor size={19} /></button>}
@@ -167,21 +198,22 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       : <Hero state={state} ctx={ctx} onNew={onNew} onBell={onBell} bell={bell} />}
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))]">
       {/* one list: the wolts in the room, yours first */}
-      <div className={`${SEC} flex items-center`}><span className="flex-1">Wolts</span>
+      <div className={HEAD}><span className="flex-1">Wolts</span>
         {onAgent && <AddButton label="Add" onClick={onAgent} />}</div>
       {[...yours, ...others].map(row)}
-      <div className={`${SEC} flex items-center`}><span className="flex-1">People</span>
+      <div className={HEAD}><span className="flex-1">People</span>
         {onInvite && <AddButton label="Invite" onClick={onInvite} />}</div>
       {/* people side by side: they are who's here, not chats to open */}
-      <div className="flex gap-3 overflow-x-auto px-4 pt-1.5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {state.members.people.map((p) => <div key={p.email} className="flex-none w-[58px] text-center">
-          {/* the same soft circle the wolts stand on, with the person's letter in their colour */}
-          <span className="grid place-items-center w-[38px] h-[38px] rounded-full mx-auto font-mono font-bold text-[17px]" style={{ background: p.color + "30", color: p.color }}>{(p.name || "?").trim()[0]?.toUpperCase()}</span>
-          <span className="block mt-0.5 font-mono font-semibold text-[11.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
-        </div>)}
+      <div className="flex items-end gap-3 overflow-x-auto px-4 pt-1.5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {state.members.people.map((p) => { const mine = p.email === state.me && !!onHat;
+          return <div key={p.email} role={mine ? "button" : undefined} tabIndex={mine ? 0 : undefined} aria-label={mine ? "Pick your hat" : undefined} onClick={mine ? () => setHats(true) : undefined}
+            className={`flex-none w-[68px] text-center ${mine ? "cursor-pointer active:opacity-70" : ""}`}>
+            <PersonFace p={p} hat={hatOf(state.faces?.[p.email])} size={56} />
+            <span className="block mt-1 font-mono font-semibold text-[12.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
+          </div>; })}
       </div>
-      <div className={`${SEC} flex items-center`}><span className="flex-1">Groups</span><AddButton label="New group" onClick={onNew} /></div>
-      <div className="grid grid-cols-2 gap-2 px-3 pb-1">
+      <div className={HEAD}><span className="flex-1">Groups</span><AddButton label="New group" onClick={onNew} /></div>
+      <div className="grid grid-cols-2 gap-2 px-3 pt-1 pb-1">
         {groups.map((c) => <GroupCard key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)}
           onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
         <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-1.5 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>

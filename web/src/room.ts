@@ -26,7 +26,8 @@ export type State = {
   who?: Record<string, Record<string, "in" | "paused">>;  // per thread, the agents switched in or paused there (ThreadWho.tsx)
   who_default?: "in" | "out";
   sessions?: Session[];  // missing: a room from before chats, shown as one shared chat like always
-  looks?: Record<string, Record<string, string>>;  // each wolt's saved look (CardLook.tsx)
+  looks?: Record<string, Record<string, string>>;
+  faces?: Record<string, string>;  // what each person picked for their own face, by email ("hat-<id>": a Hat Shop hat on their circle)  // each wolt's saved look (CardLook.tsx)
   working_in?: Record<string, string[]>;
   terminals?: Record<string, string>;  // for the host only: a link to each of their wolts' terminals on their own lodge
   main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it

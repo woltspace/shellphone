@@ -31,6 +31,7 @@ function useFit() {
     const typing = () => !!document.activeElement?.matches("textarea, input:not([type=file]), [contenteditable]");
     const fit = () => {
       document.documentElement.style.setProperty("--vh", window.visualViewport && typing() ? Math.round(visualViewport!.height) + "px" : "100dvh");
+      document.documentElement.classList.toggle("typing", typing());  // the keyboard is up: the composer sits right on it (index.css)
       window.scrollTo(0, 0);
     };
     const settle = () => { fit(); for (const ms of [100, 350, 700]) setTimeout(fit, ms); };  // again as the keyboard finishes moving
@@ -710,7 +711,8 @@ export function App() {
   const woltOf = (name: string) => state.members.wolts.find((w) => w.wolt === name);
   const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId}
     everyone={{ at: main.at(-1)?.at, fresh: inboxCount }} onWolt={(w) => { setThread(""); setNav({ at: "wolt", wolt: w }); }} onChat={(id) => openChat(id)}
-    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} bell={notes.filter((n) => n.fresh).length} onBell={() => { setThread(""); setNav({ at: "bell" }); }} onInvite={state.me ? invite : undefined} onRename={rename} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
+    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} bell={notes.filter((n) => n.fresh).length} onBell={() => { setThread(""); setNav({ at: "bell" }); }} onInvite={state.me ? invite : undefined} onRename={rename}
+    onHat={state.faces ? (face) => say("/api/face", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ face }) }) : undefined} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
   const woltList = (name: string, compact = false) => <WoltChats w={woltOf(name)!} state={state} ctx={ctx} chats={chats} compact={compact} here={chatId} onBack={toHome}
     onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} onRename={rename} />;
   const back = () => (nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome();

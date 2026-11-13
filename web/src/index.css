@@ -23,6 +23,9 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 }
 #root { height: var(--vh, 100dvh); }
 .pixel { image-rendering: pixelated; }
+/* While the keyboard is up, the box you type in sits right on it: the room kept below for the phone's home bar is
+   only needed when the keyboard is away. */
+.typing [data-composer] { padding-bottom: 8px; }
 
 @keyframes wave { 0%, 100% { opacity: .12; } 22%, 62% { opacity: 1; } }
 .wave-in, .wave-out { animation: wave var(--wave, 1.1s) cubic-bezier(.45,0,.55,1) infinite; }
