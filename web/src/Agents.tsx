@@ -2,7 +2,7 @@
 // it nothing, a tag included, and it can't post, so it costs nothing. The switches show where you may use them: on every
 // agent for the room's host, on your own agents otherwise. Everyone sees the list.
 import { useState } from "react";
-import { Crown, Pause, Play, X } from "lucide-react";
+import { ChevronDown, Pause, Play, X } from "lucide-react";
 import { say, type Person, type Wolt } from "./room";
 import { woltAvatar } from "./sprites";
 
@@ -34,7 +34,7 @@ export function Agents({ wolts, people, me, host, sec, main }: { wolts: Wolt[]; 
         <img src={woltAvatar(w.creature || "raccoon", owner?.color || "#8a6a52")} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />
         <span className="flex-1 min-w-0">
           <span className={`block truncate font-mono text-sm ${w.paused ? "text-dim" : "text-ink"}`}>{w.wolt}</span>
-          <small className="block text-xs text-dim">{w.paused ? "paused · hears nothing" : `${owner?.name || w.owner}'s`}{main === w.wolt ? " · main, in every thread" : ""}</small>
+          <small className="block text-xs text-dim">{w.paused ? "paused · hears nothing" : `${owner?.name || w.owner}'s`}{main === w.wolt ? " · main" : ""}</small>
         </span>
         {may(w) && (asking === w.wolt
           ? <>
@@ -42,9 +42,6 @@ export function Agents({ wolts, people, me, host, sec, main }: { wolts: Wolt[]; 
             <button type="button" onClick={() => setAsking("")} className={`${plain} text-dim`}>keep</button>
           </>
           : <>
-            {me === host && main !== undefined && <button type="button" disabled={busy === w.wolt} aria-label={main === w.wolt ? `${w.wolt} is the main agent: tap to clear` : `Make ${w.wolt} the main agent`}
-              onClick={async () => { setBusy(w.wolt); setNote((await crown(main === w.wolt ? null : w.wolt)) || ""); setBusy(""); }}
-              className={`${plain} px-2 ${main === w.wolt ? "text-acc border-acc" : "text-dim"}`}><Crown size={14} /></button>}
             <button type="button" disabled={busy === w.wolt} aria-label={w.paused ? `Bring ${w.wolt} back` : `Pause ${w.wolt}`} onClick={() => go(w.wolt, w.paused ? "on" : "paused")} className={`${plain} gap-1 grid-flow-col ${w.paused ? "text-acc" : "text-dim"}`}>
               {w.paused ? <><Play size={14} />resume</> : <><Pause size={14} />pause</>}
             </button>
@@ -52,6 +49,19 @@ export function Agents({ wolts, people, me, host, sec, main }: { wolts: Wolt[]; 
           </>)}
       </div>;
     })}
+    {me === host && main !== undefined && <label className="relative flex items-center gap-2.5 px-4 py-2 cursor-pointer">
+      <span className="flex-1 min-w-0">
+        <span className="block font-mono text-sm text-ink">Main agent: <span className={main ? "text-acc" : "text-dim"}>{main || "none"}</span></span>
+        <small className="block text-xs text-dim">in every thread, brings others in or out when you ask</small>
+      </span>
+      <ChevronDown size={16} className="flex-none text-dim" />
+      {/* the phone's own picker, laid invisibly over the row */}
+      <select aria-label="Main agent" value={main || ""} disabled={busy === "main"} className="absolute inset-0 opacity-0 cursor-pointer"
+        onChange={async (e) => { setBusy("main"); setNote((await crown(e.target.value || null)) || ""); setBusy(""); }}>
+        <option value="">none</option>
+        {wolts.map((w) => <option key={w.wolt} value={w.wolt}>{w.wolt}</option>)}
+      </select>
+    </label>}
     {note && <div className="px-4 pb-1 text-xs text-acc">{note}</div>}
   </>;
 }
