@@ -220,6 +220,8 @@ class FrontDoor(unittest.TestCase):
         self.assertIn("the desk for saturday", got)
         self.assertIn("--thread " + sid, got)  # handed over as a thread, so the wolt answers inside the chat
         self.assertNotIn("the desk for saturday", hear(other))  # not the main agent, not anyone else
+        self.assertEqual(agent(other, "/lodge/thread?id=" + sid), 403)  # nor can it read the chat, even with one message in it
+        self.assertNotIn("the desk for saturday", json.dumps(agent(other, "/lodge/history?last=50")))  # chats aren't the main chat
         self.assertEqual(r.state()["who"][sid], {"helper": "in"})
         self.assertEqual(agent(work, "/lodge/messages", {"text": "checked, it works", "thread": sid})["thread"], sid)
         page("/api/messages", {"text": "and the bridge?", "thread": sid})
@@ -244,6 +246,7 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(r.state()["looks"], {"helper": {"hat": "red-beanie", "scene": "forest"}})
         self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"hat": "<script>"}}), 400)
         self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"mood": "happy"}}), 400)  # only what the Hat Shop has
+        self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"hat": []}}), 400)
         self.assertEqual(page("/api/look", {"wolt": "nobody", "look": {}}), 404)
         page("/api/look", {"wolt": "helper", "look": {"hat": ""}})
         self.assertEqual(r.state()["looks"], {})

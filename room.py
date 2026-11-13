@@ -1029,12 +1029,12 @@ def for_wolt(req, l):
         after = int(q.get("after", ["0"])[0] or 0)
         if path == "/lodge/thread":  # a wolt answering in a thread reads it whole, however long ago it started
             found = thread(q.get("id", [""])[0])
-            if len(found) > 1 and not hears(found[0]["id"], l["wolt"]):  # a thread is read by the agents in it
+            if (len(found) > 1 or found and found[0].get("session")) and not hears(found[0]["id"], l["wolt"]):  # a thread (or a chat, from its first message) is read by the agents in it
                 return reply(403, {"error": "you're paused in this thread" if where_in(found[0]["id"], l["wolt"]) else "you're not in this thread: a person brings you in, or someone tags you there"})
             return reply(200, {"owner": l["owner"], "members": members(), "messages": found}) if found else reply(404, {"error": "there's no such thread"})
         if path == "/lodge/history":  # a wolt reads further back in the main chat (no read receipts, no working sign)
             last = int(q.get("last", ["30"])[0]) if q.get("last", ["30"])[0].isdigit() else 30
-            main = [m for m in messages() if m["kind"] in ("human", "wolt") and not m.get("thread")]
+            main = [m for m in messages() if m["kind"] in ("human", "wolt") and not m.get("thread") and not m.get("session")]  # chats aren't the main chat
             return reply(200, {"owner": l["owner"], "members": members(), "messages": main[-max(1, min(last, 500)):]})
         if path == "/lodge/messages":
             new = messages(after)
@@ -1266,7 +1266,7 @@ def for_person(req, email):
             return reply(404, {"error": f"there's no {who} in this room"})
         if not may_switch(email, who):
             return reply(403, {"error": "only the room's host, or the wolt's own keeper, can change its look"})
-        if not isinstance(look, dict) or not all(k in LOOKS and (v == "" or v in LOOKS[k]) for k, v in look.items()):
+        if not isinstance(look, dict) or not all(k in LOOKS and isinstance(v, str) and (v == "" or v in LOOKS[k]) for k, v in look.items()):
             return reply(400, {"error": "a look is creature, hat, glasses and scene, each one the Hat Shop has (or empty)"})
         look = {k: v for k, v in look.items() if v}
         with tx() as c:
