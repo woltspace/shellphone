@@ -191,12 +191,12 @@ function Viewer({ urls, names, at, close }: { urls: string[]; names?: string[]; 
 // A list of messages that stays at the bottom while you're there, and leaves you alone if you scrolled up to read.
 // Used for the main chat and for a thread alike.
 // "3 NEW" above the first unread. Once the last new message has been on screen for 2s, it fades out (0.6s) and the gap closes.
-function NewLine({ count, last }: { count: number; last?: string }) {
+function NewLine({ count, last, onGone }: { count: number; last?: string; onGone: () => void }) {
   const ref = useRef<HTMLDivElement>(null), [gone, setGone] = useState(false);
   useEffect(() => {
     const el = (last && ref.current?.closest("[data-feed]")?.querySelector(`[data-mid="${last}"]`)) || ref.current; if (!el) return;
     let t = 0;
-    const io = new IntersectionObserver(([e]) => { clearTimeout(t); if (e.isIntersecting) t = window.setTimeout(() => setGone(true), 2000); });
+    const io = new IntersectionObserver(([e]) => { clearTimeout(t); if (e.isIntersecting) t = window.setTimeout(() => { setGone(true); onGone(); }, 2000); });
     io.observe(el); return () => { clearTimeout(t); io.disconnect(); };
   }, [last]);
   return <div ref={ref} data-new aria-hidden={gone} className={`flex items-center px-3.5 transition-all duration-[600ms] ${gone ? "opacity-0 my-0 h-0" : "opacity-100 my-3"}`}>
@@ -217,6 +217,7 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
   const onScroll = () => setFar(-scroller.current!.scrollTop > 600);
   // "— N new —": where you stopped reading, as it was when you came in (it stays put while you read, then moves on next visit)
   const mark = useRef<{ place: string; n: number } | null>(null);
+  const [, moved] = useState(0);
   if (mark.current?.place !== place) mark.current = { place, n: seen?.[place || "main"] ?? Infinity };
   const fresh = list.filter((m) => m.n > mark.current!.n && !m.pending && !(m.kind === "human" && m.email === ctx.me));
   const firstNew = fresh[0]?.id;
@@ -230,7 +231,8 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
       const run = newDay || who !== lastWho;
       lastDay = day; lastWho = thread.length ? "" : who;  // a thread breaks the run, so the next bubble shows its name
       return <div key={m.cid || m.id} data-mid={m.id}>
-        {m.id === firstNew && <NewLine count={fresh.length} last={fresh[fresh.length - 1]?.id} />}
+        {m.id === firstNew && <NewLine key={firstNew} count={fresh.length} last={fresh[fresh.length - 1]?.id}
+          onGone={() => setTimeout(() => { mark.current = { place, n: Math.max(...list.map((x) => x.n || 0)) }; moved((k) => k + 1); }, 600)} />}
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
         <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
@@ -776,7 +778,7 @@ export function App() {
       {thread && <ThreadSheet key={thread} color={threadColor(thread)} title={threadTitle(root)} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
-        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} place={thread} />
+        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} seen={seen} stick={stickThread} place={thread} />
         {composer}
       </ThreadSheet>}
       </>}
@@ -784,7 +786,7 @@ export function App() {
         <ChatHeader chat={chat} ctx={ctx} compact={wideCols} onBack={back} onCard={setCard}
           onRename={(title) => rename(chat.id, title)}
           who={<ThreadWho thread={chat.id} list={chatList} ctx={ctx} room={state.who ? state.who[chat.id] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />} />
-        <Feed list={chatList} ctx={ctx} working={state.working || {}} away={state.unreachable} stick={stickThread} place={chatId} />
+        <Feed list={chatList} ctx={ctx} working={state.working || {}} away={state.unreachable} seen={seen} stick={stickThread} place={chatId} />
         {composer}
       </> : <Standby state={state} />)}
       {nav.at === "new" && <NewChat key={nav.wolts.join()} state={state} ctx={ctx} start={nav.wolts} onStart={startChat}
