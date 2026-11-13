@@ -177,7 +177,8 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       {/* people side by side: they are who's here, not chats to open */}
       <div className="flex gap-3 overflow-x-auto px-4 pt-1.5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {state.members.people.map((p) => <div key={p.email} className="flex-none w-[58px] text-center">
-          <img src={personAvatar(p.name, p.color)} alt="" className="block w-10 h-10 rounded-full mx-auto" />
+          {/* the same soft circle the wolts stand on, with the person's letter in their colour */}
+          <span className="grid place-items-center w-[42px] h-[42px] rounded-full mx-auto font-mono font-bold text-[19px]" style={{ background: p.color + "30", color: p.color }}>{(p.name || "?").trim()[0]?.toUpperCase()}</span>
           <span className="block mt-1 font-mono font-semibold text-[11.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
           <span className="block text-[10.5px] text-dim leading-tight">{p.email === state.host ? "host" : p.guest ? "guest" : "\u00a0"}</span>
         </div>)}
