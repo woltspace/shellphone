@@ -5,7 +5,7 @@
   "scope": "./",
   "display": "standalone",
   "background_color": "#f5f1e8",
-  "theme_color": "#f5f1e8",
+  "theme_color": "#fffdf6",
   "icons": [
     { "src": "icon-180.png?v=conch", "sizes": "180x180", "type": "image/png" },
     { "src": "icon-512.png?v=conch", "sizes": "512x512", "type": "image/png" }

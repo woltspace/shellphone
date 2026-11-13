@@ -352,12 +352,14 @@ function Live({ link }: { link: "live" | "retry" | "down" }) {
   return <svg role="status" aria-label={`room ${word}`} viewBox="0 0 192 192" className="absolute inset-0 w-full h-full rounded-full pointer-events-none" style={{ ["--wave" as string]: speed }}>
     <title>{`room ${word}`}</title>
     <rect x="24" y="30" width="28" height="19" fill="#f5f1e8" />
+    <g transform="translate(42 50) scale(1.6) translate(-38 -47)">
     <g fill={color} className={still ? "" : "wave-out"} opacity={still ? .3 : undefined}>
       <rect x="32" y="33" width="11" height="3" /><rect x="29" y="36" width="3" height="3" /><rect x="44" y="36" width="3" height="3" />
       <rect x="27" y="39" width="2" height="3" /><rect x="47" y="39" width="2" height="3" />
     </g>
     <g fill={color} className={still ? "" : "wave-in"}>
       <rect x="35" y="42" width="6" height="3" /><rect x="32" y="45" width="3" height="2" /><rect x="41" y="45" width="3" height="2" />
+    </g>
     </g>
   </svg>;
 }
@@ -649,7 +651,7 @@ export function App() {
           {menu ? <X size={22} /> : <MenuIcon size={22} />}
           {!menu && push.ask && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}
         </button>
-        <span className="relative flex-none"><img src="/room-icon.png" alt="" className="block w-9 h-9 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
+        <span className="relative flex-none"><img src="/room-icon.png" alt="" className="block w-10 h-10 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
         <div className="min-w-0 flex-1">
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
           <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
