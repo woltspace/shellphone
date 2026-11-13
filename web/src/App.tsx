@@ -196,10 +196,13 @@ function NewLine({ count, last, onGone }: { count: number; last?: string; onGone
   useEffect(() => {
     const el = (last && ref.current?.closest("[data-feed]")?.querySelector(`[data-mid="${last}"]`)) || ref.current; if (!el) return;
     let t = 0;
-    const io = new IntersectionObserver(([e]) => { clearTimeout(t); if (e.isIntersecting) t = window.setTimeout(() => { setGone(true); onGone(); }, 2000); });
-    io.observe(el); return () => { clearTimeout(t); io.disconnect(); };
+    const io = new IntersectionObserver(([e]) => { clearTimeout(t); if (e.isIntersecting) start(); });
+    const start = () => { clearTimeout(t); if (!document.hidden) t = window.setTimeout(() => { setGone(true); onGone(); }, 2000); };
+    const vis = () => (document.hidden ? clearTimeout(t) : start());  // only while someone is looking
+    document.addEventListener("visibilitychange", vis);
+    io.observe(el); return () => { clearTimeout(t); io.disconnect(); document.removeEventListener("visibilitychange", vis); };
   }, [last]);
-  return <div ref={ref} data-new aria-hidden={gone} className={`flex items-center px-3.5 transition-all duration-[600ms] ${gone ? "opacity-0 my-0 h-0" : "opacity-100 my-3"}`}>
+  return <div ref={ref} data-new aria-hidden={gone} className={`flex items-center px-3.5 transition-all duration-[600ms] overflow-hidden ${gone ? "opacity-0 my-0 h-0" : "opacity-100 my-3 h-5"}`}>
     <span className="flex-1 h-px bg-acc" /><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-white bg-acc rounded-full px-2.5 py-0.5">{count} new</span><span className="flex-1 h-px bg-acc" /></div>;
 }
 
