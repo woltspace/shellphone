@@ -84,7 +84,7 @@ export default function Desk({ ctx, wolts, working, focus }: { ctx: Ctx; wolts: 
       <span className="text-[#a89f92] text-xs">(in the room's folder; it only shows terminals, it never types into them)</span></div></div>;
   const shown = big ? wolts.filter((w) => w.wolt === big) : wolts;
   const cols = shown.length <= 1 ? 1 : 2;
-  return <div className="flex-1 min-w-0 grid gap-2.5 p-3 bg-[#2a231c]" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "minmax(0, 1fr)" }}>
+  return <div className="flex-1 min-w-0 grid gap-2.5 p-3 pt-[52px] bg-[#2a231c]" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "minmax(0, 1fr)" }}>
     {!sessions ? <div className="text-[#a89f92] font-mono text-sm">Looking for your lodge…</div>
       : !shown.length ? <div className="text-[#a89f92] font-mono text-sm">No wolts in this thread yet.</div>
       : shown.map((w) => <Tile key={w.wolt} w={w} ctx={ctx} sessions={sessions} big={big === w.wolt} flash={flash === w.wolt} busy={working.has(w.wolt)}
