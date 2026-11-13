@@ -55,26 +55,26 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 /* Night: the whole app goes dark with the home scene's sky (Scene.tsx sets html.night). The named colours get a
    second set; the few colours written straight into the screens are matched here, so no screen has to know. */
 html.night {
-  --color-paper: #17131d; --color-panel: #221c2b; --color-line: #3a3145; --color-ink: #efe8df; --color-dim: #a195ab;
-  --color-acc: #ee7b43; --color-go: #4fc481; color-scheme: dark;
+  --color-paper: #0e1120; --color-panel: #171b30; --color-line: #2b3358; --color-ink: #eaf0ff; --color-dim: #8e9ac4;
+  --color-acc: #ff7a3c; --color-go: #3fe39a; color-scheme: dark;
 }
-html.night .bg-\[\#f6e2d6\] { background-color: #44302f; }
-html.night .bg-\[\#fbe9df\], html.night .bg-\[\#fbeee6\], html.night .bg-\[\#c4531e14\] { background-color: #35262b; }
-html.night .bg-\[\#efe8da\], html.night .bg-\[\#faf7ef\] { background-color: #2b2434; }
-html.night .bg-\[\#fffdf6\], html.night .bg-\[\#fffdf6ee\] { background-color: #221c2bf2; }
-html.night .bg-\[\#fffdf680\] { background-color: #221c2b99; }
-html.night .bg-\[\#f5f1e8\] { background-color: #17131d; }
-html.night .bg-\[\#f5f1e88c\] { background-color: #17131db0; }
+html.night .bg-\[\#f6e2d6\] { background-color: #3a2440; }
+html.night .bg-\[\#fbe9df\], html.night .bg-\[\#fbeee6\], html.night .bg-\[\#c4531e14\] { background-color: #2a1f3d; }
+html.night .bg-\[\#efe8da\], html.night .bg-\[\#faf7ef\] { background-color: #1d2340; }
+html.night .bg-\[\#fffdf6\], html.night .bg-\[\#fffdf6ee\] { background-color: #171b30f2; }
+html.night .bg-\[\#fffdf680\] { background-color: #171b3099; }
+html.night .bg-\[\#f5f1e8\] { background-color: #0e1120; }
+html.night .bg-\[\#f5f1e88c\] { background-color: #0e1120b0; }
 html.night .bg-\[\#18100a06\] { background-color: #ffffff0a; }
-html.night .bg-\[\#d6ccba\], html.night .bg-\[\#c9bfae\], html.night .bg-\[\#c4b8a4\] { background-color: #5a5066; }
-html.night .border-\[\#ece4d6\] { border-color: #2e2738; }
-html.night .border-\[\#fffdf6\] { border-color: #221c2b; }
+html.night .bg-\[\#d6ccba\], html.night .bg-\[\#c9bfae\], html.night .bg-\[\#c4b8a4\] { background-color: #46507a; }
+html.night .border-\[\#ece4d6\] { border-color: #232a4a; }
+html.night .border-\[\#fffdf6\] { border-color: #171b30; }
 html.night .lore { background-image: linear-gradient(90deg, #ff8a4c, #e9b949, #6fc48a, #c58be0, #5cc7b4, #ff8a4c); }
-html.night .wolt-card { background: #17131d; color: #e3dbd1; }
-html.night .wolt-card :is(.card-actions button, .card-prose, .card-options button) { background: #221c2b; border-color: #3a3145; color: inherit; }
+html.night .wolt-card { background: #0e1120; color: #dfe6fa; }
+html.night .wolt-card :is(.card-actions button, .card-prose, .card-options button) { background: #171b30; border-color: #2b3358; color: inherit; }
 html.night .wolt-card .card-actions button { color: var(--color-acc); }
-html.night .wolt-card :is(.card-memory, .card-tabs) { border-color: #2e2738; color: inherit; }
-html.night .wolt-card .card-tabs button { background: #2b2434; color: #a195ab; }
+html.night .wolt-card :is(.card-memory, .card-tabs) { border-color: #232a4a; color: inherit; }
+html.night .wolt-card .card-tabs button { background: #1d2340; color: #8e9ac4; }
 html.night .wolt-card .card-tabs button[aria-pressed=true] { background: #c4531e; color: #fff; }
-html.night .wolt-card .card-options button[aria-pressed=true] { border-color: #ee7b43; background: #44302f; }
-html.night .wolt-card :is(.card-heading p, .card-section, .card-memory small, .card-previews small) { color: #a195ab; }
+html.night .wolt-card .card-options button[aria-pressed=true] { border-color: #ee7b43; background: #3a2440; }
+html.night .wolt-card :is(.card-heading p, .card-section, .card-memory small, .card-previews small) { color: #8e9ac4; }

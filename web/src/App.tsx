@@ -456,7 +456,7 @@ export function App() {
   // drawn in this same pass already take the dark tint.
   if (typeof document !== "undefined") document.documentElement.classList.toggle("night", chatsOn && sky === "night");
   useEffect(() => {
-    const color = skyTop ? SKIES[sky].top : chatsOn && sky === "night" ? "#17131d" : "#f5f1e8";
+    const color = skyTop ? SKIES[sky].top : chatsOn && sky === "night" ? "#0e1120" : "#f5f1e8";
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color);
     document.documentElement.style.background = document.body.style.background = color;
   }, [skyTop, sky, chatsOn]);
@@ -762,7 +762,8 @@ export function App() {
       </>}
       {nav.at === "chat" && (chat ? <>
         <ChatHeader chat={chat} ctx={ctx} compact={wideCols} onBack={back} onCard={setCard}
-          onRename={(title) => rename(chat.id, title)} />
+          onRename={(title) => rename(chat.id, title)}
+          who={<ThreadWho thread={chat.id} list={chatList} ctx={ctx} room={state.who ? state.who[chat.id] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />} />
         <Feed list={chatList} ctx={ctx} working={state.working || {}} away={state.unreachable} stick={stickThread} place={chatId} />
         {composer}
       </> : <Standby state={state} />)}
