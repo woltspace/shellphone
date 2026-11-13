@@ -65,16 +65,29 @@ export const PlusButton = ({ label, onClick, small }: { label: string; onClick: 
 const Stack = ({ names, ctx, size = 32 }: { names: string[]; ctx: Ctx; size?: number }) =>
   <span className="flex flex-none">{names.slice(0, 3).map((n, i) => <span key={n} className={`rounded-full border-2 border-panel bg-panel ${i ? "-ml-3" : ""}`}><Face w={ctx.wolts.find((w) => w.wolt === n)} ctx={ctx} size={size} /></span>)}</span>;
 
-function ChatRow({ c, ctx, here, group, onOpen }: { c: Chat; ctx: Ctx; here?: boolean; group?: boolean; onOpen: () => void }) {
-  return <button type="button" onClick={onOpen} className={`${ROW} ${here ? "bg-[#f6e2d6]" : "bg-panel"}`}>
+function ChatRow({ c, ctx, here, group, onOpen, onRename }: { c: Chat; ctx: Ctx; here?: boolean; group?: boolean; onOpen: () => void; onRename?: (title: string) => Promise<string | null> }) {
+  // the pencil at the right renames the chat right in its row
+  const [naming, setNaming] = useState<string | null>(null), [problem, setProblem] = useState("");
+  const save = async () => {
+    const t = (naming || "").trim(); if (!t || t === c.title || !onRename) return setNaming(null);
+    const e = await onRename(t); if (e) setProblem(e); else { setNaming(null); setProblem(""); }
+  };
+  return <div role="button" tabIndex={0} onClick={() => { if (naming === null) onOpen(); }} onKeyDown={(e) => { if (e.key === "Enter" && naming === null) onOpen(); }} className={`${ROW} ${here ? "bg-[#f6e2d6]" : "bg-panel"}`}>
     {group && <Stack names={c.wolts} ctx={ctx} />}
     <span className="min-w-0 flex-1">
-      <span className="block font-mono font-semibold text-[15px] truncate">{group && c.title === "New chat" ? c.wolts.join(", ") : c.title}</span>
+      {naming !== null ? <form onSubmit={(e) => { e.preventDefault(); save(); }} onClick={(e) => e.stopPropagation()}>
+        <input autoFocus value={naming} maxLength={60} onChange={(e) => setNaming(e.target.value)} onBlur={save} aria-label="Name of this chat" enterKeyHint="done" placeholder="Name this chat"
+          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") { setNaming(null); setProblem(""); } }}
+          className="block w-full bg-paper border border-acc rounded-lg px-1.5 py-0.5 font-mono font-semibold text-base outline-none" />
+        {problem && <small className="block text-[11px] text-acc">{problem}</small>}</form>
+      : <span className="block font-mono font-semibold text-[15px] truncate">{group && c.title === "New chat" ? c.wolts.join(", ") : c.title}</span>}
       <span className={`block text-[13px] truncate ${c.fresh ? "text-ink font-semibold" : "text-dim"}`}>
         {c.last ? (group && c.last.who ? `${c.last.who}: ` : "") + c.last.text : "No messages yet"}</span>
     </span>
     <span className="flex-none text-right text-xs text-dim">{when(c.at)}{c.fresh > 0 && <><br /><Badge n={c.fresh} /></>}</span>
-  </button>;
+    {onRename && <button type="button" aria-label="Rename this chat" title="Rename" onClick={(e) => { e.stopPropagation(); setNaming(naming === null ? (c.title === "New chat" ? "" : c.title) : null); }}
+      className="flex-none -mr-1.5 w-7 h-7 grid place-items-center rounded-full border-0 bg-[#f6e2d6] text-acc cursor-pointer"><Pencil size={13} /></button>}
+  </div>;
 }
 
 // A group on home: a small card. Whoever may rename it gets a pencil in its top right corner, and types the name right there.
@@ -172,7 +185,7 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       <div className={SEC}>Groups</div>
       <div className="grid grid-cols-2 gap-2 px-3 pb-1">
         {groups.map((c) => <GroupCard key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)}
-          onRename={onRename && (c.by === state.me || state.me === state.host) ? (t) => onRename(c.id, t) : undefined} />)}
+          onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
         <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
           <span className="block h-[30px] text-[22px] leading-[30px]">🐚</span>
           <span className="block mt-0.5 font-mono font-semibold text-[13.5px]">Everyone</span>
@@ -185,8 +198,8 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
 }
 
 // One wolt: its chats, and the groups it is in. Its face and name open its contact card; ＋ starts a new chat with it.
-export function WoltChats({ w, state, ctx, chats, compact, here, onBack, onChat, onNew, onCard }: {
-  w: Wolt; state: State; ctx: Ctx; chats: Chat[]; compact?: boolean; here?: string; onBack: () => void; onChat: (id: string) => void; onNew: () => void; onCard?: (wolt: string) => void;
+export function WoltChats({ w, state, ctx, chats, compact, here, onBack, onChat, onNew, onCard, onRename }: {
+  w: Wolt; state: State; ctx: Ctx; chats: Chat[]; compact?: boolean; here?: string; onBack: () => void; onChat: (id: string) => void; onNew: () => void; onCard?: (wolt: string) => void; onRename?: (id: string, title: string) => Promise<string | null>;
 }) {
   const own = chats.filter((c) => c.wolts.length === 1 && c.wolts[0] === w.wolt), groups = chats.filter((c) => c.wolts.length > 1 && c.wolts.includes(w.wolt)), m = mood(w, state);
   return <div className="h-full flex flex-col bg-paper">
@@ -203,10 +216,10 @@ export function WoltChats({ w, state, ctx, chats, compact, here, onBack, onChat,
     </header>
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))]">
       {!compact && <div className={SEC}>Chats</div>}
-      {own.map((c) => <ChatRow key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)} />)}
+      {own.map((c) => <ChatRow key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)} onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
       {own.length === 0 && <p className="text-center text-dim font-mono text-xs my-8 px-6">No chats with {w.wolt} yet. Tap ＋ to start one.</p>}
       {groups.length > 0 && <div className={SEC}>Groups with {w.wolt}</div>}
-      {groups.map((c) => <ChatRow key={c.id} c={c} ctx={ctx} group here={here === c.id} onOpen={() => onChat(c.id)} />)}
+      {groups.map((c) => <ChatRow key={c.id} c={c} ctx={ctx} group here={here === c.id} onOpen={() => onChat(c.id)} onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
     </div>
   </div>;
 }
