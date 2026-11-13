@@ -53,7 +53,7 @@ export function Face({ w, ctx, size = 46, bare, className = "" }: { w?: Wolt; ct
 const SEC = "px-4 pt-3 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 const ROW = "flex w-full items-center gap-3 px-4 py-2 border-0 border-b border-[#ece4d6] text-left cursor-pointer active:opacity-70";
 const AddButton = ({ label, onClick }: { label: string; onClick: () => void }) =>
-  <button type="button" onClick={onClick} className="flex-none flex items-center gap-1.5 -my-2 h-[34px] pl-3 pr-3.5 rounded-full border-0 bg-acc font-mono font-semibold text-[13px] tracking-normal normal-case text-white cursor-pointer shadow-[0_2px_6px_#c4531e55] active:opacity-80">
+  <button type="button" onClick={onClick} className="flex-none flex items-center justify-center gap-1.5 -my-2 h-[34px] w-[150px] rounded-full border-0 bg-acc font-mono font-semibold text-[13px] tracking-normal normal-case text-white cursor-pointer shadow-[0_2px_6px_#c4531e55] active:opacity-80">
     <Plus size={16} strokeWidth={3} />{label}</button>;
 const Badge = ({ n }: { n: number }) => n > 0 ? <span className="inline-block min-w-5 h-5 px-1.5 rounded-full bg-acc text-white font-sans font-bold text-[11px] leading-5 text-center">{n}</span> : null;
 export const PlusButton = ({ label, onClick, small }: { label: string; onClick: () => void; small?: boolean }) =>
@@ -110,9 +110,9 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
     const own = chats.filter((c) => c.wolts.length === 1 && c.wolts[0] === w.wolt), top = own[0], fresh = own.reduce((n, c) => n + c.fresh, 0), m = mood(w, state);
     // no chat with it yet: the last thing it said in the room
     const said = top ? undefined : [...ctx.all].reverse().find((x) => x.kind === "wolt" && x.wolt === w.wolt);
-    return <button key={w.wolt} type="button" onClick={() => onWolt(w.wolt)} className={`${ROW} ${sel === w.wolt ? "bg-[#f6e2d6]" : "bg-panel"}`}>
+    return <button key={w.wolt} type="button" onClick={() => onWolt(w.wolt)} className={`${ROW} ${sel === w.wolt ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
       <span className="relative flex-none"><Face w={w} ctx={ctx} size={42} />
-        <i className={`absolute right-px bottom-px w-3 h-3 rounded-full border-2 border-panel ${m.awake ? "bg-go" : "bg-[#c9bfae]"}`} /></span>
+        <i className={`absolute right-px bottom-px w-3 h-3 rounded-full border-2 border-paper ${m.awake ? "bg-go" : "bg-[#c9bfae]"}`} /></span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-1.5 font-mono font-semibold text-[15px]"><span className="truncate">{w.wolt}</span>
           {m.word && (m.awake ? <span className="flex-none font-normal text-[11px] text-go">{m.word}</span>
@@ -138,7 +138,7 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       <div className={`${SEC} flex items-center`}><span className="flex-1">People</span>
         {onInvite && <AddButton label="Add people" onClick={onInvite} />}</div>
       {/* people side by side: they are who's here, not chats to open */}
-      <div className="flex gap-3 overflow-x-auto px-4 py-2 bg-panel border-b border-[#ece4d6] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex gap-3 overflow-x-auto px-4 pt-1.5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {state.members.people.map((p) => <div key={p.email} className="flex-none w-[58px] text-center">
           <img src={personAvatar(p.name, p.color)} alt="" className="block w-10 h-10 rounded-full mx-auto" />
           <span className="block mt-1 font-mono font-semibold text-[11.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
@@ -147,13 +147,13 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       </div>
       <div className={SEC}>Groups</div>
       <div className="grid grid-cols-2 gap-2 px-3 pb-1">
-        {groups.map((c) => <button key={c.id} type="button" onClick={() => onChat(c.id)} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here === c.id ? "bg-[#f6e2d6]" : "bg-panel"}`}>
+        {groups.map((c) => <button key={c.id} type="button" onClick={() => onChat(c.id)} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here === c.id ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
           <Stack names={c.wolts} ctx={ctx} size={26} />
           <span className="block mt-0.5 font-mono font-semibold text-[13.5px] truncate">{c.title === "New chat" ? c.wolts.join(", ") : c.title}</span>
           <span className={`block text-xs truncate ${c.fresh ? "text-ink font-semibold" : "text-dim"}`}>{c.last ? c.last.text : c.wolts.join(", ")}</span>
           {c.fresh > 0 && <span className="absolute top-2 right-2"><Badge n={c.fresh} /></span>}
         </button>)}
-        <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-panel"}`}>
+        <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
           <span className="block h-[30px] text-[22px] leading-[30px]">🐚</span>
           <span className="block mt-0.5 font-mono font-semibold text-[13.5px]">Everyone</span>
           <span className="block text-xs text-dim truncate">the whole room</span>
