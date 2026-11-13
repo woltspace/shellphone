@@ -190,6 +190,19 @@ function Viewer({ urls, names, at, close }: { urls: string[]; names?: string[]; 
 
 // A list of messages that stays at the bottom while you're there, and leaves you alone if you scrolled up to read.
 // Used for the main chat and for a thread alike.
+// "3 NEW" above the first unread. Once the last new message has been on screen for 2s, it fades out (0.6s) and the gap closes.
+function NewLine({ count, last }: { count: number; last?: string }) {
+  const ref = useRef<HTMLDivElement>(null), [gone, setGone] = useState(false);
+  useEffect(() => {
+    const el = (last && ref.current?.closest("[data-feed]")?.querySelector(`[data-mid="${last}"]`)) || ref.current; if (!el) return;
+    let t = 0;
+    const io = new IntersectionObserver(([e]) => { clearTimeout(t); if (e.isIntersecting) t = window.setTimeout(() => setGone(true), 2000); });
+    io.observe(el); return () => { clearTimeout(t); io.disconnect(); };
+  }, [last]);
+  return <div ref={ref} data-new aria-hidden={gone} className={`flex items-center px-3.5 transition-all duration-[600ms] ${gone ? "opacity-0 my-0 h-0" : "opacity-100 my-3"}`}>
+    <span className="flex-1 h-px bg-acc" /><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-white bg-acc rounded-full px-2.5 py-0.5">{count} new</span><span className="flex-1 h-px bg-acc" /></div>;
+}
+
 function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, place = "" }: {
   list: Msg[]; ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number>; replies?: Map<string, Msg[]>; seen?: Record<string, number>; place?: string;
   open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<(on?: boolean) => void>;
@@ -217,8 +230,7 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
       const run = newDay || who !== lastWho;
       lastDay = day; lastWho = thread.length ? "" : who;  // a thread breaks the run, so the next bubble shows its name
       return <div key={m.cid || m.id} data-mid={m.id}>
-        {m.id === firstNew && <div data-new className="flex items-center px-3.5 my-3">
-          <span className="flex-1 h-px bg-acc" /><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-white bg-acc rounded-full px-2.5 py-0.5">{fresh.length} new</span><span className="flex-1 h-px bg-acc" /></div>}
+        {m.id === firstNew && <NewLine count={fresh.length} last={fresh[fresh.length - 1]?.id} />}
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
         <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
