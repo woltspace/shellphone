@@ -13,7 +13,10 @@ export type Msg = {
   email?: string; wolt?: string; owner?: string; creature?: string;
   text?: string; audio?: string; seconds?: number; files?: FileInfo[]; file?: FileInfo; card?: CardNode; of?: string; page?: PageRef; activity?: Activity;
   localUrl?: string; pending?: boolean; failed?: boolean; thread?: string;
+  session?: boolean; to?: string[];  // the first message of a chat that stands on its own, and the wolts it was started with
 };
+// a chat that stands on its own (Chats.tsx): a thread underneath, with the wolts in it
+export type Session = { id: string; title: string; wolts: string[]; by?: string; at: number; last_at?: number; last_text?: string; last_by?: string; count?: number };
 export type Tab = { slug: string; title: string; v: number };
 export type State = {
   version?: string; title: string; me: string; host?: string;  // host: the person who can pause or remove any agent
@@ -22,6 +25,8 @@ export type State = {
   pages?: Record<string, { v: number; n: number }>;  // where each page stands: its version and its last change
   who?: Record<string, Record<string, "in" | "paused">>;  // per thread, the agents switched in or paused there (ThreadWho.tsx)
   who_default?: "in" | "out";
+  sessions?: Session[];  // missing: a room from before chats, shown as one shared chat like always
+  looks?: Record<string, Record<string, string>>;  // each wolt's saved look (CardLook.tsx)
   working_in?: Record<string, string[]>;
   terminals?: Record<string, string>;  // for the host only: a link to each of their wolts' terminals on their own lodge
   main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it

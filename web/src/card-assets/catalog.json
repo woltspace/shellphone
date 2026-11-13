@@ -1,0 +1,361 @@
+{
+ "creatures": [
+  {
+   "id": "raccoon",
+   "w": 25,
+   "h": 25
+  },
+  {
+   "id": "beaver",
+   "w": 21,
+   "h": 22
+  },
+  {
+   "id": "otter",
+   "w": 19,
+   "h": 21
+  }
+ ],
+ "hats": [
+  {
+   "id": "top-hat",
+   "name": "top hat",
+   "src": "img/h-top-hat.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "crown",
+   "name": "crown",
+   "src": "img/h-crown.png",
+   "w": 16,
+   "h": 14
+  },
+  {
+   "id": "jewel-crown",
+   "name": "jewel crown",
+   "src": "img/h-jewel-crown.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "wizard-hat",
+   "name": "wizard hat",
+   "src": "img/h-wizard-hat.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "old-wizard-hat",
+   "name": "old wizard hat",
+   "src": "img/h-old-wizard-hat.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "cowboy-hat",
+   "name": "cowboy hat",
+   "src": "img/h-cowboy-hat.png",
+   "w": 16,
+   "h": 15
+  },
+  {
+   "id": "teal-cowboy-hat",
+   "name": "teal cowboy hat",
+   "src": "img/h-teal-cowboy-hat.png",
+   "w": 16,
+   "h": 12
+  },
+  {
+   "id": "red-beanie",
+   "name": "red beanie",
+   "src": "img/h-red-beanie.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "orange-beanie",
+   "name": "orange beanie",
+   "src": "img/h-orange-beanie.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "red-cap",
+   "name": "red cap",
+   "src": "img/h-red-cap.png",
+   "w": 16,
+   "h": 12
+  },
+  {
+   "id": "blue-cap",
+   "name": "blue cap",
+   "src": "img/h-blue-cap.png",
+   "w": 16,
+   "h": 12
+  },
+  {
+   "id": "straw-hat",
+   "name": "straw hat",
+   "src": "img/h-straw-hat.png",
+   "w": 16,
+   "h": 12
+  },
+  {
+   "id": "pirate-hat",
+   "name": "pirate hat",
+   "src": "img/h-pirate-hat.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "party-hat",
+   "name": "party hat",
+   "src": "img/h-party-hat.png",
+   "w": 12,
+   "h": 16
+  },
+  {
+   "id": "pink-party-hat",
+   "name": "pink party hat",
+   "src": "img/h-pink-party-hat.png",
+   "w": 12,
+   "h": 16
+  },
+  {
+   "id": "chef-hat",
+   "name": "chef hat",
+   "src": "img/h-chef-hat.png",
+   "w": 16,
+   "h": 14
+  },
+  {
+   "id": "viking-helmet",
+   "name": "viking helmet",
+   "src": "img/h-viking-helmet.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "hard-hat",
+   "name": "hard hat",
+   "src": "img/h-hard-hat.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "beret",
+   "name": "beret",
+   "src": "img/h-beret.png",
+   "w": 16,
+   "h": 10
+  },
+  {
+   "id": "elf-hat",
+   "name": "elf hat",
+   "src": "img/h-elf-hat.png",
+   "w": 16,
+   "h": 15
+  },
+  {
+   "id": "flower-crown",
+   "name": "flower crown",
+   "src": "img/h-flower-crown.png",
+   "w": 16,
+   "h": 13
+  },
+  {
+   "id": "pink-flower-crown",
+   "name": "pink flower crown",
+   "src": "img/h-pink-flower-crown.png",
+   "w": 16,
+   "h": 13
+  },
+  {
+   "id": "propeller-hat",
+   "name": "propeller hat",
+   "src": "img/h-propeller-hat.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "fedora",
+   "name": "fedora",
+   "src": "img/h-fedora.png",
+   "w": 16,
+   "h": 10
+  },
+  {
+   "id": "graduation-cap",
+   "name": "graduation cap",
+   "src": "img/h-graduation-cap.png",
+   "w": 16,
+   "h": 15
+  },
+  {
+   "id": "sprout",
+   "name": "sprout",
+   "src": "img/h-sprout.png",
+   "w": 16,
+   "h": 16
+  }
+ ],
+ "face": [
+  {
+   "id": "sunglasses",
+   "name": "sunglasses",
+   "src": "img/f-sunglasses.png",
+   "w": 16,
+   "h": 10
+  },
+  {
+   "id": "shades",
+   "name": "shades",
+   "src": "img/f-shades.png",
+   "w": 16,
+   "h": 8
+  }
+ ],
+ "nature": [
+  {
+   "id": "pine",
+   "name": "pine",
+   "src": "img/n-pine.png",
+   "w": 12,
+   "h": 16
+  },
+  {
+   "id": "big-pine",
+   "name": "big pine",
+   "src": "img/n-big-pine.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "log",
+   "name": "log",
+   "src": "img/n-log.png",
+   "w": 16,
+   "h": 13
+  },
+  {
+   "id": "mushroom",
+   "name": "mushroom",
+   "src": "img/n-mushroom.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "acorn",
+   "name": "acorn",
+   "src": "img/n-acorn.png",
+   "w": 15,
+   "h": 16
+  },
+  {
+   "id": "fern",
+   "name": "fern",
+   "src": "img/n-fern.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "campfire",
+   "name": "campfire",
+   "src": "img/n-campfire.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "rock",
+   "name": "rock",
+   "src": "img/n-rock.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "fish",
+   "name": "fish",
+   "src": "img/n-fish.png",
+   "w": 16,
+   "h": 12
+  },
+  {
+   "id": "cattails",
+   "name": "cattails",
+   "src": "img/n-cattails.png",
+   "w": 9,
+   "h": 16
+  },
+  {
+   "id": "maple-leaf",
+   "name": "maple leaf",
+   "src": "img/n-maple-leaf.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "lily-pad",
+   "name": "lily pad",
+   "src": "img/n-lily-pad.png",
+   "w": 16,
+   "h": 14
+  },
+  {
+   "id": "flower",
+   "name": "flower",
+   "src": "img/n-flower.png",
+   "w": 10,
+   "h": 16
+  },
+  {
+   "id": "berry-bush",
+   "name": "berry bush",
+   "src": "img/n-berry-bush.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "stump",
+   "name": "stump",
+   "src": "img/n-stump.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "snail",
+   "name": "snail",
+   "src": "img/n-snail.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "dragonfly",
+   "name": "dragonfly",
+   "src": "img/n-dragonfly.png",
+   "w": 16,
+   "h": 16
+  },
+  {
+   "id": "pebble",
+   "name": "pebble",
+   "src": "img/n-pebble.png",
+   "w": 16,
+   "h": 14
+  },
+  {
+   "id": "snowman",
+   "name": "snowman",
+   "src": "img/n-snowman.png",
+   "w": 10,
+   "h": 16
+  },
+  {
+   "id": "pond",
+   "name": "pond",
+   "src": "img/n-pond.png",
+   "w": 16,
+   "h": 16
+  }
+ ]
+}
