@@ -158,8 +158,8 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
           className="flex-none p-0 border-0 bg-transparent cursor-pointer rounded-full">{avatar}</button>
         : <span className={`w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`}>{avatar}</span>}
       <div data-bubble ref={bubble} className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${acts ? "invisible" : ""} ${mine ? "border-line" : "bg-panel border-line"}`}
-        style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
-          : !human ? { background: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : undefined}>
+        style={mine ? { background: mix(ctx.person(ctx.me).color, tintBase(), 0.82) }
+          : !human ? { background: mix(woltColor(m.wolt, ctx.wolts), tintBase(), 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), tintBase(), 0.6) } : undefined}>
         {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5" style={!human ? { color: woltColor(m.wolt, ctx.wolts) } : undefined}>[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
         {m.files?.length ? relayRoom ? <div className="font-mono text-xs text-dim mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
         {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
@@ -193,6 +193,8 @@ export function woltColor(name = "", wolts: Wolt[] = []) {
   return HUES[h % HUES.length];
 }
 
+// what a bubble's colour is blended toward: white by day, the dark panel at night (index.css, html.night)
+export const tintBase = () => (typeof document !== "undefined" && document.documentElement.classList.contains("night") ? "#221c2b" : "#ffffff");
 export function mix(hex: string, to: string, t: number) {  // blend a colour toward white, so text stays readable on it
   const c = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const [a, b] = [c(hex), c(to)];

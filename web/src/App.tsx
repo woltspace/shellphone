@@ -452,11 +452,14 @@ export function App() {
   // On home the night sky runs up under the phone's status strip: the strip takes the page's colour, so the page wears
   // the sky's while home is showing, and goes back to paper everywhere else.
   const skyTop = chatsOn && !wideCols && nav.at === "home" && !card, [sky] = useSky();
+  // at night the whole app is dark, not only the scene (index.css, html.night). Set while drawing, so the bubbles
+  // drawn in this same pass already take the dark tint.
+  if (typeof document !== "undefined") document.documentElement.classList.toggle("night", chatsOn && sky === "night");
   useEffect(() => {
-    const color = skyTop ? SKIES[sky].top : "#f5f1e8";
+    const color = skyTop ? SKIES[sky].top : chatsOn && sky === "night" ? "#17131d" : "#f5f1e8";
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color);
     document.documentElement.style.background = document.body.style.background = color;
-  }, [skyTop, sky]);
+  }, [skyTop, sky, chatsOn]);
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
