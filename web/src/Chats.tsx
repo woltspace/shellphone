@@ -195,10 +195,12 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
   // as many wolt rows as the phone has room for, so the page never needs to scroll
   const tall = typeof window === "undefined" ? 844 : window.innerHeight;
   const WOLTS = tall >= 800 ? 5 : tall >= 720 ? 4 : 3, PEOPLE = 5, GROUPS = 1;
-  const more = (what: "wolts" | "people" | "groups", n: number, shown: number) => !all && n > shown && onAll &&
-    <button type="button" onClick={() => onAll(what)} className="flex-none mr-3 border-0 bg-transparent p-0 font-sans font-semibold text-[14px] text-dim cursor-pointer active:opacity-60">See all ({n}) ›</button>;
-  const show = (what: "wolts" | "people" | "groups") => !only || only === what;
   const titles = { wolts: "Wolts", people: "People", groups: "Groups" };
+  // a section's title with a small arrow opens its whole list
+  const title = (what: "wolts" | "people" | "groups") => !all && onAll
+    ? <span className="flex-1 min-w-0"><button type="button" onClick={() => onAll(what)} aria-label={`All ${what}`} className="flex items-center gap-0.5 border-0 bg-transparent p-0 font-[inherit] text-inherit cursor-pointer active:opacity-60">{titles[what]}<ChevronRight size={17} strokeWidth={2.6} className="text-dim" /></button></span>
+    : <span className="flex-1">{titles[what]}</span>;
+  const show = (what: "wolts" | "people" | "groups") => !only || only === what;
   return <div className="relative h-full flex flex-col bg-paper">
     {hats && onHat && <HatPicker now={hatOf(state.faces?.[state.me])} onPick={async (h) => { const e = await onHat(h ? "hat-" + h : ""); if (!e) setHats(false); return e; }} onClose={() => setHats(false)} />}
     {only ? <header className="relative flex-none grid place-items-center border-b border-line pt-[calc(8px+env(safe-area-inset-top))] pb-2 min-h-[52px]">
@@ -215,12 +217,12 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       : <Hero state={state} ctx={ctx} onNew={onNew} onBell={onBell} bell={bell} />}
     <div className={`flex-1 min-h-0 overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))] ${all ? "overflow-y-auto" : "overflow-hidden"}`}>
       {show("wolts") && <>
-        {!only && <div className={HEAD}><span className="flex-1">Wolts</span>{more("wolts", wolts.length, WOLTS)}
+        {!only && <div className={HEAD}>{title("wolts")}
           {onAgent && <AddButton label="Add" onClick={onAgent} />}</div>}
         {(all ? wolts : wolts.slice(0, WOLTS)).map(row)}
       </>}
       {show("people") && <>
-        {!only && <div className={HEAD}><span className="flex-1">People</span>{more("people", people.length, PEOPLE)}
+        {!only && <div className={HEAD}>{title("people")}
           {onInvite && <AddButton label="Invite" onClick={onInvite} />}</div>}
         {only === "people"
           // the whole list: a row each, with who they are here
@@ -242,7 +244,7 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
           </div>}
       </>}
       {show("groups") && <>
-        {!only && <div className={HEAD}><span className="flex-1">Groups</span>{more("groups", groups.length, GROUPS)}<AddButton label="New group" onClick={onNew} /></div>}
+        {!only && <div className={HEAD}>{title("groups")}<AddButton label="New group" onClick={onNew} /></div>}
         <div className={`grid grid-cols-2 gap-2 px-3 pb-2 ${only ? "pt-3" : "pt-1"}`}>
           <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-1.5 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
             <span className="block h-7 text-[20px] leading-7">🐚</span>
