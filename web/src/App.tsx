@@ -343,16 +343,13 @@ function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: 
   };
 }
 
-// The room's line, beside its name: green and gently pulsing while it answers, amber while the page tries again, red when
-// it can't reach the room (this phone offline, or the room's computer asleep). The word shows on a computer, the dot everywhere.
+// The room's line, as a dot on its icon: green and gently pulsing while it answers, amber while the page tries again, red
+// when it can't reach the room (this phone offline, or the room's computer asleep).
 function Live({ link }: { link: "live" | "retry" | "down" }) {
   const [color, word] = link === "live" ? ["#3aa45b", "live"] : link === "retry" ? ["#d99a1e", "reconnecting"] : ["#c8463a", "offline"];
-  return <span role="status" aria-label={`room ${word}`} title={`room ${word}`} className="inline-flex items-center gap-1 ml-2 align-middle font-normal text-[11px]" style={{ color }}>
-    <span className="relative inline-block w-2 h-2">
-      {link === "live" && <span className="absolute inset-0 rounded-full animate-ping opacity-40" style={{ background: color }} />}
-      <span className="absolute inset-0 rounded-full" style={{ background: color }} />
-    </span>
-    <span className="hidden sm:inline">{word}</span>
+  return <span role="status" aria-label={`room ${word}`} title={`room ${word}`} className="absolute -right-0.5 -bottom-0.5 w-3 h-3">
+    {link === "live" && <span className="absolute inset-0 rounded-full animate-ping opacity-40" style={{ background: color }} />}
+    <span className="absolute inset-0 rounded-full border-2 border-panel" style={{ background: color }} />
   </span>;
 }
 
@@ -425,7 +422,7 @@ export function App() {
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined,
+  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined, terminals: state.terminals,
     // who's working where ("" the main chat, else a thread); a room that doesn't say where: everywhere, as before
     busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]) };
 
@@ -643,9 +640,9 @@ export function App() {
           {menu ? <X size={22} /> : <MenuIcon size={22} />}
           {!menu && push.ask && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}
         </button>
-        <img src="/room-icon.png" alt="" className="w-9 h-9 rounded-full" />
+        <span className="relative flex-none"><img src="/room-icon.png" alt="" className="block w-9 h-9 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
         <div className="min-w-0 flex-1">
-          <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></div>
+          <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
           <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
         </div>
         {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
