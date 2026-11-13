@@ -89,6 +89,7 @@ create table if not exists thread_seen(thread text primary key);
 create table if not exists working_in(wolt text not null, thread text not null, until real not null, primary key(wolt, thread));
 create table if not exists session_titles(session text primary key, title text not null);
 create table if not exists looks(wolt text primary key, look text not null);
+create table if not exists faces(email text primary key, face text not null);
 create table if not exists cards(wolt text primary key, card text not null, at real not null);
 """
 CON = None
@@ -342,6 +343,13 @@ CARD_PARTS = ("identity", "context", "learnings", "archive")
 def card_of(wolt):
     row = q("select * from cards where wolt = ?", wolt)
     return {"wolt": wolt, "at": row[0]["at"], **json.loads(row[0]["card"])} if row else None
+
+
+FACE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")  # a person's pixel face: an id the page's set knows
+
+
+def faces_now():
+    return {r["email"]: r["face"] for r in q("select * from faces where email in (select email from people)")}
 
 
 def looks_now():
@@ -1165,7 +1173,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "terminals": terminals() if email and email == host() else {}, "sessions": sessions_now(), "looks": looks_now(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "terminals": terminals() if email and email == host() else {}, "sessions": sessions_now(), "looks": looks_now(), "faces": faces_now(), "messages": messages(after)})
         if path == "/api/card":  # a wolt's card (its memory, as it sent it): only for the wolt's own keeper
             who = q.get("wolt", [""])[0]
             owner = next((l["owner"] for l in wolts() if l["wolt"] == who), None)
@@ -1255,8 +1263,8 @@ def for_person(req, email):
         root = message(sid)
         if not root or not root.get("session"):
             return reply(404, {"error": "there's no such chat"})
-        if email not in (root.get("email"), host()):
-            return reply(403, {"error": "only who started the chat, or the room's host, can rename it"})
+        if people().get(email, {}).get("guest"):  # anyone on the room's list renames a chat, like iMessage; a guest doesn't
+            return reply(403, {"error": "guests can't rename chats"})
         with tx() as c:
             c.execute("insert or replace into session_titles values (?, ?)", (sid, name)) if name else c.execute("delete from session_titles where session = ?", (sid,))
         return reply(200, {"id": sid, "title": name})
@@ -1273,6 +1281,14 @@ def for_person(req, email):
         with tx() as c:
             c.execute("insert or replace into looks values (?, ?)", (who, json.dumps(look))) if look else c.execute("delete from looks where wolt = ?", (who,))
         return reply(200, {"wolt": who, "look": look})
+    if path == "/api/face":  # a person picks their own pixel face ({"face": id}, or "" for none): only for themselves
+        data = json.loads(req.read(20_000) or b"{}")
+        face = data.get("face")
+        if not isinstance(face, str) or (face and not FACE.fullmatch(face)):
+            return reply(400, {"error": "a face is a short name, like \"fox-1\""})
+        with tx() as c:
+            c.execute("insert or replace into faces values (?, ?)", (email, face)) if face else c.execute("delete from faces where email = ?", (email,))
+        return reply(200, {"email": email, "face": face})
     if path == "/api/main":  # the host names the room's main agent ({"wolt": name}), or takes the role away ({"wolt": null})
         data = json.loads(req.read(20_000) or b"{}")
         who = data.get("wolt")

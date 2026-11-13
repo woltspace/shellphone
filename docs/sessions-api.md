@@ -22,7 +22,12 @@ is not part of the lobby (the old shared chat) and only the wolts in it hear it.
 wolt that is in the room and some words (files go from the second message on, as replies). 400 for an unknown wolt or
 no words, 403 for a guest.
 
-`POST /api/session-title` `{"id", "title"}`: who started the chat, or the host. An empty title goes back to the first words.
+`POST /api/session-title` `{"id", "title"}`: anyone on the room's list (not a guest), like iMessage. An empty title goes back to the first words.
+
+## A person's face
+
+`/api/state` gains `faces`: `{"you@x.com": "fox-1"}`. `POST /api/face {"face": "fox-1"}` sets your own (`""` clears it);
+an id is a short name the page's face set knows. Nobody sets another person's face.
 
 Bring a wolt in or take it out later: `POST /api/thread-who {"thread": id, "wolt", "state": "in" | "paused"}`, or tag it.
 
