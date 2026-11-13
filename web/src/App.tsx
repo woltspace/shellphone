@@ -759,7 +759,7 @@ export function App() {
   if (!desk) return room;
   return <div className="h-full flex">
     <Suspense fallback={<div className="flex-1 bg-[#2a231c]" />}>
-      <Desk ctx={ctx} wolts={deskWolts} working={new Set(Object.keys(state.working || {}))} focus={focus} />
+      <Desk ctx={ctx} wolts={deskWolts} working={new Set(Object.keys(state.working || {}))} focus={focus} onClose={() => setDesk(false)} />
     </Suspense>
     {/* its own box for everything fixed inside (menu, sheets), so they stay in the chat column */}
     <div className="flex-none w-[460px] h-full border-l border-line relative overflow-hidden [transform:translateZ(0)]">{room}</div>
