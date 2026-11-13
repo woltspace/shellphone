@@ -180,7 +180,7 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
           <span className="block mt-0.5 font-mono font-semibold text-[11.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
         </div>)}
       </div>
-      <div className={`${SEC} flex items-center`}><span className="flex-1">Groups</span><AddButton label="New" onClick={onNew} /></div>
+      <div className={`${SEC} flex items-center`}><span className="flex-1">Groups</span><AddButton label="New group" onClick={onNew} /></div>
       <div className="grid grid-cols-2 gap-2 px-3 pb-1">
         {groups.map((c) => <GroupCard key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)}
           onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
