@@ -202,6 +202,11 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
   const toBottom = (smooth = true) => scroller.current?.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
   stick.current = (on = true) => { if (on) toBottom(false); };  // sending, or coming back after a while: the newest
   const onScroll = () => setFar(-scroller.current!.scrollTop > 600);
+  // "— N new —": where you stopped reading, as it was when you came in (it stays put while you read, then moves on next visit)
+  const mark = useRef<{ place: string; n: number } | null>(null);
+  if (mark.current?.place !== place) mark.current = { place, n: seen?.[place || "main"] ?? Infinity };
+  const fresh = list.filter((m) => m.n > mark.current!.n && !m.pending && !(m.kind === "human" && m.email === ctx.me));
+  const firstNew = fresh[0]?.id;
   let lastDay = "", lastWho = "";
   return <div className="flex-1 min-h-0 relative flex flex-col"><div ref={scroller} data-feed onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain flex flex-col-reverse"><div className="pt-1">
     {list.length === 0 && <p className="text-center text-dim font-mono text-xs mt-10 px-6">Nobody has said anything yet. Tag a wolt with @ to bring it in.</p>}
@@ -212,6 +217,8 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
       const run = newDay || who !== lastWho;
       lastDay = day; lastWho = thread.length ? "" : who;  // a thread breaks the run, so the next bubble shows its name
       return <div key={m.cid || m.id} data-mid={m.id}>
+        {m.id === firstNew && <div data-new className="flex items-center px-3.5 my-3">
+          <span className="flex-1 h-px bg-acc" /><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-white bg-acc rounded-full px-2.5 py-0.5">{fresh.length} new</span><span className="flex-1 h-px bg-acc" /></div>}
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
         <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}

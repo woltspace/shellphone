@@ -107,7 +107,10 @@ function Tile({ w, ctx, sessions, big, flash, busy, toggle }: { w: Wolt; ctx: Ct
   </div>;
 }
 
-export default function Desk({ ctx, wolts, working, focus }: { ctx: Ctx; wolts: Wolt[]; working: Set<string>; focus: { wolt: string; at: number } | null }) {
+export default function Desk({ ctx, wolts: all, working, focus }: { ctx: Ctx; wolts: Wolt[]; working: Set<string>; focus: { wolt: string; at: number } | null }) {
+  // ?wolts=a,b,c shows only those tiles, in that order (a talk, a recording); without it, every wolt in the room.
+  const pick = typeof location !== "undefined" ? (new URLSearchParams(location.search).get("wolts") || "").split(",").filter(Boolean) : [];
+  const wolts = pick.length ? pick.map((n) => all.find((w) => w.wolt === n)).filter((w): w is Wolt => !!w) : all;
   const [sessions, setSessions] = useState<Session[] | null>(null), [down, setDown] = useState(false);
   const [big, setBig] = useState(""), [flash, setFlash] = useState("");
   useEffect(() => {
