@@ -709,7 +709,7 @@ export function App() {
   const deskWolts = state.members.wolts.filter((w) => !w.paused && (!place || !state.who || (state.main === w.wolt && !chatId) || state.who[place]?.[w.wolt] === "in"));
   const toHome = () => { setThread(""); setNav({ at: "home" }); };
   const woltOf = (name: string) => state.members.wolts.find((w) => w.wolt === name);
-  const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId}
+  const homeList = (compact: boolean, only?: "wolts" | "people" | "groups") => <HomeList only={only} onBack={toHome} onAll={(what) => { setThread(""); setNav({ at: "all", what }); }} state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId}
     everyone={{ at: main.at(-1)?.at, fresh: inboxCount }} onWolt={(w) => { setThread(""); setNav({ at: "wolt", wolt: w }); }} onChat={(id) => openChat(id)}
     onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} bell={notes.filter((n) => n.fresh).length} onBell={() => { setThread(""); setNav({ at: "bell" }); }} onInvite={state.me ? invite : undefined} onRename={rename}
     onHat={state.faces ? (face) => say("/api/face", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ face }) }) : undefined} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
@@ -765,6 +765,7 @@ export function App() {
       </> : <Standby state={state} />)}
       {nav.at === "new" && <NewChat key={nav.wolts.join()} state={state} ctx={ctx} start={nav.wolts} onStart={startChat}
         onBack={back} />}
+      {nav.at === "all" && homeList(false, nav.what)}
       {nav.at === "bell" && <BellScreen notes={notes} ctx={ctx} push={push} compact={wideCols} onBack={toHome} onReadAll={() => { for (const n of notes) if (n.fresh) mark(n.place || "main", n.m.n); }}
         onOpen={(n) => { if (n.chat) openChat(n.place); else { setNav({ at: "everyone" }); setThread(n.place); } }} />}
       {(nav.at === "home" || nav.at === "wolt") && (wideCols ? <Standby state={state} /> : nav.at === "wolt" && woltOf(nav.wolt) ? woltList(nav.wolt) : homeList(false))}

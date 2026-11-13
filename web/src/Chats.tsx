@@ -12,7 +12,7 @@ import { choices } from "./CardLook";
 
 export type Chat = { id: string; title: string; wolts: string[]; by?: string; at: number; last?: { text: string; who: string }; fresh: number };
 // where you are: the list of wolts, one wolt's chats, a new chat being addressed, a chat, or the room's shared chat
-export type Nav = { at: "home" } | { at: "wolt"; wolt: string } | { at: "new"; wolts: string[]; wolt?: string } | { at: "chat"; id: string; wolt?: string } | { at: "everyone" } | { at: "bell" };
+export type Nav = { at: "home" } | { at: "wolt"; wolt: string } | { at: "new"; wolts: string[]; wolt?: string } | { at: "chat"; id: string; wolt?: string } | { at: "everyone" } | { at: "bell" } | { at: "all"; what: "wolts" | "people" | "groups" };
 
 const preview = (m: Msg) => (m.text || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : m.page ? "📄 " + m.page.title : "")).replace(/\s+/g, " ");
 const mine = (m: Msg, me: string) => m.kind === "human" && m.email === me;
@@ -165,8 +165,9 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
 }
 
 // Home: your wolts like contacts, then the groups, then everyone. On a computer it is the left column, without the scene.
-export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWolt, onChat, onEveryone, onNew, bell, onBell, onInvite, onDesk, onAgent, onRename, onHat }: {
+export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWolt, onChat, onEveryone, onNew, bell, onBell, onInvite, onDesk, onAgent, onRename, onHat, only, onAll, onBack }: {
   state: State; ctx: Ctx; chats: Chat[]; everyone: { at?: number; fresh: number }; compact?: boolean; sel?: string; here?: string;
+  only?: "wolts" | "people" | "groups"; onAll?: (what: "wolts" | "people" | "groups") => void; onBack?: () => void;
   onWolt: (w: string) => void; onChat: (id: string) => void; onEveryone: () => void; onNew: () => void; bell: number; onBell: () => void; onInvite?: () => void; onDesk?: () => void; onAgent?: () => void; onRename?: (id: string, title: string) => Promise<string | null>; onHat?: (face: string) => Promise<string | null>;
 }) {
   const [hats, setHats] = useState(false);
@@ -188,41 +189,71 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       <span className="flex-none text-right text-xs text-dim">{when(top?.at || said?.at)}{fresh > 0 && <><br /><Badge n={fresh} /></>}</span>
     </button>;
   };
+  // On a phone home is one fixed screen: a few of each, and "See all" opens the whole list on a page of its own.
+  // That page (only = which list) and the computer's side column show everything.
+  const all = !!only || !!compact, wolts = [...yours, ...others], people = state.members.people;
+  // as many wolt rows as the phone has room for, so the page never needs to scroll
+  const tall = typeof window === "undefined" ? 844 : window.innerHeight;
+  const WOLTS = tall >= 800 ? 5 : tall >= 720 ? 4 : 3, PEOPLE = 5, GROUPS = 1;
+  const more = (what: "wolts" | "people" | "groups", n: number, shown: number) => !all && n > shown && onAll &&
+    <button type="button" onClick={() => onAll(what)} className="flex-none mr-3 border-0 bg-transparent p-0 font-sans font-semibold text-[14px] text-dim cursor-pointer active:opacity-60">See all ({n}) ›</button>;
+  const show = (what: "wolts" | "people" | "groups") => !only || only === what;
+  const titles = { wolts: "Wolts", people: "People", groups: "Groups" };
   return <div className="relative h-full flex flex-col bg-paper">
     {hats && onHat && <HatPicker now={hatOf(state.faces?.[state.me])} onPick={async (h) => { const e = await onHat(h ? "hat-" + h : ""); if (!e) setHats(false); return e; }} onClose={() => setHats(false)} />}
-    {compact ? <header className="flex-none flex items-center gap-2 pl-2 pr-3 h-[60px] border-b border-line">
+    {only ? <header className="relative flex-none grid place-items-center border-b border-line pt-[calc(8px+env(safe-area-inset-top))] pb-2 min-h-[52px]">
+      <button type="button" aria-label="Back" onClick={onBack} className="absolute left-1 top-[calc(6px+env(safe-area-inset-top))] w-9 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={26} /></button>
+      <h1 className="m-0 font-mono font-bold text-[17px]">{titles[only]}</h1>
+      <span className="absolute right-4 top-[calc(14px+env(safe-area-inset-top))]">
+        {only === "wolts" && onAgent && <AddButton label="Add" onClick={onAgent} />}{only === "people" && onInvite && <AddButton label="Invite" onClick={onInvite} />}{only === "groups" && <AddButton label="New group" onClick={onNew} />}</span>
+    </header>
+    : compact ? <header className="flex-none flex items-center gap-2 pl-2 pr-3 h-[60px] border-b border-line">
       <h1 className="m-0 pl-2 flex-1 min-w-0 truncate font-mono font-bold text-lg">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
       {onDesk && <button type="button" aria-label="Show the terminals" title="desk: your wolts' terminals" onClick={onDesk} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><Monitor size={19} /></button>}
       <BellButton n={bell} onClick={onBell} />
       <PlusButton small label="New chat" onClick={onNew} /></header>
       : <Hero state={state} ctx={ctx} onNew={onNew} onBell={onBell} bell={bell} />}
-    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))]">
-      {/* one list: the wolts in the room, yours first */}
-      <div className={HEAD}><span className="flex-1">Wolts</span>
-        {onAgent && <AddButton label="Add" onClick={onAgent} />}</div>
-      {[...yours, ...others].map(row)}
-      <div className={HEAD}><span className="flex-1">People</span>
-        {onInvite && <AddButton label="Invite" onClick={onInvite} />}</div>
-      {/* people side by side: they are who's here, not chats to open */}
-      <div className="flex items-end gap-3 overflow-x-auto px-4 pt-1.5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {state.members.people.map((p) => { const mine = p.email === state.me && !!onHat;
-          return <div key={p.email} role={mine ? "button" : undefined} tabIndex={mine ? 0 : undefined} aria-label={mine ? "Pick your hat" : undefined} onClick={mine ? () => setHats(true) : undefined}
-            className={`flex-none w-[68px] text-center ${mine ? "cursor-pointer active:opacity-70" : ""}`}>
-            <PersonFace p={p} hat={hatOf(state.faces?.[p.email])} size={52} />
-            <span className="block mt-1 font-mono font-semibold text-[12.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
-          </div>; })}
-      </div>
-      <div className={HEAD}><span className="flex-1">Groups</span><AddButton label="New group" onClick={onNew} /></div>
-      <div className="flex gap-2 overflow-x-auto px-3 pt-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>*]:w-[46%]">
-        <button type="button" onClick={onEveryone} className={`relative flex-none w-[46%] min-w-0 text-left rounded-[14px] border border-line px-3 py-1.5 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
-          <span className="block h-7 text-[20px] leading-7">🐚</span>
-          <span className="block font-mono font-semibold text-[13.5px]">Everyone</span>
-          <span className="block text-xs text-dim truncate">the whole room</span>
-          {everyone.fresh > 0 && <span className="absolute top-2 right-2"><Badge n={everyone.fresh} /></span>}
-        </button>
-        {groups.map((c) => <GroupCard key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)}
-          onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
-      </div>
+    <div className={`flex-1 min-h-0 overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))] ${all ? "overflow-y-auto" : "overflow-hidden"}`}>
+      {show("wolts") && <>
+        {!only && <div className={HEAD}><span className="flex-1">Wolts</span>{more("wolts", wolts.length, WOLTS)}
+          {onAgent && <AddButton label="Add" onClick={onAgent} />}</div>}
+        {(all ? wolts : wolts.slice(0, WOLTS)).map(row)}
+      </>}
+      {show("people") && <>
+        {!only && <div className={HEAD}><span className="flex-1">People</span>{more("people", people.length, PEOPLE)}
+          {onInvite && <AddButton label="Invite" onClick={onInvite} />}</div>}
+        {only === "people"
+          // the whole list: a row each, with who they are here
+          ? people.map((p) => { const mine = p.email === state.me && !!onHat;
+            return <div key={p.email} role={mine ? "button" : undefined} tabIndex={mine ? 0 : undefined} aria-label={mine ? "Pick your hat" : undefined} onClick={mine ? () => setHats(true) : undefined}
+              className={`${ROW} bg-transparent ${mine ? "" : "cursor-default active:opacity-100"}`}>
+              <span className="flex-none w-[52px]"><PersonFace p={p} hat={hatOf(state.faces?.[p.email])} size={44} /></span>
+              <span className="min-w-0 flex-1"><span className="block font-mono font-semibold text-[16px] truncate">{p.name}</span>
+                <span className="block text-[13px] text-dim">{[p.email === state.me ? "you" : "", p.email === state.host ? "host" : "", p.guest ? "guest" : ""].filter(Boolean).join(" · ") || "in this room"}{mine ? " · tap to pick your hat" : ""}</span></span>
+            </div>; })
+          // side by side: they are who's here, not chats to open
+          : <div className={`flex items-end gap-3 px-4 pt-1.5 pb-1 ${all ? "overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "overflow-hidden"}`}>
+            {(all ? people : people.slice(0, PEOPLE)).map((p) => { const mine = p.email === state.me && !!onHat;
+              return <div key={p.email} role={mine ? "button" : undefined} tabIndex={mine ? 0 : undefined} aria-label={mine ? "Pick your hat" : undefined} onClick={mine ? () => setHats(true) : undefined}
+                className={`flex-none w-[62px] text-center ${mine ? "cursor-pointer active:opacity-70" : ""}`}>
+                <PersonFace p={p} hat={hatOf(state.faces?.[p.email])} size={52} />
+                <span className="block mt-1 font-mono font-semibold text-[12.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
+              </div>; })}
+          </div>}
+      </>}
+      {show("groups") && <>
+        {!only && <div className={HEAD}><span className="flex-1">Groups</span>{more("groups", groups.length, GROUPS)}<AddButton label="New group" onClick={onNew} /></div>}
+        <div className={`grid grid-cols-2 gap-2 px-3 pb-2 ${only ? "pt-3" : "pt-1"}`}>
+          <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-1.5 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
+            <span className="block h-7 text-[20px] leading-7">🐚</span>
+            <span className="block font-mono font-semibold text-[13.5px]">Everyone</span>
+            <span className="block text-xs text-dim truncate">the whole room</span>
+            {everyone.fresh > 0 && <span className="absolute top-2 right-2"><Badge n={everyone.fresh} /></span>}
+          </button>
+          {(all ? groups : groups.slice(0, GROUPS)).map((c) => <GroupCard key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)}
+            onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
+        </div>
+      </>}
     </div>
   </div>;
 }
