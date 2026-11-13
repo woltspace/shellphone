@@ -29,7 +29,8 @@ export function chatsOf(state: State, msgs: Msg[], replies: Map<string, Msg[]>, 
   return (state.sessions || []).map((s) => {
     const root = msgs.find((m) => m.id === s.id), all = [...(root ? [root] : []), ...(replies.get(s.id) || [])], last = all.at(-1);
     return {
-      id: s.id, title: s.title || "New chat", wolts: s.wolts || [], by: s.by, at: last?.at || s.last_at || s.at,
+      // a group nobody named goes by its members, like iMessage ("New chat" is how the screens say "no name")
+      id: s.id, title: (s.named === false && (s.wolts || []).length > 1 ? "" : s.title) || "New chat", wolts: s.wolts || [], by: s.by, at: last?.at || s.last_at || s.at,
       last: last ? { text: preview(last), who: name(last) } : s.last_text ? { text: s.last_text, who: s.last_by || "" } : undefined,
       fresh: all.filter((m) => m.n > (seen[s.id] || 0) && !mine(m, state.me)).length,
     };

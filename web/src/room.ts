@@ -16,7 +16,7 @@ export type Msg = {
   session?: boolean; to?: string[];  // the first message of a chat that stands on its own, and the wolts it was started with
 };
 // a chat that stands on its own (Chats.tsx): a thread underneath, with the wolts in it
-export type Session = { id: string; title: string; wolts: string[]; by?: string; at: number; last_at?: number; last_text?: string; last_by?: string; count?: number };
+export type Session = { id: string; title: string; named?: boolean; wolts: string[]; by?: string; at: number; last_at?: number; last_text?: string; last_by?: string; count?: number };
 export type Tab = { slug: string; title: string; v: number };
 export type State = {
   version?: string; title: string; me: string; host?: string;  // host: the person who can pause or remove any agent
