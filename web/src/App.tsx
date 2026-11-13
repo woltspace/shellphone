@@ -195,10 +195,10 @@ function NewLine({ count, last, onGone }: { count: number; last?: string; onGone
   const ref = useRef<HTMLDivElement>(null), [gone, setGone] = useState(false);
   useEffect(() => {
     const el = (last && ref.current?.closest("[data-feed]")?.querySelector(`[data-mid="${last}"]`)) || ref.current; if (!el) return;
-    let t = 0;
-    const io = new IntersectionObserver(([e]) => { clearTimeout(t); if (e.isIntersecting) start(); });
-    const start = () => { clearTimeout(t); if (!document.hidden) t = window.setTimeout(() => { setGone(true); onGone(); }, 2000); };
-    const vis = () => (document.hidden ? clearTimeout(t) : start());  // only while someone is looking
+    let t = 0, seen = false;
+    const io = new IntersectionObserver(([e]) => { seen = e.isIntersecting; start(); });
+    const start = () => { clearTimeout(t); if (seen && !document.hidden) t = window.setTimeout(() => { setGone(true); onGone(); }, 2000); };
+    const vis = () => start();  // only while someone is looking
     document.addEventListener("visibilitychange", vis);
     io.observe(el); return () => { clearTimeout(t); io.disconnect(); document.removeEventListener("visibilitychange", vis); };
   }, [last]);
