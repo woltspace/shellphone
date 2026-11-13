@@ -343,14 +343,23 @@ function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: 
   };
 }
 
-// The room's line, as a dot on its icon: green and gently pulsing while it answers, amber while the page tries again, red
-// when it can't reach the room (this phone offline, or the room's computer asleep).
+// The room's line, in the shell's waves on its icon (drawn over the icon's own, on its 192px grid): green waves going out
+// while the room answers, amber and quicker while the page tries again, red and still when it can't reach the room (this
+// phone offline, or the room's computer asleep).
 function Live({ link }: { link: "live" | "retry" | "down" }) {
-  const [color, word] = link === "live" ? ["#3aa45b", "live"] : link === "retry" ? ["#d99a1e", "reconnecting"] : ["#c8463a", "offline"];
-  return <span role="status" aria-label={`room ${word}`} title={`room ${word}`} className="absolute -right-0.5 -bottom-0.5 w-3 h-3">
-    {link === "live" && <span className="absolute inset-0 rounded-full animate-ping opacity-40" style={{ background: color }} />}
-    <span className="absolute inset-0 rounded-full border-2 border-panel" style={{ background: color }} />
-  </span>;
+  const [color, word, speed] = link === "live" ? ["#2eaa50", "live", "1.1s"] : link === "retry" ? ["#d99a1e", "reconnecting", ".7s"] : ["#c8463a", "offline", ""];
+  const still = !speed;
+  return <svg role="status" aria-label={`room ${word}`} viewBox="0 0 192 192" className="absolute inset-0 w-full h-full rounded-full pointer-events-none" style={{ ["--wave" as string]: speed }}>
+    <title>{`room ${word}`}</title>
+    <rect x="24" y="30" width="28" height="19" fill="#f5f1e8" />
+    <g fill={color} className={still ? "" : "wave-out"} opacity={still ? .3 : undefined}>
+      <rect x="32" y="33" width="11" height="3" /><rect x="29" y="36" width="3" height="3" /><rect x="44" y="36" width="3" height="3" />
+      <rect x="27" y="39" width="2" height="3" /><rect x="47" y="39" width="2" height="3" />
+    </g>
+    <g fill={color} className={still ? "" : "wave-in"}>
+      <rect x="35" y="42" width="6" height="3" /><rect x="32" y="45" width="3" height="2" /><rect x="41" y="45" width="3" height="2" />
+    </g>
+  </svg>;
 }
 
 // Through the relay the room lives on its host's computer. When that computer sleeps or the room is closed, say so
