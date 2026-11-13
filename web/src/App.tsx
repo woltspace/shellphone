@@ -349,10 +349,10 @@ function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: 
 function Live({ link }: { link: "live" | "retry" | "down" }) {
   const [color, word, speed] = link === "live" ? ["#2eaa50", "live", "1.1s"] : link === "retry" ? ["#d99a1e", "reconnecting", ".7s"] : ["#c8463a", "offline", ""];
   const still = !speed;
-  return <svg role="status" aria-label={`room ${word}`} viewBox="0 0 192 192" className="absolute inset-0 w-full h-full rounded-full pointer-events-none" style={{ ["--wave" as string]: speed }}>
+  return <svg role="status" aria-label={`room ${word}`} viewBox="0 0 192 192" className="absolute inset-1 w-10 h-10 overflow-visible pointer-events-none" style={{ ["--wave" as string]: speed }}>
     <title>{`room ${word}`}</title>
     <rect x="24" y="30" width="28" height="19" fill="#f5f1e8" />
-    <g transform="translate(42 50) scale(1.6) translate(-38 -47)">
+    <g transform="translate(43 48) scale(1.9) translate(-38 -47)">
     <g fill={color} className={still ? "" : "wave-out"} opacity={still ? .3 : undefined}>
       <rect x="32" y="33" width="11" height="3" /><rect x="29" y="36" width="3" height="3" /><rect x="44" y="36" width="3" height="3" />
       <rect x="27" y="39" width="2" height="3" /><rect x="47" y="39" width="2" height="3" />
@@ -643,7 +643,7 @@ export function App() {
   // on the desk: the wolts of the open thread (or every wolt that isn't paused, in the main chat)
   const deskWolts = state.members.wolts.filter((w) => !w.paused && (!thread || !state.who || state.main === w.wolt || state.who[thread]?.[w.wolt] === "in"));
   const room = (
-    <div className="h-full flex flex-col relative" {...menuSwipe.screen}>
+    <div className="h-full flex flex-col relative bg-paper" {...menuSwipe.screen}>
       <header ref={hdr} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-panel border-b border-line">
         {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
         <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={() => setMenu(!menu)}
@@ -651,7 +651,7 @@ export function App() {
           {menu ? <X size={22} /> : <MenuIcon size={22} />}
           {!menu && push.ask && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}
         </button>
-        <span className="relative flex-none"><img src="/room-icon.png" alt="" className="block w-10 h-10 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
+        <span className="relative flex-none w-12 h-12 rounded-full bg-[#f5f1e8]"><img src="/room-icon.png" alt="" className="absolute inset-1 w-10 h-10 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
         <div className="min-w-0 flex-1">
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
           <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
