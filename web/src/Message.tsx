@@ -148,7 +148,7 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
   return (
     <div>
     {acts && bubble.current && <Held rect={acts} html={bubble.current.outerHTML} right={mine} close={() => setActs(null)} items={[
-      ...(ctx.reply ? [{ label: "Reply in thread", icon: <Reply size={18} />, run: () => ctx.reply!(m) }] : []),
+      ...(ctx.reply ? [{ label: ctx.all.find((x) => x.id === (m.thread || m.id))?.session ? "Reply" : "Reply in thread", icon: <Reply size={18} />, run: () => ctx.reply!(m) }] : []),  // a chat has no threads: there it's just a reply
       ...(m.text ? [{ label: copied ? "Copied" : "Copy", icon: copied ? <Check size={18} /> : <Copy size={18} />, run: copy, keep: true }] : []),
       ...(openTerm ? [{ label: `${m.wolt}'s terminal`, icon: <SquareTerminal size={18} />, href: link, run: link ? undefined : openTerm }] : []),
     ]} />}
