@@ -2,12 +2,12 @@
 // is a plain conversation. Underneath, a chat is a thread the room marked as standing on its own (state.sessions), so
 // messages, voice, files and the hold menu work as everywhere else. "Everyone" is the room's shared chat, as before.
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronLeft, ChevronRight, Monitor, Plus, Bell, Pencil, SquareTerminal } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Monitor, Plus, Bell, Moon, Pencil, SquareTerminal, Sun } from "lucide-react";
 import { woltColor, type Ctx } from "./Message";
 import type { Msg, State, Wolt } from "./room";
 import { LORE, personAvatar } from "./sprites";
 import { LookCanvas, normalizeLook } from "./CardLook";
-import { hatUrl, SKY, Squad } from "./Scene";
+import { hatUrl, SKIES, Squad, useSky } from "./Scene";
 import { choices } from "./CardLook";
 
 export type Chat = { id: string; title: string; wolts: string[]; by?: string; at: number; last?: { text: string; who: string }; fresh: number };
@@ -150,14 +150,18 @@ const BellButton = ({ n, onClick, dark }: { n: number; onClick: () => void; dark
 function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onNew: () => void; onBell: () => void; bell: number }) {
   const h = new Date().getHours(), hello = h < 5 ? "night" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
   const moods = state.members.wolts.map((w) => ({ w, m: mood(w, state) })), awake = moods.filter((x) => x.m.awake).length;
-  return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKY }}>
+  const [sky, flipSky] = useSky();
+  return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKIES[sky].top }}>
     {/* a short band that ends on a clean line: the scene keeps its size and loses only the strip of ground under the wolts' feet */}
-    <div className="max-h-[200px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
+    <div className="max-h-[200px] overflow-hidden"><Squad sky={sky} wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
     <div className="absolute inset-x-0 top-[env(safe-area-inset-top)] flex items-start gap-2 px-4 pt-3">
       <div className="min-w-0 flex-1 text-white">
         <h1 className="m-0 font-mono font-bold text-[22px] truncate [text-shadow:0_2px_0_#0006]">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
         <p className="mt-0.5 mb-0 text-[13px] opacity-85 truncate">{hello}, {ctx.person(state.me).name} · {awake} {awake === 1 ? "wolt" : "wolts"} awake</p>
       </div>
+      {/* the sun by day, the moon by night: tap it for the other one */}
+      <button type="button" onClick={flipSky} aria-label={sky === "day" ? "Day. Switch to night" : "Night. Switch to day"} title={sky === "day" ? "Switch to night" : "Switch to day"}
+        className="flex-none w-10 h-10 grid place-items-center rounded-full border-0 bg-[#ffffff22] text-white cursor-pointer">{sky === "day" ? <Sun size={20} /> : <Moon size={19} />}</button>
       <BellButton n={bell} onClick={onBell} dark />
       <PlusButton label="New chat" onClick={onNew} />
     </div>

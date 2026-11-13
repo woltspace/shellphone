@@ -13,7 +13,7 @@ import { InboxSheet, ThreadFooter, threadColor, threadTitle, unread, useSeen } f
 import { Menu } from "./Menu";
 import { ChatHeader, chatsOf, HomeList, NewChat, Standby, WoltChats, type Chat, type Nav } from "./Chats";
 import { ContactCard } from "./CardContact";
-import { SKY } from "./Scene";
+import { SKIES, useSky } from "./Scene";
 import { BellScreen, type Note } from "./Bell";
 import { inviteLink, relayHost } from "./relay";
 import { handle as handleOf } from "./mentions.js";
@@ -451,12 +451,12 @@ export function App() {
   const goBack = useRef(() => {});
   // On home the night sky runs up under the phone's status strip: the strip takes the page's colour, so the page wears
   // the sky's while home is showing, and goes back to paper everywhere else.
-  const skyTop = chatsOn && !wideCols && nav.at === "home" && !card;
+  const skyTop = chatsOn && !wideCols && nav.at === "home" && !card, [sky] = useSky();
   useEffect(() => {
-    const color = skyTop ? SKY : "#f5f1e8";
+    const color = skyTop ? SKIES[sky].top : "#f5f1e8";
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color);
     document.documentElement.style.background = document.body.style.background = color;
-  }, [skyTop]);
+  }, [skyTop, sky]);
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
