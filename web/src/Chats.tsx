@@ -54,7 +54,7 @@ export function Face({ w, ctx, size = 46, bare, className = "" }: { w?: Wolt; ct
 const SEC = "px-4 pt-3 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 const ROW = "flex w-full items-center gap-3 px-4 py-2 border-0 border-b border-[#ece4d6] text-left cursor-pointer active:opacity-70";
 const AddButton = ({ label, onClick }: { label: string; onClick: () => void }) =>
-  <button type="button" onClick={onClick} className="flex-none flex items-center justify-center gap-1 -my-2 h-8 w-[136px] rounded-full border-0 bg-[#f6e2d6] font-mono font-semibold text-[12.5px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
+  <button type="button" onClick={onClick} className="flex-none flex items-center gap-1 -my-1 py-1 border-0 bg-transparent font-sans font-semibold text-[14px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
     <Plus size={14} strokeWidth={3} />{label}</button>;
 const Badge = ({ n }: { n: number }) => n > 0 ? <span className="inline-block min-w-5 h-5 px-1.5 rounded-full bg-acc text-white font-sans font-bold text-[11px] leading-5 text-center">{n}</span> : null;
 export const PlusButton = ({ label, onClick, small }: { label: string; onClick: () => void; small?: boolean }) =>
@@ -111,6 +111,8 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
   return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKY }}>
     {/* a short band: the scene keeps its size and loses only the strip of ground under the wolts' feet */}
     <div className="max-h-[172px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
+    {/* the ground melts into the page; the wolts above it stay crisp */}
+    <div className="h-10" style={{ background: "linear-gradient(to bottom, #3a3326, #8a7f6c 38%, #f5f1e8)" }} />
     <div className="absolute inset-x-0 top-[env(safe-area-inset-top)] flex items-start gap-2 px-4 pt-3">
       <div className="min-w-0 flex-1 text-white">
         <h1 className="m-0 font-mono font-bold text-[22px] truncate [text-shadow:0_2px_0_#0006]">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
@@ -153,13 +155,12 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       <PlusButton small label="New chat" onClick={onNew} /></header>
       : <Hero state={state} ctx={ctx} onNew={onNew} onBell={onBell} bell={bell} />}
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))]">
-      {(yours.length > 0 || onAgent) && <div className={`${SEC} flex items-center`}><span className="flex-1">Your wolts</span>
-        {onAgent && <AddButton label="Add a wolt" onClick={onAgent} />}</div>}
-      {yours.map(row)}
-      {others.length > 0 && <div className={SEC}>{yours.length ? "Other wolts here" : "Wolts"}</div>}
-      {others.map(row)}
+      {/* one list: the wolts in the room, yours first */}
+      <div className={`${SEC} flex items-center`}><span className="flex-1">Wolts</span>
+        {onAgent && <AddButton label="Add" onClick={onAgent} />}</div>
+      {[...yours, ...others].map(row)}
       <div className={`${SEC} flex items-center`}><span className="flex-1">People</span>
-        {onInvite && <AddButton label="Add people" onClick={onInvite} />}</div>
+        {onInvite && <AddButton label="Invite" onClick={onInvite} />}</div>
       {/* people side by side: they are who's here, not chats to open */}
       <div className="flex gap-3 overflow-x-auto px-4 pt-1.5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {state.members.people.map((p) => <div key={p.email} className="flex-none w-[58px] text-center">
