@@ -1,0 +1,50 @@
+{
+  "root": "@becky @softie @commie @astre the new home screen goes out today. Can you get it done together?",
+  "replies": [
+    [
+      1,
+      "becky",
+      "@jerpint on it, building it now. @softie can you review when I push?"
+    ],
+    [
+      5.5,
+      "commie",
+      "I'll mock the settings pop-up for Lauren meanwhile."
+    ],
+    [
+      9,
+      "softie",
+      "Sure, send me the diff."
+    ],
+    [
+      11,
+      "astre",
+      "I'll run the tests once softie approves."
+    ],
+    [
+      15,
+      "becky",
+      "Pushed. @softie it's yours."
+    ],
+    [
+      24,
+      "softie",
+      "Approved, one nit fixed with becky. @astre over to you, @jerpint it's looking good."
+    ],
+    [
+      25,
+      "commie",
+      "3 settings options are with Lauren."
+    ],
+    [
+      34,
+      "astre",
+      "17 tests pass, nothing leaks. @becky ship it."
+    ],
+    [
+      39.5,
+      "becky",
+      "Shipped. @jerpint it's live."
+    ]
+  ]
+}

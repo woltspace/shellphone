@@ -16,20 +16,27 @@ const BRIDGE = "127.0.0.1:7791";
 // no bridge needed: for slides, recordings, and a talk where the network fails.
 export const DEMO = typeof location !== "undefined" && new URLSearchParams(location.search).has("demo");
 const C = { dim: "\x1b[2m", b: "\x1b[1m", g: "\x1b[32m", y: "\x1b[33m", c: "\x1b[36m", m: "\x1b[35m", r: "\x1b[0m" };
-const SCRIPT: Record<string, string[]> = {  // the same four as the "alone" slide, now handing work to each other
-  becky: [`${C.b}> jerpint: build the new home screen${C.r}`, "", `${C.c}●${C.r} Reading web/src/Chats.tsx`, `${C.c}●${C.r} Wolts as contacts, groups, Everyone`,
-    `${C.c}●${C.r} Edit web/src/Chats.tsx  ${C.g}+84${C.r} ${C.y}-12${C.r}`, `${C.c}●${C.r} npm run build`, `  ${C.g}✓ built in 241ms${C.r}`,
-    `${C.c}●${C.r} In the room: ${C.b}@softie can you review it?${C.r}`, "", `${C.dim}  waiting for softie…${C.r}`],
-  softie: [`${C.b}> becky: review my home screen${C.r}`, "", `${C.m}●${C.r} Reading becky's change in Chats.tsx`, `${C.m}●${C.r} Rows, faces, groups: matches the mock`,
-    `${C.m}●${C.r} One nit: the ＋ should sit in its circle`, `${C.m}●${C.r} Fixed it with becky`, `  ${C.g}approved${C.r}`,
-    `${C.m}●${C.r} In the room: ${C.b}@astre over to you for tests${C.r}`, "", `${C.dim}  gnawing…${C.r}`],
-  commie: [`${C.b}> Lauren: mock the settings${C.r}`, "", `${C.y}●${C.r} Drawing 3 options for Lauren`, `${C.y}●${C.r} A: a bell for what's new`,
-    `${C.y}●${C.r} B: add and invite on their lines`, `${C.y}●${C.r} C: no side menu at all`, `  ${C.g}✓ 3 pictures${C.r}`,
-    `${C.y}●${C.r} In the room: ${C.b}@softie Lauren picked B${C.r}`, "", `${C.dim}  gnawing…${C.r}`],
-  astre: [`${C.b}> softie: test what I approved${C.r}`, "", `${C.g}•${C.r} uv run python -m unittest tests.test_cli`, `  test_a_chat_holds_only_the_wolts_picked … ${C.g}ok${C.r}`,
-    `  test_a_thread_reaches_the_agents_in_it … ${C.g}ok${C.r}`, `  ${C.g}Ran 17 tests, OK${C.r}`, `${C.g}•${C.r} Checking the room side for leaks: ${C.g}none${C.r}`,
-    `${C.g}•${C.r} In the room: ${C.b}@becky ship it${C.r}`, "", `${C.dim}  thinking…${C.r}`],
+// [second it shows, line]. The thread side of the same run is demo/thread.json, posted by demo/play.py on the same clock.
+const SCRIPT: Record<string, [number, string][]> = {
+  becky: [[2, `${C.b}> jerpint: the new home screen goes out today${C.r}`], [3, ""], [3.5, `${C.c}●${C.r} Reading web/src/Chats.tsx`],
+    [6, `${C.c}●${C.r} Wolts as contacts, groups, Everyone`], [8.5, `${C.c}●${C.r} Edit web/src/Chats.tsx  ${C.g}+84${C.r} ${C.y}-12${C.r}`],
+    [11, `${C.c}●${C.r} npm run build`], [12.5, `  ${C.g}✓ built in 241ms${C.r}`], [14, `${C.c}●${C.r} git push`],
+    [15, `${C.c}●${C.r} In the thread: ${C.b}@softie it's yours${C.r}`], [16, `${C.dim}  waiting for softie…${C.r}`],
+    [36, `${C.c}●${C.r} astre says ship it`], [37, `${C.c}●${C.r} Shipping the home screen`], [38.5, `  ${C.g}✓ live${C.r}`],
+    [39.5, `${C.c}●${C.r} In the thread: ${C.b}@jerpint it's live${C.r}`]],
+  softie: [[4, `${C.dim}  waiting for becky's push…${C.r}`], [16, `${C.b}> becky: review the home screen${C.r}`], [16.5, ""],
+    [17, `${C.m}●${C.r} Reading becky's change in Chats.tsx`], [19, `${C.m}●${C.r} Rows, faces, groups: matches the mock`],
+    [21, `${C.m}●${C.r} Nit: the ＋ should sit in its circle`], [22.5, `${C.m}●${C.r} Fixed it with becky`], [23.5, `  ${C.g}approved${C.r}`],
+    [24, `${C.m}●${C.r} In the thread: ${C.b}@astre over to you${C.r}`]],
+  commie: [[5.5, `${C.b}> mock the settings pop-up for Lauren${C.r}`], [6, ""], [7, `${C.y}●${C.r} Drawing 3 options`],
+    [10, `${C.y}●${C.r} A: a bell for what's new`], [13, `${C.y}●${C.r} B: add and invite on their lines`], [17, `${C.y}●${C.r} C: no side menu at all`],
+    [21, `${C.y}●${C.r} Rendering…`], [23.5, `  ${C.g}✓ 3 pictures${C.r}`], [25, `${C.y}●${C.r} In the thread: ${C.b}sent to Lauren${C.r}`]],
+  astre: [[11, `${C.dim}  waiting for softie's approval…${C.r}`], [25, `${C.b}> softie: test what I approved${C.r}`], [25.5, ""],
+    [26, `${C.g}•${C.r} uv run python -m unittest tests.test_cli`], [28, `  test_a_chat_holds_only_the_wolts_picked … ${C.g}ok${C.r}`],
+    [29.5, `  test_a_thread_reaches_the_agents_in_it … ${C.g}ok${C.r}`], [31, `  ${C.g}Ran 17 tests, OK${C.r}`],
+    [32.5, `${C.g}•${C.r} Checking the room side for leaks: ${C.g}none${C.r}`], [34, `${C.g}•${C.r} In the thread: ${C.b}@becky ship it${C.r}`]],
 };
+export const DEMO_LENGTH = 48;  // seconds, then every tile starts over
 type Session = { name: string; wolt: string; last: number };
 
 function Tile({ w, ctx, sessions, big, flash, busy, toggle }: { w: Wolt; ctx: Ctx; sessions: Session[]; big: boolean; flash: boolean; busy: boolean; toggle: () => void }) {
@@ -45,13 +52,21 @@ function Tile({ w, ctx, sessions, big, flash, busy, toggle }: { w: Wolt; ctx: Ct
     const term = new XTerm({ fontFamily: "ui-monospace, Menlo, monospace", fontSize: big ? 15 : 13, disableStdin: true, cursorBlink: false,
       theme: { background: "#14110e", foreground: "#e8e0d4", cursor: "#14110e" } });
     const fit = new FitAddon(); term.loadAddon(fit); term.open(box.current); try { fit.fit(); } catch { /* not laid out yet */ }
-    const lines = SCRIPT[w.wolt] || SCRIPT.becky, offset = (w.wolt.length * 7) % 5;
-    let i = 0, t = 0;
-    const next = () => { if (i >= lines.length) { t = window.setTimeout(() => { term.clear(); term.reset(); i = 0; next(); }, 4000); return; }
-      term.writeln(lines[i++]); t = window.setTimeout(next, 600 + ((i + offset) % 3) * 350); };
-    t = window.setTimeout(next, offset * 300);
+    const lines = SCRIPT[w.wolt] || SCRIPT.becky;
+    let timers: number[] = [];
+    // One clock for the whole desk (window.demoStart), so a tile that remounts (a thread opening, a resize) picks up where it was.
+    const run = () => {
+      timers.forEach(clearTimeout); term.reset();
+      const W = window as unknown as { demoStart?: number }, since = (Date.now() - (W.demoStart || Date.now())) / 1000 % DEMO_LENGTH;
+      timers = lines.map(([at, line]) => window.setTimeout(() => term.writeln(line), Math.max(0, at - since) * 1000));
+      timers.push(window.setTimeout(run, (DEMO_LENGTH - since) * 1000));
+    };
+    const go = () => { (window as unknown as { demoStart?: number }).demoStart = Date.now(); run(); };
+    window.addEventListener("demo-go", go);  // the recorder starts every tile at once with this
+    const W0 = window as unknown as { demoStart?: number };
+    if (W0.demoStart) run(); else if (new URLSearchParams(location.search).get("demo") !== "wait") go();
     const ro = new ResizeObserver(() => { try { fit.fit(); } catch { /* hidden */ } }); ro.observe(box.current);
-    return () => { clearTimeout(t); ro.disconnect(); term.dispose(); };
+    return () => { timers.forEach(clearTimeout); window.removeEventListener("demo-go", go); ro.disconnect(); term.dispose(); };
   }, [w.wolt, big]);
   useEffect(() => {
     if (DEMO || !session || !box.current) return;
