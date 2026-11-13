@@ -95,9 +95,9 @@ function ChatRow({ c, ctx, here, group, onOpen, onRename }: { c: Chat; ctx: Ctx;
 // A person: the same soft circle the wolts stand on, their letter in their colour, and the Hat Shop hat they picked.
 const hatOf = (face?: string) => (face?.startsWith("hat-") && hatUrl(face.slice(4)) ? face.slice(4) : "");
 export function PersonFace({ p, hat, size = 38 }: { p: { name: string; color: string }; hat?: string; size?: number }) {
-  return <span className="relative block mx-auto" style={{ width: size, height: size, marginTop: Math.round(size * 0.2) }}>
+  return <span className="relative block mx-auto" style={{ width: size, height: size, marginTop: Math.round(size * 0.34) }}>
     <span className="grid place-items-center w-full h-full rounded-full font-mono font-bold" style={{ background: p.color + "30", color: p.color, fontSize: Math.round(size * 0.45), paddingTop: hat ? Math.round(size * 0.16) : 0 }}>{(p.name || "?").trim()[0]?.toUpperCase()}</span>
-    {hat && <img src={hatUrl(hat)} alt="" className="pixel absolute left-1/2 pointer-events-none" style={{ width: Math.round(size * 0.84), bottom: Math.round(size * 0.58), transform: "translateX(-50%) rotate(-8deg)" }} />}
+    {hat && <img src={hatUrl(hat)} alt="" className="pixel absolute left-1/2 pointer-events-none" style={{ width: Math.round(size * 0.64), bottom: Math.round(size * 0.62), transform: "translateX(-50%) rotate(-8deg)" }} />}
   </span>;
 }
 // Pick the hat you wear in this room: everyone sees it on your circle.
@@ -182,7 +182,7 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
         <i className={`absolute right-px bottom-px w-3 h-3 rounded-full border-2 border-paper ${m.awake ? "bg-go" : "bg-[#c9bfae]"}`} /></span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-1.5 font-mono font-semibold text-[16px]"><span className="truncate">{w.wolt}</span>
-          {m.word && (m.awake ? <span className="flex-none font-normal text-[11px] text-go">{m.word}</span>
+          {m.word && (m.awake ? <span className="lore flex-none font-semibold text-[11px]">{m.word}</span>
             : <span className="flex-none font-normal text-[11px] text-dim bg-[#efe8da] rounded-lg px-[7px] py-px">{m.word}</span>)}</span>
         <span className={`block text-[13px] truncate ${fresh ? "text-ink font-semibold" : "text-dim"}`}>{top?.last?.text || (said ? preview(said) : w.owner === state.me ? "Say hi" : `${ctx.person(w.owner).name}'s ${w.creature}`)}</span>
       </span>

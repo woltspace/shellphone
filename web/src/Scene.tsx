@@ -69,7 +69,7 @@ export function Squad({ wolts }: { wolts: Standing[] }) {
   return <div className="relative">
     <canvas ref={ref} role="img" aria-label={`${wolts.map((w) => w.name).join(", ")} at the campfire`} className="block w-full" style={{ imageRendering: "pixelated", aspectRatio: `${W} / ${H}`, background: SKY }} />
     {heads.map((h) => wolts.find((w) => w.name === h.name)?.busy && <span key={h.name} style={{ left: `${(h.x / W) * 100}%`, top: `${Math.max(40, (h.y / H) * 100 + 4)}%` }}
-      className="absolute -translate-x-[35%] whitespace-nowrap bg-panel rounded-[10px] px-[7px] py-[3px] font-mono font-semibold text-[10px] text-go shadow-[0_2px_6px_#0004]
-        after:content-[''] after:absolute after:left-3 after:-bottom-[5px] after:border-[5px] after:border-transparent after:border-t-panel after:border-b-0">gnawing…</span>)}
+      className="absolute -translate-x-[35%] whitespace-nowrap bg-panel rounded-[10px] px-[7px] py-[3px] font-mono font-semibold text-[10px] shadow-[0_2px_6px_#0004] animate-[bob_.9s_ease-in-out_infinite]
+        after:content-[''] after:absolute after:left-3 after:-bottom-[5px] after:border-[5px] after:border-transparent after:border-t-panel after:border-b-0"><span className="lore">gnawing…</span></span>)}
   </div>;
 }
