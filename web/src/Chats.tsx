@@ -2,7 +2,7 @@
 // is a plain conversation. Underneath, a chat is a thread the room marked as standing on its own (state.sessions), so
 // messages, voice, files and the hold menu work as everywhere else. "Everyone" is the room's shared chat, as before.
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronLeft, ChevronRight, Monitor, Plus, Bell, Moon, Pencil, SquareTerminal, Sun } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Monitor, Plus, Bell, Moon, Pencil, SquareTerminal, Sun, Sunset } from "lucide-react";
 import { woltColor, type Ctx } from "./Message";
 import type { Msg, State, Wolt } from "./room";
 import { LORE, personAvatar } from "./sprites";
@@ -160,8 +160,8 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
         <p className="mt-0.5 mb-0 text-[13px] opacity-85 truncate">{hello}, {ctx.person(state.me).name} · {awake} {awake === 1 ? "wolt" : "wolts"} awake</p>
       </div>
       {/* the sun by day, the moon by night: tap it for the other one */}
-      <button type="button" onClick={flipSky} aria-label={sky === "day" ? "Day. Switch to night" : "Night. Switch to day"} title={sky === "day" ? "Switch to night" : "Switch to day"}
-        className="flex-none w-10 h-10 grid place-items-center rounded-full border-0 bg-[#ffffff22] text-white cursor-pointer">{sky === "day" ? <Sun size={20} /> : <Moon size={19} />}</button>
+      <button type="button" onClick={flipSky} aria-label={sky === "night" ? "Night. Switch to day" : sky === "day" ? "Day. Switch to night" : "Sunset. Switch to night"} title={sky === "night" ? "Switch to day" : "Switch to night"}
+        className="flex-none w-10 h-10 grid place-items-center rounded-full border-0 bg-[#ffffff22] text-white cursor-pointer">{sky === "day" ? <Sun size={20} /> : sky === "sunset" ? <Sunset size={20} /> : <Moon size={19} />}</button>
       <BellButton n={bell} onClick={onBell} dark />
       <PlusButton label="New chat" onClick={onNew} />
     </div>

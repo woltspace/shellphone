@@ -21,14 +21,15 @@ const GLASSES: Record<string, string[]> = { shades: ["#0b0b10", "#16161e", "#fff
 export const hatUrl = (id: string): string | undefined => urls[`./card-assets/h-${id}.png`];  // a Hat Shop hat, for a person to wear too
 // Day and night: the scene follows the clock on this phone (day from 7 to 19), and a tap on the little sun or moon
 // switches it by hand. The choice stays on this phone until it agrees with the clock again.
-export type Sky = "day" | "night";
+export type Sky = "day" | "sunset" | "night";
 export const SKIES: Record<Sky, { top: string; low: string; ground: string; edge: string }> = {
   night: { top: "#140f24", low: "#2f2140", ground: "#3a3326", edge: "#28231a" },
   day: { top: "#3d8fd1", low: "#b5e0f5", ground: "#5a9a3c", edge: "#467a2e" },
+  sunset: { top: "#43306b", low: "#f2935a", ground: "#4f6a34", edge: "#3b5127" },  // the hour or two before the phone goes dark
 };
 // night when the phone itself has gone dark, or when it's late by its clock
 const byClock = (): Sky => { const h = new Date().getHours(), dark = typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches;
-  return !dark && h >= 7 && h < 19 ? "day" : "night"; };
+  return dark || h < 7 || h >= 19 ? "night" : h >= 17 ? "sunset" : "day"; };
 const picked = (): Sky | null => { try { const v = localStorage.getItem("sky"); return v === "day" || v === "night" ? v : null; } catch { return null; } };
 export function useSky(): [Sky, () => void] {
   const [sky, setSky] = useState<Sky>(() => picked() || byClock());
@@ -39,7 +40,7 @@ export function useSky(): [Sky, () => void] {
     return () => { clearInterval(t); window.removeEventListener("sky", sync); };
   }, []);
   const flip = () => {
-    const next: Sky = sky === "day" ? "night" : "day";
+    const next: Sky = sky === "night" ? "day" : "night";  // by hand it's one or the other; the sunset comes by itself
     try { if (next === byClock()) localStorage.removeItem("sky"); else localStorage.setItem("sky", next); } catch { /* private mode: it lasts until reload */ }
     setSky(next); window.dispatchEvent(new Event("sky"));
   };
@@ -61,20 +62,22 @@ export function Squad({ wolts, sky = "night" }: { wolts: Standing[]; sky?: Sky }
       const by = Object.fromEntries(ids.map((id, i) => [id, ims[i]])), c = cv.getContext("2d")!;
       cv.width = W; cv.height = H; c.imageSmoothingEnabled = false;
       const S = SKIES[sky], g = c.createLinearGradient(0, 0, 0, G); g.addColorStop(0, S.top); g.addColorStop(1, S.low); c.fillStyle = g; c.fillRect(0, 0, W, H);
+      if (sky === "sunset") { const m = c.createLinearGradient(0, 0, 0, G); m.addColorStop(0, S.top); m.addColorStop(0.55, "#b8577a"); m.addColorStop(1, S.low); c.fillStyle = m; c.fillRect(0, 0, W, G); }
       if (sky === "night") { c.fillStyle = "#ffffffaa"; for (const [x, y] of [[9, 6], [27, 12], [48, 4], [66, 9], [86, 5], [103, 13], [38, 17], [118, 8]]) c.fillRect(x, y, 1, 1); }
       else {  // a few small clouds
-        c.fillStyle = "#ffffffcc"; for (const [x, y, w] of [[50, 27, 11], [53, 25, 6], [104, 31, 8], [106, 29, 4]]) c.fillRect(x, y, w, 2);
+        c.fillStyle = sky === "sunset" ? "#ffd9c2bb" : "#ffffffcc"; for (const [x, y, w] of [[50, 27, 11], [53, 25, 6], [104, 31, 8], [106, 29, 4]]) c.fillRect(x, y, w, 2);
       }
       // a small sun or moon in the open sky between the title and the buttons
       const disc = (cx: number, cy: number, r: number, col: string) => { c.fillStyle = col; for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + 1) c.fillRect(cx + x, cy + y, 1, 1); };
       if (sky === "day") { disc(62, 11, 5, "#ffe9a0"); disc(62, 11, 4, "#ffd23f"); }
+      else if (sky === "sunset") { disc(62, G - 3, 7, "#ffb347"); disc(62, G - 3, 5, "#ffd98a"); }  // the sun going down behind the meadow
       else { disc(62, 11, 4, "#f4f0d8"); disc(64, 9, 3, S.top); }
       c.fillStyle = S.ground; c.fillRect(0, G, W, H - G); c.fillStyle = S.edge; c.fillRect(0, G, W, 1);
       const n = wolts.length, step = n <= 4 ? 23 : 92 / (n - 1), first = (W - (n - 1) * step) / 2;
       // the pine on the left as in the mock; the fire on the right only when it doesn't stand on a wolt
       const pine = by["n-big-pine"]; if (pine) c.drawImage(pine, 0, G + 2 - pine.height);
       // by night the campfire, by day a flower, on the right when no wolt stands there
-      const side = by[sky === "night" ? "n-campfire" : "n-flower"]; if (side && n <= 3) c.drawImage(side, W - 17, G + 2 - side.height);
+      const side = by[sky === "day" ? "n-flower" : "n-campfire"]; if (side && n <= 3) c.drawImage(side, W - 17, G + 2 - side.height);
       const out: { name: string; x: number; y: number }[] = [];
       wolts.forEach((w, i) => {
         const im = by[`c-${w.look.creature}`]; if (!im) return;
@@ -100,7 +103,7 @@ export function Squad({ wolts, sky = "night" }: { wolts: Standing[]; sky?: Sky }
     return () => { off = true; };
   }, [sig, sky]);
   return <div className="relative">
-    <canvas ref={ref} role="img" aria-label={`${wolts.map((w) => w.name).join(", ")} ${sky === "night" ? "at the campfire" : "in the meadow"}`} className="block w-full" style={{ imageRendering: "pixelated", aspectRatio: `${W} / ${H}`, background: SKIES[sky].top }} />
+    <canvas ref={ref} role="img" aria-label={`${wolts.map((w) => w.name).join(", ")} ${sky === "day" ? "in the meadow" : "at the campfire"}`} className="block w-full" style={{ imageRendering: "pixelated", aspectRatio: `${W} / ${H}`, background: SKIES[sky].top }} />
     {heads.map((h) => wolts.find((w) => w.name === h.name)?.busy && <span key={h.name} style={{ left: `${(h.x / W) * 100}%`, top: `${Math.max(40, (h.y / H) * 100 + 4)}%` }}
       className="absolute -translate-x-[35%] whitespace-nowrap bg-panel rounded-[10px] px-[7px] py-[3px] font-mono font-semibold text-[10px] shadow-[0_2px_6px_#0004]
         after:content-[''] after:absolute after:left-3 after:-bottom-[5px] after:border-[5px] after:border-transparent after:border-t-panel after:border-b-0"><span className="lore">gnawing…</span></span>)}
