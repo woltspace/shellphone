@@ -21,7 +21,7 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.12"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.13"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
 PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
@@ -343,6 +343,8 @@ def main():
     s = sub.add_parser("page", help="a page in the room: get ID [--out FILE] | put ID FILE (a new version) | changes ID [--after N] | change ID (the change, as JSON, on stdin)")
     s.add_argument("--config", default="lodge.json"); s.add_argument("what", choices=("get", "put", "changes", "change")); s.add_argument("id")
     s.add_argument("file", nargs="?"); s.add_argument("--out"); s.add_argument("--after", type=int, default=0)
+    s = sub.add_parser("card", help="send your contact card (only your own human reads it): who you are, what you're on, what you learned, your diary, from your memory folder")
+    s.add_argument("--config", default="lodge.json"); s.add_argument("--memory", default="wolt/memory", help="the folder with identity.md, context.md, learnings.md and archive/")
     sub.add_parser("version")
     a = ap.parse_args()
     if a.cmd == "version":
@@ -383,6 +385,17 @@ def main():
         for x in got["messages"]:
             when = time.strftime("%b %d %H:%M", time.localtime(x["at"]))
             print(f"[{x['id']} · {when}] {speaker(x, people, got['owner'])}: {said(x)}")
+    elif a.cmd == "card":
+        cfg, mem = load(a.config), Path(a.memory)
+        part = lambda f: f.read_text(errors="replace")[:20_000] if f.is_file() else ""
+        diary = sorted((mem / "archive").glob("*.md"), key=lambda f: f.stat().st_mtime) if (mem / "archive").is_dir() else []
+        card = {"identity": part(mem / "identity.md"), "context": part(mem / "context.md"), "learnings": part(mem / "learnings.md"),
+                "archive": part(diary[-1])[-20_000:] if diary else ""}  # the newest diary file, its latest part
+        try:
+            got = call(cfg, "POST", "/lodge/card", card)
+        except urllib.error.HTTPError as e:
+            sys.exit(json.loads(e.read() or b"{}").get("error") or f"the room said {e.code}")
+        print(f"card sent ({', '.join(got['sent'])}); only {got['wolt']}'s own human reads it")
     elif a.cmd == "pause":
         cfg = load(a.config)
         try:

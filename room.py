@@ -87,6 +87,9 @@ create table if not exists page_changes(page text not null, n integer not null, 
 create table if not exists thread_who(thread text not null, wolt text not null, state text not null, primary key(thread, wolt));
 create table if not exists thread_seen(thread text primary key);
 create table if not exists working_in(wolt text not null, thread text not null, until real not null, primary key(wolt, thread));
+create table if not exists session_titles(session text primary key, title text not null);
+create table if not exists looks(wolt text primary key, look text not null);
+create table if not exists cards(wolt text primary key, card text not null, at real not null);
 """
 CON = None
 
@@ -219,7 +222,7 @@ def append(**fields):
     if fields.get("text") and fields.get("kind") in ("human", "patch"):
         email = fields.get("email") or (message(fields.get("of")) or {}).get("email")
         if email:
-            mark_asked(fields["text"], email, fields.get("thread") or (message(fields.get("of")) or {}).get("thread"))
+            mark_asked(fields["text"], email, fields.get("thread") or (m["id"] if fields.get("session") else None) or (message(fields.get("of")) or {}).get("thread"))
     return m
 
 
@@ -261,11 +264,13 @@ def stop_working(c, wolt, tid=None):
 
 
 def mark_asked(text, email, tid=None):
-    """Tagged wolts light up the moment the message lands, even before their connector picks it up."""
+    """Tagged wolts light up the moment the message lands, even before their connector picks it up. In a chat, every
+    wolt in it is being spoken to, tagged or not."""
+    chat = bool(tid) and is_session(tid)
     with tx() as c:
         for l in wolts():
             m = {"kind": "human", "email": email, "text": text}
-            if not l["paused"] and asks(m, l["wolt"], l["owner"]) and (hears(tid, l["wolt"]) if tid else hears_main(m, l["wolt"])):
+            if not l["paused"] and (chat or asks(m, l["wolt"], l["owner"])) and (hears(tid, l["wolt"]) if tid else hears_main(m, l["wolt"])):
                 set_working(c, l["wolt"], ASKED_FOR, tid)
 
 
@@ -281,8 +286,65 @@ def main_wolt():
 def hears_main(m, wolt):
     """A message in the main chat, once the room has a main agent, goes to the main agent and the agents @tagged in it (an
     agent also gets its own). Untagged, only the main agent hears it and brings in whoever it needs. No main agent: everyone."""
+    if m.get("session"):  # a chat's first message: only the wolts in the chat
+        return hears(m["id"], wolt)
     main = main_wolt()
     return not main or wolt == main or tagged(m, wolt) or (m.get("kind") == "wolt" and m.get("wolt") == wolt)
+
+
+# Chats ("sessions"): a conversation that stands on its own, with the wolts picked for it, like a chat in a messaging app.
+# Underneath it is a thread whose first message says "session": true and isn't part of the lobby (the shared main chat);
+# who is in it are the thread switches above. The room's main agent is in a chat only when it was picked or tagged.
+# A wolt is handed a chat's first message as if it were already in the thread, so an older connector answers there.
+def is_session(tid):
+    return bool(tid) and bool(q("select 1 from messages where id = ? and json_extract(data, '$.session') = 1", tid))
+
+
+def start_session(email, names, text, title=""):
+    sid = uuid.uuid4().hex
+    with tx() as c:
+        c.execute("insert or ignore into thread_seen values (?)", (sid,))  # who is in it is exactly the picked ones
+        for name in names:
+            c.execute("insert or replace into thread_who values (?, ?, 'in')", (sid, name))
+        if title:
+            c.execute("insert or replace into session_titles values (?, ?)", (sid, title))
+    return append(kind="human", id=sid, email=email, text=text, session=True, to=names)
+
+
+def sessions_now():
+    """Every chat, newest activity first: who's in it, its title, and its last message."""
+    who, names = who_now(), people()
+    titles = {r["session"]: r["title"] for r in q("select session, title from session_titles")}
+    out = []
+    for root in [as_message(r) for r in q("select * from messages where json_extract(data, '$.session') = 1 order by n")]:
+        last = q("select * from messages where json_extract(data, '$.thread') = ? and kind in ('human', 'wolt') order by n desc limit 1", root["id"])
+        last = as_message(last[0]) if last else root
+        count = q("select count(*) as k from messages where json_extract(data, '$.thread') = ? and kind in ('human', 'wolt')", root["id"])[0]["k"]
+        text = (root.get("text") or "").strip().split("\n")[0]
+        out.append({"id": root["id"], "title": titles.get(root["id"]) or (text[:40] + ("…" if len(text) > 40 else "")) or "new chat",
+                    "by": root.get("email"), "at": root["at"], "wolts": [w for w, st in (who.get(root["id"]) or {}).items() if st == "in"],
+                    "last_at": last["at"], "last_text": (last.get("text") or ("a voice note" if last.get("audio") else "a file" if last.get("files") else ""))[:140],
+                    "last_by": last.get("wolt") if last["kind"] == "wolt" else (names.get(last.get("email"), {}).get("name") or last.get("email")),
+                    "count": count + 1})
+    return sorted(out, key=lambda s: -s["last_at"])
+
+
+# A wolt's look (the Hat Shop on its card): a few short names the page chose ({"creature", "hat", "glasses", "scene"}),
+# set by the wolt's keeper or the host, seen by everyone. Its card: what the wolt itself sends about who it is, what
+# it's on, what it learned and its diary, read only by its own keeper.
+LOOKS = {"creature": {"raccoon", "beaver", "otter"}, "glasses": {"shades", "aviators", "rose", "nerd"},
+         "scene": {"forest", "pond", "camp", "autumn", "winter"},
+         "hat": {"top-hat", "crown", "jewel-crown", "wizard-hat", "old-wizard-hat", "cowboy-hat", "teal-cowboy-hat", "red-beanie", "orange-beanie", "red-cap", "blue-cap", "straw-hat", "pirate-hat", "party-hat", "pink-party-hat", "chef-hat", "viking-helmet", "hard-hat", "beret", "elf-hat", "flower-crown", "pink-flower-crown", "propeller-hat", "fedora", "graduation-cap", "sprout"}}  # the Hat Shop's atlas
+CARD_PARTS = ("identity", "context", "learnings", "archive")
+
+
+def card_of(wolt):
+    row = q("select * from cards where wolt = ?", wolt)
+    return {"wolt": wolt, "at": row[0]["at"], **json.loads(row[0]["card"])} if row else None
+
+
+def looks_now():
+    return {r["wolt"]: json.loads(r["look"]) for r in q("select * from looks where wolt in (select wolt from wolts)")}
 
 
 def set_main(wolt):
@@ -347,8 +409,8 @@ def who_now():
     out, main = {}, main_wolt()
     for row in q("select thread, wolt, state from thread_who where wolt in (select wolt from wolts) order by thread, rowid"):
         out.setdefault(row["thread"], {})[row["wolt"]] = row["state"]
-    if main:
-        for row in q("select thread from thread_seen"):
+    if main:  # in every thread, but in a chat only if it was picked or tagged there (then thread_who already says so)
+        for row in q("select thread from thread_seen where thread not in (select id from messages where json_extract(data, '$.session') = 1)"):
             out.setdefault(row["thread"], {})[main] = "in"
     # paused for the whole room is paused in every thread: the room's switch is the bigger one, and what each thread
     # remembers comes back when the agent is brought back in the room
@@ -366,7 +428,7 @@ def where_in(tid, wolt):
         seed(c, tid)
     if any(l["wolt"] == wolt and l["paused"] for l in wolts()):  # paused for the whole room: paused here too
         return "paused"
-    if wolt == main_wolt():
+    if wolt == main_wolt() and not is_session(tid):  # in every thread, but a chat holds only the wolts picked for it
         return "in"
     row = q("select state from thread_who where thread = ? and wolt = ?", tid, wolt)
     return row[0]["state"] if row else None
@@ -990,6 +1052,7 @@ def for_wolt(req, l):
                 for m in fresh:
                     set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR, m.get("thread"))
                 c.executemany("insert or ignore into seen values (?, ?, ?)", [(i, l["wolt"], time.time()) for i in read])
+            new = [{**m, "thread": m["id"]} if m.get("session") and not m.get("thread") else m for m in new]  # a chat's first message, as a thread
             return reply(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
                                "connector": connector_version()})
         if path == "/lodge/page":  # a page's HTML and its changes (after=N: the ones after N; v=N: leave the HTML out if that's its version)
@@ -1006,6 +1069,13 @@ def for_wolt(req, l):
             stop_working(c, l["wolt"], where.get("thread") or "")  # done here; still lit wherever else it is working
         return reply(200, m)
     data = json.loads(req.read(200_000) or b"{}")
+    if path == "/lodge/card":  # a wolt sends its own card: who it is, what it's on, what it learned, its diary (text)
+        parts = {k: str(data.get(k) or "")[:20_000] for k in CARD_PARTS}
+        if not any(parts.values()):
+            return reply(400, {"error": "a card needs at least one of " + ", ".join(CARD_PARTS)})
+        with tx() as c:
+            c.execute("insert or replace into cards values (?, ?, ?)", (l["wolt"], json.dumps(parts), time.time()))
+        return reply(200, {"wolt": l["wolt"], "sent": [k for k, v in parts.items() if v]})
     if path == "/lodge/working":
         with tx() as c:
             (keep_working(c, l["wolt"]) if data.get("working") else stop_working(c, l["wolt"]))
@@ -1094,7 +1164,16 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "terminals": terminals() if email and email == host() else {}, "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "terminals": terminals() if email and email == host() else {}, "sessions": sessions_now(), "looks": looks_now(), "messages": messages(after)})
+        if path == "/api/card":  # a wolt's card (its memory, as it sent it): only for the wolt's own keeper
+            who = q.get("wolt", [""])[0]
+            owner = next((l["owner"] for l in wolts() if l["wolt"] == who), None)
+            if owner is None:
+                return reply(404, {"error": f"there's no {who} in this room"})
+            if canon(email) != canon(owner):
+                return reply(403, {"error": f"only {who}'s own human reads its card"})
+            card = card_of(who)
+            return reply(200, card) if card else reply(404, {"error": f"{who} hasn't sent its card yet"})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
@@ -1154,6 +1233,45 @@ def for_person(req, email):
         if state == "paused" and who == main_wolt():
             return reply(400, {"error": f"{who} is the room's main agent: it stays in every thread"})
         return reply(200, set_who(where["thread"], who, state))
+    if path == "/api/sessions":  # start a chat with these wolts ({"wolts": [...], "text": first message, "title"?, "cid"?})
+        data = json.loads(req.read(200_000) or b"{}")
+        names, text = data.get("wolts"), str(data.get("text", "")).strip()[:8000]
+        known = {l["wolt"] for l in wolts()}
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) and n in known for n in names):
+            return reply(400, {"error": "name one or more wolts that are in this room"})
+        if not text:
+            return reply(400, {"error": "a chat starts with a message"})
+        if people().get(email, {}).get("guest"):
+            return reply(403, {"error": "guests can't start chats"})
+        cid = str(data.get("cid", ""))
+        with one_send(email, cid) as named:
+            if named and (prev := sent_before(email, cid)):
+                return reply(200, prev)
+            return reply(200, start_session(email, list(dict.fromkeys(names)), text, str(data.get("title") or "").strip()[:80]))
+    if path == "/api/session-title":  # rename a chat ({"id", "title"}): who started it, or the host
+        data = json.loads(req.read(20_000) or b"{}")
+        sid, name = str(data.get("id") or ""), str(data.get("title") or "").strip()[:80]
+        root = message(sid)
+        if not root or not root.get("session"):
+            return reply(404, {"error": "there's no such chat"})
+        if email not in (root.get("email"), host()):
+            return reply(403, {"error": "only who started the chat, or the room's host, can rename it"})
+        with tx() as c:
+            c.execute("insert or replace into session_titles values (?, ?)", (sid, name)) if name else c.execute("delete from session_titles where session = ?", (sid,))
+        return reply(200, {"id": sid, "title": name})
+    if path == "/api/look":  # dress a wolt ({"wolt", "look": {"creature", "hat", "glasses", "scene"}}): its keeper or the host
+        data = json.loads(req.read(20_000) or b"{}")
+        who, look = str(data.get("wolt") or ""), data.get("look")
+        if not any(l["wolt"] == who for l in wolts()):
+            return reply(404, {"error": f"there's no {who} in this room"})
+        if not may_switch(email, who):
+            return reply(403, {"error": "only the room's host, or the wolt's own keeper, can change its look"})
+        if not isinstance(look, dict) or not all(k in LOOKS and (v == "" or v in LOOKS[k]) for k, v in look.items()):
+            return reply(400, {"error": "a look is creature, hat, glasses and scene, each one the Hat Shop has (or empty)"})
+        look = {k: v for k, v in look.items() if v}
+        with tx() as c:
+            c.execute("insert or replace into looks values (?, ?)", (who, json.dumps(look))) if look else c.execute("delete from looks where wolt = ?", (who,))
+        return reply(200, {"wolt": who, "look": look})
     if path == "/api/main":  # the host names the room's main agent ({"wolt": name}), or takes the role away ({"wolt": null})
         data = json.loads(req.read(20_000) or b"{}")
         who = data.get("wolt")

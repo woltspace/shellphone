@@ -187,6 +187,82 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(page("/api/wolt", {"wolt": "second", "state": "removed"}), 404)
         self.assertEqual(page("/api/wolt", {"wolt": "helper", "state": "asleep"}), 400)
 
+    def test_a_chat_holds_only_the_wolts_picked_for_it(self):
+        r = self.room()
+        work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
+        work.mkdir(), other.mkdir()
+        self.assertEqual(run("join", r.agent, "--name", "helper", cwd=work).returncode, 0)
+        self.assertEqual(run("join", r.agent, "--name", "second", cwd=other).returncode, 0)
+        run("wait", "--timeout", "1", cwd=work), run("wait", "--timeout", "1", cwd=other)
+        r.browser.open(r.open)
+
+        def page(path, body=None):
+            try:
+                return json.load(r.browser.open(urllib.request.Request(r.url + path, data=None if body is None else json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+            except urllib.error.HTTPError as e:
+                return e.code
+        def agent(folder, path, body=None):
+            key = json.loads((folder / "shellphone" / "lodge.json").read_text())["key"]
+            try:
+                return json.load(urllib.request.urlopen(urllib.request.Request(r.url + path, data=None if body is None else json.dumps(body).encode(), headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})))
+            except urllib.error.HTTPError as e:
+                return e.code
+        hear = lambda folder, seconds=2: run("wait", "--timeout", str(seconds), cwd=folder).stdout
+
+        # The host's main agent is second: still, a chat with helper alone reaches helper alone.
+        self.assertEqual(page("/api/main", {"wolt": "second"}), {"main": "second"})
+        self.assertEqual(page("/api/sessions", {"wolts": ["nobody"], "text": "hi"}), 400)
+        self.assertEqual(page("/api/sessions", {"wolts": ["helper"], "text": " "}), 400)
+        first = page("/api/sessions", {"wolts": ["helper"], "text": "the desk for saturday, can you check it?"})
+        self.assertTrue(first["session"])
+        sid = first["id"]
+        got = hear(work, 5)
+        self.assertIn("the desk for saturday", got)
+        self.assertIn("--thread " + sid, got)  # handed over as a thread, so the wolt answers inside the chat
+        self.assertNotIn("the desk for saturday", hear(other))  # not the main agent, not anyone else
+        self.assertEqual(r.state()["who"][sid], {"helper": "in"})
+        self.assertEqual(agent(work, "/lodge/messages", {"text": "checked, it works", "thread": sid})["thread"], sid)
+        page("/api/messages", {"text": "and the bridge?", "thread": sid})
+        self.assertIn("and the bridge?", hear(work, 5))
+        self.assertNotIn("and the bridge?", hear(other))
+        chats = r.state()["sessions"]
+        self.assertEqual([(c["id"], c["wolts"], c["count"], c["last_text"]) for c in chats], [(sid, ["helper"], 3, "and the bridge?")])
+        self.assertEqual(chats[0]["title"], "the desk for saturday, can you check it?")  # the first words, cut at 40
+
+        # A group, a name for it, and a tag that brings one more in.
+        group = page("/api/sessions", {"wolts": ["helper", "second"], "text": "both of you", "title": "Saturday"})["id"]
+        self.assertEqual(r.state()["sessions"][0]["title"], "Saturday")
+        self.assertEqual(page("/api/session-title", {"id": group, "title": "Saturday demo"}), {"id": group, "title": "Saturday demo"})
+        self.assertEqual(page("/api/session-title", {"id": "nope", "title": "x"}), 404)
+        self.assertIn("both of you", hear(work, 5)), self.assertIn("both of you", hear(other, 5))
+        self.assertEqual(sorted(r.state()["sessions"][0]["wolts"]), ["helper", "second"])
+        page("/api/messages", {"text": "@second come in here too", "thread": sid})
+        self.assertEqual(r.state()["who"][sid], {"helper": "in", "second": "in"})
+
+        # Looks: the keeper or the host dresses a wolt; everyone sees it.
+        self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"hat": "red-beanie", "scene": "forest"}}), {"wolt": "helper", "look": {"hat": "red-beanie", "scene": "forest"}})
+        self.assertEqual(r.state()["looks"], {"helper": {"hat": "red-beanie", "scene": "forest"}})
+        self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"hat": "<script>"}}), 400)
+        self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"mood": "happy"}}), 400)  # only what the Hat Shop has
+        self.assertEqual(page("/api/look", {"wolt": "nobody", "look": {}}), 404)
+        page("/api/look", {"wolt": "helper", "look": {"hat": ""}})
+        self.assertEqual(r.state()["looks"], {})
+
+        # A card: the wolt sends its own; its human reads it.
+        self.assertEqual(page("/api/card?wolt=helper"), 404)
+        self.assertEqual(agent(work, "/lodge/card", {}), 400)
+        self.assertEqual(agent(work, "/lodge/card", {"identity": "a raccoon", "context": "the desk", "junk": "x"})["sent"], ["identity", "context"])
+        card = page("/api/card?wolt=helper")
+        self.assertEqual((card["identity"], card["context"], card["learnings"]), ("a raccoon", "the desk", ""))
+        self.assertEqual(page("/api/card?wolt=nobody"), 404)
+        mem = work / "wolt" / "memory"
+        (mem / "archive").mkdir(parents=True)
+        (mem / "identity.md").write_text("I am helper"), (mem / "learnings.md").write_text("test first")
+        (mem / "archive" / "2026-11.md").write_text("a long day")
+        self.assertIn("card sent (identity, learnings, archive)", run("card", cwd=work).stdout)
+        card = page("/api/card?wolt=helper")
+        self.assertEqual((card["identity"], card["context"], card["archive"]), ("I am helper", "", "a long day"))
+
     def test_a_thread_reaches_the_agents_in_it(self):
         r = self.room()
         work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
