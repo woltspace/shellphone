@@ -191,24 +191,24 @@ function Viewer({ urls, names, at, close }: { urls: string[]; names?: string[]; 
 // A list of messages that stays at the bottom while you're there, and leaves you alone if you scrolled up to read.
 // Used for the main chat and for a thread alike.
 // "3 NEW" above the first unread. Once the last new message has been on screen for 2s, it fades out (0.6s) and the gap closes.
-function NewLine({ count, last, onGone }: { count: number; last?: string; onGone: () => void }) {
+function NewLine({ count, last, covered, onFade, onGone }: { count: number; last?: string; covered: boolean; onFade: () => void; onGone: () => void }) {
   const ref = useRef<HTMLDivElement>(null), [gone, setGone] = useState(false);
   useEffect(() => {
     const el = (last && ref.current?.closest("[data-feed]")?.querySelector(`[data-mid="${last}"]`)) || ref.current; if (!el) return;
     let t = 0, t2 = 0, seen = false;
     const io = new IntersectionObserver(([e]) => { seen = e.isIntersecting; start(); });
-    const start = () => { clearTimeout(t); if (seen && !document.hidden) t = window.setTimeout(() => { setGone(true); t2 = window.setTimeout(onGone, 600); }, 2000); };
+    const start = () => { clearTimeout(t); if (seen && !covered && !document.hidden) t = window.setTimeout(() => { setGone(true); onFade(); t2 = window.setTimeout(onGone, 600); }, 2000); };
     const vis = () => start();  // only while someone is looking
     document.addEventListener("visibilitychange", vis);
     io.observe(el); return () => { clearTimeout(t); clearTimeout(t2); io.disconnect(); document.removeEventListener("visibilitychange", vis); };
-  }, [last]);
+  }, [last, covered]);
   return <div ref={ref} data-new aria-hidden={gone} className={`flex items-center px-3.5 transition-all duration-[600ms] overflow-hidden ${gone ? "opacity-0 my-0 h-0" : "opacity-100 my-3 h-5"}`}>
     <span className="flex-1 h-px bg-acc" /><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-white bg-acc rounded-full px-2.5 py-0.5">{count} new</span><span className="flex-1 h-px bg-acc" /></div>;
 }
 
-function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, place = "" }: {
+export function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, place = "", covered = false }: {
   list: Msg[]; ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number>; replies?: Map<string, Msg[]>; seen?: Record<string, number>; place?: string;
-  open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<(on?: boolean) => void>;
+  open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<(on?: boolean) => void>; covered?: boolean;  // a thread is open over it
 }) {
   // The chat is laid out from the bottom up (column-reverse), like chat apps do: the browser itself keeps the newest
   // message in place while pictures, players and cards load, and while new messages arrive. No pinning code to fight it.
@@ -224,6 +224,17 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
   if (mark.current?.place !== place) mark.current = { place, n: seen?.[place || "main"] ?? Infinity };
   const fresh = list.filter((m) => m.n > mark.current!.n && !m.pending && !(m.kind === "human" && m.email === ctx.me));
   const firstNew = fresh[0]?.id;
+  const caught = useRef<{ place: string; ok: boolean } | null>(null);  // here, have you seen the line go (or come in with nothing new)?
+  if (caught.current?.place !== place) caught.current = { place, ok: !fresh.length };
+  useLayoutEffect(() => {  // before paint, so the line never flashes for a frame
+    if (!caught.current!.ok || !fresh.length) return;
+    // not looking (a thread over it, another tab, scrolled up): these are real unread, so they get their line, which fades the normal way
+    if (covered || document.hidden || -(scroller.current?.scrollTop ?? 0) > 80) { caught.current!.ok = false; return; }
+    mark.current = { place, n: Math.max(...list.map((x) => x.n || 0)) }; moved((k) => k + 1);
+  }, [list.length, place, covered]);
+  // what you'd already read sits a little faded above the line, and comes back to full colour as the line fades
+  const [lit, setLit] = useState("");
+  const dim = (m: Msg) => !!firstNew && lit !== firstNew && m.n <= mark.current!.n;
   let lastDay = "", lastWho = "";
   return <div className="flex-1 min-h-0 relative flex flex-col"><div ref={scroller} data-feed onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain flex flex-col-reverse"><div className="pt-1">
     {list.length === 0 && <p className="text-center text-dim font-mono text-xs mt-10 px-6">Nobody has said anything yet. Tag a wolt with @ to bring it in.</p>}
@@ -233,9 +244,10 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
       const thread = replies?.get(m.id) || [];
       const run = newDay || who !== lastWho;
       lastDay = day; lastWho = thread.length ? "" : who;  // a thread breaks the run, so the next bubble shows its name
-      return <div key={m.cid || m.id} data-mid={m.id}>
-        {m.id === firstNew && <NewLine key={firstNew} count={fresh.length} last={fresh[fresh.length - 1]?.id}
-          onGone={() => { mark.current = { place, n: Math.max(...list.map((x) => x.n || 0)) }; moved((k) => k + 1); }} />}
+      const news = thread.length > 0 && unread(thread, seen?.[m.id], ctx.me);  // new replies are news: that message keeps its colour
+      return <div key={m.cid || m.id} data-mid={m.id} className={`transition-opacity duration-[600ms] ${dim(m) && !news ? "opacity-55" : ""}`}>
+        {m.id === firstNew && <NewLine key={firstNew} covered={covered} count={fresh.length} last={fresh[fresh.length - 1]?.id} onFade={() => setLit(firstNew)}
+          onGone={() => { caught.current = { place, ok: true }; mark.current = { place, n: Math.max(...list.map((x) => x.n || 0)) }; moved((k) => k + 1); }} />}
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
         <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
@@ -506,6 +518,9 @@ export function App() {
   const [listOpen, setListOpen] = useState(false);  // the inbox sheet; home is always the main chat
   const [menu, setMenu] = useState(false);
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
+  // ?pin=<thread id> keeps one thread open in Everyone, even after a reload (a talk, a recording)
+  const pin = useMemo(() => new URLSearchParams(location.search).get("pin") || "", []);
+  useEffect(() => { if (pin && (thread !== pin || nav.at !== "everyone")) { setNav({ at: "everyone" }); setThread(pin); } }, [pin, thread, nav.at]);
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
@@ -554,7 +569,8 @@ export function App() {
   const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
   // the main chat counts as read while it's on screen; what arrives while you're in a thread waits in the inbox
   const mainFresh = main.filter((m) => m.n > (seen.main || 0) && !(m.kind === "human" && m.email === state.me));
-  useEffect(() => { if (!thread && main.length) mark("main", main.at(-1)!.n); }, [thread, main]);
+  const mainShown = !chatsOn || nav.at === "everyone";  // Everyone only counts as read while it's on screen, not from home
+  useEffect(() => { if (mainShown && !thread && main.length) mark("main", main.at(-1)!.n); }, [mainShown, thread, main]);
   const inboxCount = freshCount + mainFresh.length;
   const hdr = useRef<HTMLElement>(null), [hdrH, setHdrH] = useState(0);
   useLayoutEffect(() => { const el = hdr.current; if (!el) return; const ro = new ResizeObserver(() => setHdrH(el.offsetHeight)); ro.observe(el); return () => ro.disconnect(); }, [nav.at]);
@@ -774,7 +790,7 @@ export function App() {
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>}
       </header>
-      <Feed list={main} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
+      <Feed list={main} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} covered={!!thread} />
       {!thread && composer}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
