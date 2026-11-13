@@ -195,12 +195,12 @@ function NewLine({ count, last, onGone }: { count: number; last?: string; onGone
   const ref = useRef<HTMLDivElement>(null), [gone, setGone] = useState(false);
   useEffect(() => {
     const el = (last && ref.current?.closest("[data-feed]")?.querySelector(`[data-mid="${last}"]`)) || ref.current; if (!el) return;
-    let t = 0, seen = false;
+    let t = 0, t2 = 0, seen = false;
     const io = new IntersectionObserver(([e]) => { seen = e.isIntersecting; start(); });
-    const start = () => { clearTimeout(t); if (seen && !document.hidden) t = window.setTimeout(() => { setGone(true); onGone(); }, 2000); };
+    const start = () => { clearTimeout(t); if (seen && !document.hidden) t = window.setTimeout(() => { setGone(true); t2 = window.setTimeout(onGone, 600); }, 2000); };
     const vis = () => start();  // only while someone is looking
     document.addEventListener("visibilitychange", vis);
-    io.observe(el); return () => { clearTimeout(t); io.disconnect(); document.removeEventListener("visibilitychange", vis); };
+    io.observe(el); return () => { clearTimeout(t); clearTimeout(t2); io.disconnect(); document.removeEventListener("visibilitychange", vis); };
   }, [last]);
   return <div ref={ref} data-new aria-hidden={gone} className={`flex items-center px-3.5 transition-all duration-[600ms] overflow-hidden ${gone ? "opacity-0 my-0 h-0" : "opacity-100 my-3 h-5"}`}>
     <span className="flex-1 h-px bg-acc" /><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-white bg-acc rounded-full px-2.5 py-0.5">{count} new</span><span className="flex-1 h-px bg-acc" /></div>;
@@ -235,7 +235,7 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
       lastDay = day; lastWho = thread.length ? "" : who;  // a thread breaks the run, so the next bubble shows its name
       return <div key={m.cid || m.id} data-mid={m.id}>
         {m.id === firstNew && <NewLine key={firstNew} count={fresh.length} last={fresh[fresh.length - 1]?.id}
-          onGone={() => setTimeout(() => { mark.current = { place, n: Math.max(...list.map((x) => x.n || 0)) }; moved((k) => k + 1); }, 600)} />}
+          onGone={() => { mark.current = { place, n: Math.max(...list.map((x) => x.n || 0)) }; moved((k) => k + 1); }} />}
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
         <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
