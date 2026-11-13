@@ -712,7 +712,7 @@ export function App() {
     everyone={{ at: main.at(-1)?.at, fresh: inboxCount }} onWolt={(w) => { setThread(""); setNav({ at: "wolt", wolt: w }); }} onChat={(id) => openChat(id)}
     onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} bell={notes.filter((n) => n.fresh).length} onBell={() => { setThread(""); setNav({ at: "bell" }); }} onInvite={state.me ? invite : undefined} onRename={rename} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
   const woltList = (name: string, compact = false) => <WoltChats w={woltOf(name)!} state={state} ctx={ctx} chats={chats} compact={compact} here={chatId} onBack={toHome}
-    onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} />;
+    onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} onRename={rename} />;
   const back = () => (nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome();
   goBack.current = back;
   const cardWolt = card ? woltOf(card) : undefined;
@@ -753,7 +753,7 @@ export function App() {
       </>}
       {nav.at === "chat" && (chat ? <>
         <ChatHeader chat={chat} ctx={ctx} compact={wideCols} onBack={back} onCard={setCard}
-          onRename={chat.by === state.me || state.me === state.host ? (title) => rename(chat.id, title) : undefined} />
+          onRename={(title) => rename(chat.id, title)} />
         <Feed list={chatList} ctx={ctx} working={state.working || {}} away={state.unreachable} stick={stickThread} place={chatId} />
         {composer}
       </> : <Standby state={state} />)}
