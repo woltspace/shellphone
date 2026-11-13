@@ -441,6 +441,9 @@ export function App() {
   const place = chatId || thread;  // where what you send goes: the open chat, the open thread, or ("") the shared chat
   const [card, setCard] = useState("");  // the wolt whose contact card is open
   const cols = typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches;
+  const wideCols = chatsOn && !desk && cols;  // a computer: wolts · chats · chat side by side
+  const stacked = chatsOn && !wideCols && nav.at !== "home";  // a phone, one screen over another: swipe from the left edge to go back
+  const goBack = useRef(() => {});
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
@@ -496,7 +499,7 @@ export function App() {
   const inboxCount = freshCount + mainFresh.length;
   const hdr = useRef<HTMLElement>(null), [hdrH, setHdrH] = useState(0);
   useLayoutEffect(() => { const el = hdr.current; if (!el) return; const ro = new ResizeObserver(() => setHdrH(el.offsetHeight)); ro.observe(el); return () => ro.disconnect(); }, [nav.at]);
-  const swipe = useSwipeBack(() => setThread(""));
+  const swipe = useSwipeBack(() => goBack.current());
 
   // Where the app opens. A tapped notification lands on its message: inside its thread if it's a reply, or the main
   // chat scrolled to it. Opening it normally, or coming back after a while, lands home: the threads list.
@@ -558,7 +561,7 @@ export function App() {
     if (h.get("m") && !target.current && (listOpen || (h.get("t") || "") !== place)) history.replaceState(null, "", location.pathname);
   }, [place, listOpen]);
 
-  const menuSwipe = useMenuSwipe(menu, setMenu, !listOpen);
+  const menuSwipe = useMenuSwipe(menu, setMenu, !listOpen && !stacked);
 
   // New voice notes from wolts play one after another, unless you picked something to hear yourself.
   const playing = useRef<HTMLAudioElement | null>(null);
@@ -673,7 +676,6 @@ export function App() {
   const composer = <Composer key={place || "main"} draft={place || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={chat ? `message ${chat.wolts.join(chat.wolts.length === 2 ? " and " : ", ")}…` : thread ? "$ reply in thread" : undefined} />;
   // on the desk: the wolts of the open thread (or every wolt that isn't paused, in the main chat)
   const deskWolts = state.members.wolts.filter((w) => !w.paused && (!place || !state.who || (state.main === w.wolt && !chatId) || state.who[place]?.[w.wolt] === "in"));
-  const wideCols = chatsOn && !desk && cols;  // a computer: wolts · chats · chat side by side
   const toHome = () => { setThread(""); setNav({ at: "home" }); };
   const woltOf = (name: string) => state.members.wolts.find((w) => w.wolt === name);
   const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId} dot={!!push.ask}
@@ -681,11 +683,13 @@ export function App() {
     onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} onMenu={() => setMenu(true)} />;
   const woltList = (name: string, compact = false) => <WoltChats w={woltOf(name)!} state={state} ctx={ctx} chats={chats} compact={compact} here={chatId} onBack={toHome}
     onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} />;
+  const back = () => (nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome();
+  goBack.current = back;
   const cardWolt = card ? woltOf(card) : undefined;
   const cardView = cardWolt && <ContactCard wolt={cardWolt} ctx={ctx} host={state.host} look={state.looks?.[cardWolt.wolt]} onClose={() => setCard("")}
     onNewChat={(w) => { setCard(""); setNav({ at: "new", wolts: [w], wolt: w }); }} />;
-  const room = (
-    <div className="h-full flex flex-col relative bg-paper" {...menuSwipe.screen}>
+  const menuEl = <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} onAgent={() => setAdding(true)} main={state.main} />;
+  const screen = <>
       {nav.at === "everyone" && <>
       <header ref={hdr} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-paper border-b border-line">
         {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
@@ -718,15 +722,23 @@ export function App() {
       </ThreadSheet>}
       </>}
       {nav.at === "chat" && (chat ? <>
-        <ChatHeader chat={chat} ctx={ctx} compact={wideCols} onBack={() => (nav.wolt ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome())} onCard={setCard} />
+        <ChatHeader chat={chat} ctx={ctx} compact={wideCols} onBack={back} onCard={setCard} />
         <Feed list={chatList} ctx={ctx} working={state.working || {}} away={state.unreachable} stick={stickThread} place={chatId} />
         {composer}
       </> : <Standby state={state} />)}
       {nav.at === "new" && <NewChat key={nav.wolts.join()} state={state} ctx={ctx} start={nav.wolts} onStart={startChat}
-        onBack={() => (nav.wolt ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome())} />}
+        onBack={back} />}
       {(nav.at === "home" || nav.at === "wolt") && (wideCols ? <Standby state={state} /> : nav.at === "wolt" && woltOf(nav.wolt) ? woltList(nav.wolt) : homeList(false))}
+  </>;
+  const room = (
+    <div className="h-full flex flex-col relative bg-paper" {...menuSwipe.screen}>
+      {stacked ? <>
+        <div className="absolute inset-0" aria-hidden>{(nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? woltList(nav.wolt) : homeList(false)}</div>
+        <div key={nav.at + (nav.at === "chat" ? nav.id : nav.at === "wolt" ? nav.wolt : "")} ref={swipe.el} onTouchStart={(e) => { if (!thread && !listOpen && !card) swipe.handlers.onTouchStart(e); }}
+          onTouchMove={swipe.handlers.onTouchMove} onTouchEnd={swipe.handlers.onTouchEnd} className="absolute inset-0 flex flex-col bg-paper animate-[slidein_.2s_ease-out]">{screen}</div>
+      </> : screen}
       {cardView && !wideCols && <div className="absolute inset-0 z-[1560] bg-paper animate-[fadein_.15s_ease-out]">{cardView}</div>}
-      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} onAgent={() => setAdding(true)} main={state.main} />
+      {!wideCols && menuEl}
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}
@@ -737,7 +749,8 @@ export function App() {
       {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>
   );
-  if (wideCols) return <div className="h-full flex">
+  if (wideCols) return <div className="h-full flex relative overflow-hidden">
+    {menuEl}
     <aside className="flex-none w-[300px] h-full border-r border-line">{homeList(true)}</aside>
     {selWolt && woltOf(selWolt) && <aside className="flex-none w-[270px] h-full border-r border-line">{woltList(selWolt, true)}</aside>}
     <div className="flex-1 min-w-0 h-full relative overflow-hidden [transform:translateZ(0)]">{room}</div>
