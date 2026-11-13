@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
-import { say, send, useRoom, type Msg } from "./room";
+import { onScreen, say, send, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
 import { AddAgentSheet } from "./AddAgent";
@@ -444,6 +444,7 @@ export function App() {
   const nav: Nav = chatsOn ? navNow : { at: "everyone" };
   const chatId = nav.at === "chat" ? nav.id : "";
   const place = chatId || thread;  // where what you send goes: the open chat, the open thread, or ("") the shared chat
+  onScreen.at = chatsOn && nav.at !== "chat" && nav.at !== "everyone" ? "home" : place || "";  // tells the room what not to push
   const [card, setCard] = useState("");  // the wolt whose contact card is open
   const cols = typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches;
   const wideCols = chatsOn && !desk && cols;  // a computer: wolts · chats · chat side by side

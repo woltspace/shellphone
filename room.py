@@ -505,7 +505,7 @@ try:
     import pywebpush
 except ImportError:
     pywebpush = None
-ACTIVE = {}  # email -> when their open page last checked in; they see it there, so no notification
+ACTIVE = {}  # email -> (when their open page last checked in, the chat or thread it shows, "" the main chat, None unknown)
 
 
 def vapid():
@@ -535,7 +535,9 @@ def notify(m):
         body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['files'][0]['name']}" + (f" +{len(m['files']) - 1}" if len(m["files"]) > 1 else ""))[:180], "tag": m["id"],
                            "url": f"./#m={m['id']}" + (f"&t={m['thread']}" if m.get("thread") else "")})  # a tap lands on this message
         for row in q("select * from push"):
-            if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
+            seen, where = ACTIVE.get(row["email"], (0, None))
+            # someone looking at this very chat or thread sees it there; looking elsewhere in the room, they still get it
+            if row["email"] == m.get("email") or (time.time() - seen < 15 and where in (None, m.get("thread") or "")):
                 continue
             try:
                 pywebpush.webpush(json.loads(row["sub"]), body, vapid_private_key=pem, vapid_claims={"sub": "mailto:" + row["email"]}, ttl=3600)
@@ -1172,7 +1174,7 @@ def for_person(req, email):
             return reply(200, {"key": vapid()[1]} if pywebpush else {"key": None})
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
-                ACTIVE[email] = time.time()
+                ACTIVE[email] = (time.time(), q["at"][0] if "at" in q else None)  # what it shows: a newer page says
             return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "terminals": terminals() if email and email == host() else {}, "sessions": sessions_now(), "looks": looks_now(), "faces": faces_now(), "messages": messages(after)})
         if path == "/api/card":  # a wolt's card (its memory, as it sent it): only for the wolt's own keeper
             who = q.get("wolt", [""])[0]

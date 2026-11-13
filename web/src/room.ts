@@ -48,6 +48,9 @@ export async function say(url: string, init: RequestInit): Promise<string | null
 export const sendText = (text: string, thread?: string) =>
   say("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, cid: Math.random().toString(36).slice(2, 12), ...(thread ? { thread } : {}) }) });  // a cid: sent twice, it lands once
 
+// The chat or thread on screen ("" the main chat, "home" the home list), so the room doesn't push what you're looking at.
+export const onScreen = { at: "" };
+
 export function useRoom() {
   const [state, setState] = useState<State>({ title: "shell", me: "", members: { people: [], wolts: [] }, working: {}, seen: {}, tabs: [] });
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -70,7 +73,7 @@ export function useRoom() {
       if (needsName()) { timer = window.setTimeout(poll, 500); return; }
       busy = true;  // a guest picks a name first; until then the room has nothing for them
       try {
-        const url = `/api/state?after=${after.current}${document.visibilityState === "visible" ? "&here=1" : ""}`;
+        const url = `/api/state?after=${after.current}${document.visibilityState === "visible" ? "&here=1&at=" + encodeURIComponent(onScreen.at) : ""}`;
         const r = await (relayRoom ? call(url) : fetch(url, { cache: "no-store" }));
         if (r.status === 403) { busy = false; setError("You're not on this room's list."); return; }
         const s = (await r.json()) as State & { messages: Msg[]; news?: boolean };
