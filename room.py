@@ -729,33 +729,6 @@ def host():
     return row[0]["email"] if row else None
 
 
-# The host's own terminals, as links. A room run on its host's lodge (SHELLPHONE_LODGE_URL, e.g. https://you.woltspace.com)
-# asks that lodge which session each of the host's wolts is in, and hands the host, and only the host, a link to it. The
-# link opens behind the lodge's own login, so even a link that got out shows nothing to anyone else.
-LODGE_URL = os.environ.get("SHELLPHONE_LODGE_URL", "").rstrip("/")
-LODGE_API = os.environ.get("SHELLPHONE_LODGE_API", "http://127.0.0.1:7777")
-_terminals = {"at": 0.0, "links": {}}
-
-
-def terminals():
-    if not LODGE_URL:
-        return {}
-    if time.time() - _terminals["at"] > 15:
-        _terminals["at"] = time.time()
-        try:
-            with urllib.request.urlopen(LODGE_API + "/sessions?view=lodge", timeout=2) as r:
-                d = json.load(r)
-            newest = {}
-            for x in (d if isinstance(d, list) else d.get("sessions", [])):
-                if x.get("status") == "running" and x.get("alive") is not False and x.get("wolt") and (x.get("last_activity") or 0) >= newest.get(x["wolt"], {}).get("last_activity", -1):
-                    newest[x["wolt"]] = {"name": x["name"], "last_activity": x.get("last_activity") or 0}
-            _terminals["links"] = {w: f"{LODGE_URL}/tui?session={urllib.parse.quote(v['name'])}" for w, v in newest.items()}
-        except Exception:
-            pass  # the lodge isn't answering: keep the last links
-    mine = {l["wolt"] for l in wolts() if canon(l["owner"]) == canon(host() or "")}
-    return {w: u for w, u in _terminals["links"].items() if w in mine}
-
-
 def set_paused(wolt, paused):
     with tx() as c:
         if not c.execute("update wolts set paused = ? where wolt = ?", (1 if paused else 0, wolt)).rowcount:
@@ -1094,7 +1067,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "terminals": terminals() if email and email == host() else {}, "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "messages": messages(after)})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})

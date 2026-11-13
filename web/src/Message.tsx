@@ -9,7 +9,7 @@ import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; terminals?: Record<string, string> };
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void };
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -146,9 +146,6 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
         {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
           className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
           style={{ color: woltColor(m.wolt, ctx.wolts), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}
-        {!human && !ctx.showTerminal && ctx.terminals?.[m.wolt!] && <a href={ctx.terminals[m.wolt!]} target="_blank" rel="noopener" data-tap onClick={(e) => e.stopPropagation()}
-          className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] no-underline"
-          style={{ color: woltColor(m.wolt, ctx.wolts), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</a>}
         <div className="flex justify-end items-center gap-1 mt-0.5 font-mono text-[10px] text-dim">
           {time(m.at)}
           {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
