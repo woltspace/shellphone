@@ -54,7 +54,7 @@ export function Face({ w, ctx, size = 46, bare, className = "" }: { w?: Wolt; ct
 }
 const SEC = "px-4 pt-2.5 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 const ROW = "flex w-full items-center gap-3 px-4 py-2 border-0 border-b border-[#ece4d6] text-left cursor-pointer active:opacity-70";
-const HEAD = "flex items-center px-4 pt-3.5 pb-1 font-mono font-bold text-[15px] text-ink";
+const HEAD = "flex items-center px-4 pt-2.5 pb-1 font-mono font-bold text-[15px] text-ink";
 const AddButton = ({ label, onClick }: { label: string; onClick: () => void }) =>
   <button type="button" onClick={onClick} className="flex-none flex items-center gap-1 -my-1 py-1 border-0 bg-transparent font-sans font-semibold text-[15px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
     <Plus size={15} strokeWidth={3} />{label}</button>;
@@ -153,7 +153,7 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
   const [sky, flipSky] = useSky();
   return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKIES[sky].top }}>
     {/* a short band that ends on a clean line: the scene keeps its size and loses only the strip of ground under the wolts' feet */}
-    <div className="max-h-[200px] overflow-hidden"><Squad sky={sky} wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
+    <div className="max-h-[188px] overflow-hidden"><Squad sky={sky} wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
     <div className="absolute inset-x-0 top-[env(safe-area-inset-top)] flex items-start gap-2 px-4 pt-3">
       <div className="min-w-0 flex-1 text-white">
         <h1 className="m-0 font-mono font-bold text-[22px] truncate [text-shadow:0_2px_0_#0006]">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>

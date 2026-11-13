@@ -45,7 +45,7 @@ export function useSky(): [Sky, () => void] {
   };
   return [sky, flip];
 }
-const W = 128, H = 74, G = 62;  // ten rows of sky more than the Hat Shop's scenes: the wolts stand clear of the title  // wider than the Hat Shop's 112, so on a phone the scene is a short band and home fits on one screen
+const W = 128, H = 70, G = 58;  // ten rows of sky more than the Hat Shop's scenes: the wolts stand clear of the title  // wider than the Hat Shop's 112, so on a phone the scene is a short band and home fits on one screen
 
 export type Standing = { name: string; look: Look; busy?: boolean; away?: boolean };
 
@@ -67,8 +67,8 @@ export function Squad({ wolts, sky = "night" }: { wolts: Standing[]; sky?: Sky }
       }
       // a small sun or moon in the open sky between the title and the buttons
       const disc = (cx: number, cy: number, r: number, col: string) => { c.fillStyle = col; for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + 1) c.fillRect(cx + x, cy + y, 1, 1); };
-      if (sky === "day") { disc(62, 12, 5, "#ffe9a0"); disc(62, 12, 4, "#ffd23f"); }
-      else { disc(62, 12, 4, "#f4f0d8"); disc(64, 10, 3, S.top); }
+      if (sky === "day") { disc(62, 11, 5, "#ffe9a0"); disc(62, 11, 4, "#ffd23f"); }
+      else { disc(62, 11, 4, "#f4f0d8"); disc(64, 9, 3, S.top); }
       c.fillStyle = S.ground; c.fillRect(0, G, W, H - G); c.fillStyle = S.edge; c.fillRect(0, G, W, 1);
       const n = wolts.length, step = n <= 4 ? 23 : 92 / (n - 1), first = (W - (n - 1) * step) / 2;
       // the pine on the left as in the mock; the fire on the right only when it doesn't stand on a wolt
