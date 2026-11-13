@@ -13,6 +13,7 @@ import { InboxSheet, ThreadFooter, threadColor, threadTitle, unread, useSeen } f
 import { Menu } from "./Menu";
 import { ChatHeader, chatsOf, HomeList, NewChat, Standby, WoltChats, type Chat, type Nav } from "./Chats";
 import { ContactCard } from "./CardContact";
+import { SKY } from "./Scene";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
 import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, X } from "lucide-react";
@@ -444,6 +445,14 @@ export function App() {
   const wideCols = chatsOn && !desk && cols;  // a computer: wolts · chats · chat side by side
   const stacked = chatsOn && !wideCols && nav.at !== "home";  // a phone, one screen over another: swipe from the left edge to go back
   const goBack = useRef(() => {});
+  // On home the night sky runs up under the phone's status strip: the strip takes the page's colour, so the page wears
+  // the sky's while home is showing, and goes back to paper everywhere else.
+  const skyTop = chatsOn && !wideCols && nav.at === "home" && !card;
+  useEffect(() => {
+    const color = skyTop ? SKY : "#f5f1e8";
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color);
+    document.documentElement.style.background = document.body.style.background = color;
+  }, [skyTop]);
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
@@ -561,7 +570,7 @@ export function App() {
     if (h.get("m") && !target.current && (listOpen || (h.get("t") || "") !== place)) history.replaceState(null, "", location.pathname);
   }, [place, listOpen]);
 
-  const menuSwipe = useMenuSwipe(menu, setMenu, !listOpen && !stacked);
+  const menuSwipe = useMenuSwipe(menu, setMenu, !listOpen && !chatsOn);  // with home as the first screen, the panel is settings: opened by its button, not by a swipe
 
   // New voice notes from wolts play one after another, unless you picked something to hear yourself.
   const playing = useRef<HTMLAudioElement | null>(null);

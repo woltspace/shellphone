@@ -2,11 +2,12 @@
 // is a plain conversation. Underneath, a chat is a thread the room marked as standing on its own (state.sessions), so
 // messages, voice, files and the hold menu work as everywhere else. "Everyone" is the room's shared chat, as before.
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronLeft, ChevronRight, Menu as MenuIcon, Monitor, Plus, SquareTerminal } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Monitor, Plus, Settings, SquareTerminal } from "lucide-react";
 import { woltColor, type Ctx } from "./Message";
 import type { Msg, State, Wolt } from "./room";
 import { LORE, personAvatar } from "./sprites";
 import { LookCanvas, normalizeLook } from "./CardLook";
+import { SKY, Squad } from "./Scene";
 
 export type Chat = { id: string; title: string; wolts: string[]; at: number; last?: { text: string; who: string }; fresh: number };
 // where you are: the list of wolts, one wolt's chats, a new chat being addressed, a chat, or the room's shared chat
@@ -61,42 +62,33 @@ const Stack = ({ names, ctx, size = 32 }: { names: string[]; ctx: Ctx; size?: nu
   <span className="flex flex-none">{names.slice(0, 3).map((n, i) => <span key={n} className={`rounded-full border-2 border-panel bg-panel ${i ? "-ml-3" : ""}`}><Face w={ctx.wolts.find((w) => w.wolt === n)} ctx={ctx} size={size} /></span>)}</span>;
 
 function ChatRow({ c, ctx, here, group, onOpen }: { c: Chat; ctx: Ctx; here?: boolean; group?: boolean; onOpen: () => void }) {
-  const busy = (ctx.busy?.(c.id) || []).length > 0;
   return <button type="button" onClick={onOpen} className={`${ROW} ${here ? "bg-[#f6e2d6]" : "bg-panel"}`}>
     {group && <Stack names={c.wolts} ctx={ctx} />}
     <span className="min-w-0 flex-1">
       <span className="block font-mono font-semibold text-[15px] truncate">{group && c.title === "New chat" ? c.wolts.join(", ") : c.title}</span>
       <span className={`block text-[13px] truncate ${c.fresh ? "text-ink font-semibold" : "text-dim"}`}>
-        {busy ? <span className="font-mono text-[11px] text-go">gnawing…</span> : c.last ? (group && c.last.who ? `${c.last.who}: ` : "") + c.last.text : "No messages yet"}</span>
+        {c.last ? (group && c.last.who ? `${c.last.who}: ` : "") + c.last.text : "No messages yet"}</span>
     </span>
     <span className="flex-none text-right text-xs text-dim">{when(c.at)}{c.fresh > 0 && <><br /><Badge n={c.fresh} /></>}</span>
   </button>;
 }
 
-// The top of home: the wolts standing together, the busy ones with a little bubble over their head.
+// The top of home: the wolts standing together at the campfire (Scene.tsx), under the phone's status strip, with the
+// room's name over the sky and the ＋ floating at the top right.
 function Hero({ state, ctx, onNew, onMenu, dot }: { state: State; ctx: Ctx; onNew: () => void; onMenu: () => void; dot?: boolean }) {
   const h = new Date().getHours(), hello = h < 5 ? "night" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
-  const wolts = state.members.wolts.slice(0, 5), awake = state.members.wolts.filter((w) => mood(w, state).awake).length;
-  return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: "linear-gradient(#140f24, #2f2140 78%)" }}>
-    {[[9, 12], [24, 30], [43, 8], [59, 22], [77, 11], [92, 34], [34, 44]].map(([x, y]) => <i key={x} className="absolute w-[3px] h-[3px] bg-[#ffffffaa]" style={{ left: x + "%", top: y + "%" }} />)}
-    <div className="relative flex items-start gap-2 px-4 pt-3.5">
+  const moods = state.members.wolts.map((w) => ({ w, m: mood(w, state) })), awake = moods.filter((x) => x.m.awake).length;
+  return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKY }}>
+    <Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} />
+    <div className="absolute inset-x-0 top-[env(safe-area-inset-top)] flex items-start gap-2 px-4 pt-3">
       <div className="min-w-0 flex-1 text-white">
         <h1 className="m-0 font-mono font-bold text-[22px] truncate [text-shadow:0_2px_0_#0006]">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
         <p className="mt-0.5 mb-0 text-[13px] opacity-85 truncate">{hello}, {ctx.person(state.me).name} · {awake} {awake === 1 ? "wolt" : "wolts"} awake</p>
       </div>
-      <button type="button" aria-label="Menu" onClick={onMenu} className="relative flex-none w-10 h-10 grid place-items-center rounded-full border-0 bg-[#ffffff22] text-white cursor-pointer">
-        <MenuIcon size={20} />{dot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}</button>
+      <button type="button" aria-label="Settings" title="Settings" onClick={onMenu} className="relative flex-none w-10 h-10 grid place-items-center rounded-full border-0 bg-[#ffffff22] text-white cursor-pointer">
+        <Settings size={20} />{dot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}</button>
       <PlusButton label="New chat" onClick={onNew} />
     </div>
-    <div className="relative flex items-end justify-center gap-[3%] h-[124px] px-3">
-      {wolts.map((w) => { const m = mood(w, state);
-        return <div key={w.wolt} className="relative flex-none">
-          {m.busy && <span className="absolute left-1/2 -translate-x-1/2 -top-2 z-10 whitespace-nowrap bg-panel rounded-[10px] px-[7px] py-[3px] font-mono font-semibold text-[10px] text-go shadow-[0_2px_6px_#0004]
-            after:content-[''] after:absolute after:left-3 after:-bottom-[5px] after:border-[5px] after:border-transparent after:border-t-panel after:border-b-0">gnawing…</span>}
-          <div className={`${m.busy ? "gnaw-img" : ""} ${m.awake ? "" : "opacity-50"}`} style={{ transformOrigin: "50% 100%" }}><Face bare w={w} ctx={ctx} size={wolts.length > 4 ? 64 : 84} className="block" /></div>
-        </div>; })}
-    </div>
-    <div className="h-4 bg-[#3a3326] border-t border-[#28231a]" />
   </div>;
 }
 
@@ -125,8 +117,8 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, dot,
   };
   return <div className="h-full flex flex-col bg-paper">
     {compact ? <header className="flex-none flex items-center gap-2 pl-2 pr-3 h-[60px] border-b border-line">
-      <button type="button" aria-label="Menu" onClick={onMenu} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
-        <MenuIcon size={20} />{dot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}</button>
+      <button type="button" aria-label="Settings" title="Settings" onClick={onMenu} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
+        <Settings size={20} />{dot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}</button>
       <h1 className="m-0 flex-1 min-w-0 truncate font-mono font-bold text-lg">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
       {onDesk && <button type="button" aria-label="Show the terminals" title="desk: your wolts' terminals" onClick={onDesk} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><Monitor size={19} /></button>}
       <PlusButton small label="New chat" onClick={onNew} /></header>
