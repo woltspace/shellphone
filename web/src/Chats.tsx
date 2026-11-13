@@ -51,7 +51,7 @@ export function Face({ w, ctx, size = 46, bare, className = "" }: { w?: Wolt; ct
   return <span className={`flex-none grid place-items-center rounded-full ${className}`} style={{ width: size, height: size, background: woltColor(w?.wolt, ctx.wolts) + "30" }}>
     <LookCanvas look={look} size={Math.round(size * 0.8)} label={w?.wolt} /></span>;
 }
-const SEC = "px-4 pt-3 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
+const SEC = "px-4 pt-2.5 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 const ROW = "flex w-full items-center gap-3 px-4 py-2 border-0 border-b border-[#ece4d6] text-left cursor-pointer active:opacity-70";
 const AddButton = ({ label, onClick }: { label: string; onClick: () => void }) =>
   <button type="button" onClick={onClick} className="flex-none flex items-center gap-1 -my-1 py-1 border-0 bg-transparent font-sans font-semibold text-[14px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
@@ -98,16 +98,16 @@ function GroupCard({ c, ctx, here, onOpen, onRename }: { c: Chat; ctx: Ctx; here
     const e = await onRename(t); if (e) setProblem(e); else { setNaming(null); setProblem(""); }
   };
   return <div role="button" tabIndex={0} onClick={() => { if (naming === null) onOpen(); }} onKeyDown={(e) => { if (e.key === "Enter" && naming === null) onOpen(); }}
-    className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
-    <span className="flex items-center gap-1.5"><Stack names={c.wolts} ctx={ctx} size={26} /><span className="flex-1" />{c.fresh > 0 && <Badge n={c.fresh} />}
+    className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-1.5 cursor-pointer active:opacity-70 ${here ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
+    <span className="flex items-center gap-1.5"><Stack names={c.wolts} ctx={ctx} size={24} /><span className="flex-1" />{c.fresh > 0 && <Badge n={c.fresh} />}
       {onRename && <button type="button" aria-label="Rename this group" title="Rename" onClick={(e) => { e.stopPropagation(); setNaming(naming === null ? (c.title === "New chat" ? "" : c.title) : null); }}
         className="flex-none -mr-1 w-7 h-7 grid place-items-center rounded-full border-0 bg-[#f6e2d6] text-acc cursor-pointer"><Pencil size={13} /></button>}</span>
     {naming !== null ? <form onSubmit={(e) => { e.preventDefault(); save(); }} onClick={(e) => e.stopPropagation()}>
       <input autoFocus value={naming} maxLength={60} onChange={(e) => setNaming(e.target.value)} onBlur={save} aria-label="Name of this group" enterKeyHint="done" placeholder="Name this group"
         onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") { setNaming(null); setProblem(""); } }}
-        className="block w-full mt-0.5 bg-panel border border-acc rounded-lg px-1.5 py-0.5 font-mono font-semibold text-base outline-none" />
+        className="block w-full bg-panel border border-acc rounded-lg px-1.5 py-0.5 font-mono font-semibold text-base outline-none" />
       {problem && <small className="block text-[11px] text-acc">{problem}</small>}</form>
-    : <span className="block mt-0.5 font-mono font-semibold text-[13.5px] truncate">{c.title === "New chat" ? c.wolts.join(", ") : c.title}</span>}
+    : <span className="block font-mono font-semibold text-[13.5px] truncate">{c.title === "New chat" ? c.wolts.join(", ") : c.title}</span>}
     <span className={`block text-xs truncate ${c.fresh ? "text-ink font-semibold" : "text-dim"}`}>{c.last ? c.last.text : c.wolts.join(", ")}</span>
   </div>;
 }
@@ -122,10 +122,9 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
   const h = new Date().getHours(), hello = h < 5 ? "night" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
   const moods = state.members.wolts.map((w) => ({ w, m: mood(w, state) })), awake = moods.filter((x) => x.m.awake).length;
   return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKY }}>
-    {/* a short band: the scene keeps its size and loses only the strip of ground under the wolts' feet */}
-    <div className="max-h-[204px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
-    {/* the ground melts into the page; the wolts above it stay crisp */}
-    <div className="h-14" style={{ background: "linear-gradient(to bottom, #3a3326 0%, #5a5142 18%, #8f8573 42%, #c9c0ae 68%, #e9e3d6 86%, #f5f1e8 100%)" }} />
+    {/* the picture bleeds into the page: its own strip of ground fades to the page's colour, nothing is added under it */}
+    <div className="relative"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} />
+      <div className="absolute inset-x-0 bottom-0 h-[19%] pointer-events-none" style={{ background: "linear-gradient(to bottom, #f5f1e800 0%, #f5f1e866 35%, #f5f1e8cc 70%, #f5f1e8 100%)" }} /></div>
     <div className="absolute inset-x-0 top-[env(safe-area-inset-top)] flex items-start gap-2 px-4 pt-3">
       <div className="min-w-0 flex-1 text-white">
         <h1 className="m-0 font-mono font-bold text-[22px] truncate [text-shadow:0_2px_0_#0006]">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
@@ -148,8 +147,8 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
     const own = chats.filter((c) => c.wolts.length === 1 && c.wolts[0] === w.wolt), top = own[0], fresh = own.reduce((n, c) => n + c.fresh, 0), m = mood(w, state);
     // no chat with it yet: the last thing it said in the room
     const said = top ? undefined : [...ctx.all].reverse().find((x) => x.kind === "wolt" && x.wolt === w.wolt);
-    return <button key={w.wolt} type="button" onClick={() => onWolt(w.wolt)} className={`${ROW} ${sel === w.wolt ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
-      <span className="relative flex-none"><Face w={w} ctx={ctx} size={42} />
+    return <button key={w.wolt} type="button" onClick={() => onWolt(w.wolt)} className={`${ROW} !py-1 ${sel === w.wolt ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
+      <span className="relative flex-none"><Face w={w} ctx={ctx} size={38} />
         <i className={`absolute right-px bottom-px w-3 h-3 rounded-full border-2 border-paper ${m.awake ? "bg-go" : "bg-[#c9bfae]"}`} /></span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-1.5 font-mono font-semibold text-[15px]"><span className="truncate">{w.wolt}</span>
@@ -178,18 +177,17 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       <div className="flex gap-3 overflow-x-auto px-4 pt-1.5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {state.members.people.map((p) => <div key={p.email} className="flex-none w-[58px] text-center">
           {/* the same soft circle the wolts stand on, with the person's letter in their colour */}
-          <span className="grid place-items-center w-[42px] h-[42px] rounded-full mx-auto font-mono font-bold text-[19px]" style={{ background: p.color + "30", color: p.color }}>{(p.name || "?").trim()[0]?.toUpperCase()}</span>
-          <span className="block mt-1 font-mono font-semibold text-[11.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
-          <span className="block text-[10.5px] text-dim leading-tight">{p.email === state.host ? "host" : p.guest ? "guest" : "\u00a0"}</span>
+          <span className="grid place-items-center w-[38px] h-[38px] rounded-full mx-auto font-mono font-bold text-[17px]" style={{ background: p.color + "30", color: p.color }}>{(p.name || "?").trim()[0]?.toUpperCase()}</span>
+          <span className="block mt-0.5 font-mono font-semibold text-[11.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
         </div>)}
       </div>
-      <div className={`${SEC} flex items-center`}><span className="flex-1">Groups</span><AddButton label="New group" onClick={onNew} /></div>
+      <div className={`${SEC} flex items-center`}><span className="flex-1">Groups</span><AddButton label="New" onClick={onNew} /></div>
       <div className="grid grid-cols-2 gap-2 px-3 pb-1">
         {groups.map((c) => <GroupCard key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)}
           onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
-        <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
-          <span className="block h-[30px] text-[22px] leading-[30px]">🐚</span>
-          <span className="block mt-0.5 font-mono font-semibold text-[13.5px]">Everyone</span>
+        <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-1.5 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
+          <span className="block h-7 text-[20px] leading-7">🐚</span>
+          <span className="block font-mono font-semibold text-[13.5px]">Everyone</span>
           <span className="block text-xs text-dim truncate">the whole room</span>
           {everyone.fresh > 0 && <span className="absolute top-2 right-2"><Badge n={everyone.fresh} /></span>}
         </button>

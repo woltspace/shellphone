@@ -19,7 +19,7 @@ const ANCHOR: Record<string, { hx: number; ht: number; L: number[]; R: number[];
 };
 const GLASSES: Record<string, string[]> = { shades: ["#0b0b10", "#16161e", "#fff"], aviators: ["#c9a23a", "#2d4a5c", "#bfe6ff"], rose: ["#8a1f4a", "#ff5fa2", "#ffd6ea"], nerd: ["#111", "", ""] };
 export const SKY = "#140f24";  // the top of the night sky: the phone's status strip takes this colour on home
-const W = 128, H = 74, G = 62;  // ten rows of sky more than the Hat Shop's scenes, so the wolts stand lower, clear of the title  // wider than the Hat Shop's 112, so on a phone the scene is a short band and home fits on one screen
+const W = 150, H = 74, G = 62;  // wider and taller than the Hat Shop's 112 x 64: the wolts come out a little smaller and lower, with sky above them
 
 export type Standing = { name: string; look: Look; busy?: boolean; away?: boolean };
 
@@ -35,12 +35,12 @@ export function Squad({ wolts }: { wolts: Standing[] }) {
       const by = Object.fromEntries(ids.map((id, i) => [id, ims[i]])), c = cv.getContext("2d")!;
       cv.width = W; cv.height = H; c.imageSmoothingEnabled = false;
       const g = c.createLinearGradient(0, 0, 0, G); g.addColorStop(0, SKY); g.addColorStop(1, "#2f2140"); c.fillStyle = g; c.fillRect(0, 0, W, H);
-      c.fillStyle = "#ffffffaa"; for (const [x, y] of [[9, 6], [27, 12], [48, 4], [66, 9], [86, 5], [103, 13], [38, 17], [118, 8]]) c.fillRect(x, y, 1, 1);
+      c.fillStyle = "#ffffffaa"; for (const [x, y] of [[9, 6], [27, 12], [48, 4], [66, 9], [86, 5], [103, 13], [38, 17], [118, 8], [133, 16], [142, 5]]) c.fillRect(x, y, 1, 1);
       c.fillStyle = "#3a3326"; c.fillRect(0, G, W, H - G); c.fillStyle = "#28231a"; c.fillRect(0, G, W, 1);
-      const n = wolts.length, step = n <= 4 ? 23 : 92 / (n - 1), first = (W - (n - 1) * step) / 2;
+      const n = wolts.length, step = n <= 5 ? 23 : 112 / (n - 1), first = (W - (n - 1) * step) / 2;
       // the pine on the left as in the mock; the fire on the right only when it doesn't stand on a wolt
       const pine = by["n-big-pine"]; if (pine) c.drawImage(pine, 0, G + 2 - pine.height);
-      const fire = by["n-campfire"]; if (fire && n <= 3) c.drawImage(fire, W - 17, G + 2 - fire.height);
+      const fire = by["n-campfire"]; if (fire && n <= 4) c.drawImage(fire, W - 17, G + 2 - fire.height);
       const out: { name: string; x: number; y: number }[] = [];
       wolts.forEach((w, i) => {
         const im = by[`c-${w.look.creature}`]; if (!im) return;

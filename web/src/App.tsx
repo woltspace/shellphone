@@ -19,7 +19,7 @@ import { inviteLink, relayHost } from "./relay";
 import { handle as handleOf } from "./mentions.js";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
-import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, X } from "lucide-react";
+import { Bell, ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, X } from "lucide-react";
 const Desk = lazy(() => import("./Desk"));  // terminals and their library load only on a computer that opens the desk
 import { usePush } from "./push";
 
@@ -736,9 +736,13 @@ export function App() {
         </div>
         {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
           className={`flex-none w-10 h-10 grid place-items-center border-0 cursor-pointer rounded-[10px] ${desk ? "bg-acc text-white" : "bg-transparent text-acc"}`}><Monitor size={20} /></button>}
+        {/* with home as the first screen, the bell is the one place for what's new; a room from before keeps its inbox */}
+        {chatsOn ? <button type="button" aria-label="Notifications" title="Notifications" onClick={() => { setThread(""); setNav({ at: "bell" }); }} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
+          <Bell size={21} />{notes.filter((n) => n.fresh).length > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{Math.min(99, notes.filter((n) => n.fresh).length)}</span>}
+        </button> :
         <button type="button" aria-label="Inbox" onClick={() => setListOpen(!listOpen)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
-        </button>
+        </button>}
       </header>
       <Feed list={main} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
       {!thread && composer}
