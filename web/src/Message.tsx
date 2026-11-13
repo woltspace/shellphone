@@ -7,7 +7,8 @@ import { Card } from "./Card";
 import { PageTile } from "./Page";
 import { ShareButton } from "./Share";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
-import { personAvatar, woltAvatar } from "./sprites";
+import { personAvatar } from "./sprites";
+import { LookCanvas, normalizeLook } from "./CardLook";
 import { mentionNames } from "./mentions.js";
 
 export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; terminals?: Record<string, string>; reply?: (m: Msg) => void; looks?: Record<string, Record<string, string>> };
@@ -130,7 +131,8 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
   const human = m.kind === "human", mine = human && m.email === ctx.me;
   const owner = human ? m.email : m.owner, who = ctx.person(owner);
   const name = human ? who.name : `${m.wolt} · ${owner === ctx.me ? "yours" : who.name + "'s"}`;
-  const avatar = human ? personAvatar(who.name, who.color) : woltAvatar(m.creature || "raccoon", who.color);
+  const avatar = human ? <img src={personAvatar(who.name, who.color)} alt="" className="pixel block w-7 h-7 rounded-full" />
+    : <LookCanvas look={normalizeLook(ctx.looks?.[m.wolt!], ctx.wolts.find(w => w.wolt === m.wolt)?.creature || m.creature)} size={28} label={m.wolt} />;
   const readers = mine ? ctx.seen[m.id] || [] : [];
   // A wolt's terminal, for whoever may see it: the desk's tile on a computer, its session on your own lodge on a phone.
   // Hold a message (or right-click it on a computer) and the room dims and shows a small bar of actions under it: the
@@ -153,8 +155,8 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
     <div className={`group flex items-end gap-1.5 px-2.5 [@media(hover:none)]:select-none ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}
       {...hold}>
       {openTerm && firstOfRun ? <button type="button" data-tap onClick={(e) => { e.stopPropagation(); openTerm(); }} aria-label={`${m.wolt}'s terminal`} title={`${m.wolt}'s terminal`}
-          className="flex-none p-0 border-0 bg-transparent cursor-pointer rounded-full"><img src={avatar} alt="" className="pixel block w-7 h-7 rounded-full" /></button>
-        : <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />}
+          className="flex-none p-0 border-0 bg-transparent cursor-pointer rounded-full">{avatar}</button>
+        : <span className={`w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`}>{avatar}</span>}
       <div data-bubble ref={bubble} className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${acts ? "invisible" : ""} ${mine ? "border-line" : "bg-panel border-line"}`}
         style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
           : !human ? { background: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : undefined}>
@@ -167,7 +169,7 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
         <div className="flex justify-end items-center gap-1 mt-0.5 font-mono text-[10px] text-dim">
           {time(m.at)}
           {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
-            {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltAvatar(w?.creature || "raccoon", ctx.person(w?.owner).color)} />; })}
+            {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <LookCanvas key={r} label={r} size={15} look={normalizeLook(ctx.looks?.[r], w?.creature)} />; })}
           </span>}
         </div>
         {footer}
