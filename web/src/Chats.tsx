@@ -10,7 +10,7 @@ import { LookCanvas, normalizeLook } from "./CardLook";
 import { hatUrl, SKIES, Squad, useSky } from "./Scene";
 import { choices } from "./CardLook";
 
-export type Chat = { id: string; title: string; wolts: string[]; by?: string; at: number; last?: { text: string; who: string }; fresh: number };
+export type Chat = { id: string; title: string; wolts: string[]; paused?: string[]; by?: string; at: number; last?: { text: string; who: string }; fresh: number };
 // where you are: the list of wolts, one wolt's chats, a new chat being addressed, a chat, or the room's shared chat
 export type Nav = { at: "home" } | { at: "wolt"; wolt: string } | { at: "new"; wolts: string[]; wolt?: string } | { at: "chat"; id: string; wolt?: string } | { at: "everyone" } | { at: "bell" } | { at: "all"; what: "wolts" | "people" | "groups" };
 
@@ -29,9 +29,12 @@ export function chatsOf(state: State, msgs: Msg[], replies: Map<string, Msg[]>, 
   const name = (m: Msg) => (m.kind === "human" ? (mine(m, state.me) ? "you" : state.members.people.find((p) => p.email === m.email)?.name || "someone") : m.wolt || "");
   return (state.sessions || []).map((s) => {
     const root = msgs.find((m) => m.id === s.id), all = [...(root ? [root] : []), ...(replies.get(s.id) || [])], last = all.at(-1);
+    // a wolt paused in this chat is still part of it (the room's own list leaves it out): the chat keeps its place and its faces
+    const who = state.who?.[s.id] || {}, here = [...new Set([...(s.wolts || []), ...Object.keys(who)])];
     return {
+      paused: here.filter((w) => who[w] === "paused"),
       // a group nobody named goes by its members, like iMessage ("New chat" is how the screens say "no name")
-      id: s.id, title: (s.named === false && (s.wolts || []).length > 1 ? "" : s.title) || "New chat", wolts: s.wolts || [], by: s.by, at: last?.at || s.last_at || s.at,
+      id: s.id, title: (s.named === false && here.length > 1 ? "" : s.title) || "New chat", wolts: here, by: s.by, at: last?.at || s.last_at || s.at,
       last: last ? { text: preview(last), who: name(last) } : s.last_text ? { text: s.last_text, who: s.last_by || "" } : undefined,
       fresh: all.filter((m) => m.n > (seen[s.id] || 0) && !mine(m, state.me)).length,
     };
@@ -345,8 +348,9 @@ export function NewChat({ state, ctx, start, onBack, onStart }: {
 }
 
 // The top of a chat: back, who it's with (the face opens the contact card), its name, and its terminal at the top right.
-export function ChatHeader({ chat, ctx, compact, onBack, onCard, onRename }: {
+export function ChatHeader({ chat, ctx, compact, onBack, onCard, onRename, who }: {
   chat: Chat; ctx: Ctx; compact?: boolean; onBack: () => void; onCard?: (wolt: string) => void; onRename?: (title: string) => Promise<string | null>;
+  who?: React.ReactNode;  // who's in this chat, with the switches to pause a wolt here only (ThreadWho.tsx)
 }) {
   const names = chat.wolts, one = names.length === 1, title = !one && chat.title === "New chat" ? "" : chat.title;
   // tap the chat's name to give it another: saved in the room, so everyone in it sees the new one
@@ -369,8 +373,8 @@ export function ChatHeader({ chat, ctx, compact, onBack, onCard, onRename }: {
   if (compact) return <header className="flex-none flex items-center gap-2.5 px-4 h-[60px] border-b border-line bg-paper">
     <button type="button" onClick={() => onCard?.(names[0])} aria-label="Contact card" className="flex-none border-0 bg-transparent p-0 cursor-pointer"><Stack names={names} ctx={ctx} size={38} /></button>
     <div className="min-w-0 flex-1"><div className="flex">{name("font-mono font-bold text-[15px] text-ink text-left", title || names.join(", "))}</div>
-      <div className="text-xs text-dim truncate">with {names.join(", ")}</div></div>
-    {termBtn}
+      <div className="text-xs text-dim truncate">with {names.join(", ")}{chat.paused?.length ? ` · ${chat.paused.join(", ")} paused here` : ""}</div></div>
+    {who}{termBtn}
   </header>;
   return <header className="relative flex-none flex flex-col items-center border-b border-line bg-paper pt-[calc(6px+env(safe-area-inset-top))] pb-1.5">
     <button type="button" aria-label="Back" onClick={onBack} className="absolute left-1 top-[calc(10px+env(safe-area-inset-top))] w-9 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={26} /></button>
@@ -379,7 +383,8 @@ export function ChatHeader({ chat, ctx, compact, onBack, onCard, onRename }: {
       <span className="mt-0.5 flex items-center gap-0.5 max-w-full font-mono font-semibold text-[13px] text-ink"><span className="truncate">{names.join(", ")}</span><ChevronRight size={13} className="flex-none text-dim" /></span>
     </button>
     <div className="max-w-[70%] flex justify-center">{name("text-xs text-dim", title || (one ? "" : "Name this group"))}</div>
-    <div className="absolute right-3 top-[calc(12px+env(safe-area-inset-top))]">{termBtn}</div>
+    {!!chat.paused?.length && <div className="font-mono text-[11px] text-acc">{chat.paused.join(", ")} paused here</div>}
+    <div className="absolute right-3 top-[calc(12px+env(safe-area-inset-top))] flex items-center gap-1">{who}{termBtn}</div>
   </header>;
 }
 

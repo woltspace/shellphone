@@ -32,6 +32,8 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
   main?: string | null;  // the room's main agent: always in, its switch locked
 }) {
   const real = room !== undefined;
+  const chat = !!list[0]?.session;  // a chat: only the wolts picked for it, the main one included
+  const always = (w: Wolt) => w.wolt === main && !chat;
   const [mock, setMock] = useState(load), [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(""), [note, setNote] = useState("");
   const [sent, setSent] = useState<Record<string, Mark>>({});  // switched here, until the room's state catches up
@@ -76,16 +78,16 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
         className="absolute inset-x-0 bottom-0 max-w-[640px] mx-auto bg-paper rounded-t-[18px] px-4 pt-2 pb-[max(14px,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]">
         <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />
         <div className="flex items-center">
-          <b className="flex-1 font-mono text-[13px] text-dim tracking-wide">WHO'S IN THIS THREAD</b>
+          <b className="flex-1 font-mono text-[13px] text-dim tracking-wide">WHO'S IN THIS {chat ? "CHAT" : "THREAD"}</b>
           <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={18} /></button>
         </div>
         {ctx.wolts.map((w) => {
-          const m = marks[w.wolt], yes = on(w), locked = !!w.paused || !may(w) || busy === w.wolt || w.wolt === main;
+          const m = marks[w.wolt], yes = on(w), locked = !!w.paused || !may(w) || busy === w.wolt || always(w);
           return <div key={w.wolt} className="flex items-center gap-2.5 py-2 border-t border-line">
             <img src={face(w)} alt="" className={`pixel w-[30px] h-[30px] rounded-full ${yes ? "" : "grayscale opacity-50"}`} />
             <span className="flex-1 min-w-0">
               <span className={`block truncate font-mono text-sm ${yes ? "" : "text-dim"}`} style={yes ? { color: woltColor(w.wolt, ctx.wolts) } : undefined}>{w.wolt}</span>
-              <small className="block text-xs text-dim">{(w.owner === ctx.me ? "yours" : `${ctx.person(w.owner).name}'s`) + " · "}{w.paused ? "paused in the room" : w.wolt === main ? "main · always in every thread" : yes ? "in this thread" : m === "paused" ? "paused here · still active elsewhere" : "not in this thread"}</small>
+              <small className="block text-xs text-dim">{(w.owner === ctx.me ? "yours" : `${ctx.person(w.owner).name}'s`) + " · "}{w.paused ? "paused in the room" : always(w) ? "main · always in every thread" : yes ? `in this ${chat ? "chat" : "thread"}` : m === "paused" ? "paused here · still active elsewhere" : `not in this ${chat ? "chat" : "thread"}`}</small>
             </span>
             <button type="button" role="switch" aria-checked={yes} disabled={locked} aria-label={`${yes ? "Pause" : "Bring in"} ${w.wolt} here`}
               onClick={() => flip(w.wolt, yes ? "paused" : "in")}
@@ -95,7 +97,7 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
           </div>;
         })}
         {note && <p className="mt-2 mb-0 text-xs text-acc">{note}</p>}
-        <p className="mt-2 mb-0 text-xs text-dim">Paused here: gets nothing from this thread, still active elsewhere. Tagging an agent brings it in.</p>
+        <p className="mt-2 mb-0 text-xs text-dim">Paused here: gets nothing from this {chat ? "chat" : "thread"}, still active elsewhere. Tagging an agent brings it in.</p>
         {!real && <p className="mt-1.5 mb-0 font-mono text-[11px] text-acc">Mock: switches are kept on this phone only. Agents aren't really paused yet.</p>}
       </div>
     </div>}

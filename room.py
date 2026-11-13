@@ -1241,7 +1241,7 @@ def for_person(req, email):
             return reply(404, {"error": f"there's no {who} in this room"})
         if not may_switch(email, who):
             return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
-        if state == "paused" and who == main_wolt():
+        if state == "paused" and who == main_wolt() and not is_session(where["thread"]):  # in a chat the main one is like any other
             return reply(400, {"error": f"{who} is the room's main agent: it stays in every thread"})
         return reply(200, set_who(where["thread"], who, state))
     if path == "/api/sessions":  # start a chat with these wolts ({"wolts": [...], "text": first message, "title"?, "cid"?})

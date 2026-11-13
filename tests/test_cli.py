@@ -246,6 +246,7 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(sorted(r.state()["sessions"][0]["wolts"]), ["helper", "second"])
         page("/api/messages", {"text": "@second come in here too", "thread": sid})
         self.assertEqual(r.state()["who"][sid], {"helper": "in", "second": "in"})
+        self.assertEqual(page("/api/thread-who", {"thread": sid, "wolt": "second", "state": "paused"})["who"]["second"], "paused")  # the main one can be paused in a chat
 
         # Looks: the keeper or the host dresses a wolt; everyone sees it.
         self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"hat": "red-beanie", "scene": "forest"}}), {"wolt": "helper", "look": {"hat": "red-beanie", "scene": "forest"}})

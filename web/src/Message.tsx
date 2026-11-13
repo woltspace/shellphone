@@ -194,7 +194,7 @@ export function woltColor(name = "", wolts: Wolt[] = []) {
 }
 
 // what a bubble's colour is blended toward: white by day, the dark panel at night (index.css, html.night)
-export const tintBase = () => (typeof document !== "undefined" && document.documentElement.classList.contains("night") ? "#221c2b" : "#ffffff");
+export const tintBase = () => (typeof document !== "undefined" && document.documentElement.classList.contains("night") ? "#171b30" : "#ffffff");
 export function mix(hex: string, to: string, t: number) {  // blend a colour toward white, so text stays readable on it
   const c = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const [a, b] = [c(hex), c(to)];
