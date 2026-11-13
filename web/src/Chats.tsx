@@ -2,14 +2,14 @@
 // is a plain conversation. Underneath, a chat is a thread the room marked as standing on its own (state.sessions), so
 // messages, voice, files and the hold menu work as everywhere else. "Everyone" is the room's shared chat, as before.
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronLeft, ChevronRight, Monitor, Plus, Bell, SquareTerminal } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Monitor, Plus, Bell, Pencil, SquareTerminal } from "lucide-react";
 import { woltColor, type Ctx } from "./Message";
 import type { Msg, State, Wolt } from "./room";
 import { LORE, personAvatar } from "./sprites";
 import { LookCanvas, normalizeLook } from "./CardLook";
 import { SKY, Squad } from "./Scene";
 
-export type Chat = { id: string; title: string; wolts: string[]; at: number; last?: { text: string; who: string }; fresh: number };
+export type Chat = { id: string; title: string; wolts: string[]; by?: string; at: number; last?: { text: string; who: string }; fresh: number };
 // where you are: the list of wolts, one wolt's chats, a new chat being addressed, a chat, or the room's shared chat
 export type Nav = { at: "home" } | { at: "wolt"; wolt: string } | { at: "new"; wolts: string[]; wolt?: string } | { at: "chat"; id: string; wolt?: string } | { at: "everyone" } | { at: "bell" };
 
@@ -29,7 +29,7 @@ export function chatsOf(state: State, msgs: Msg[], replies: Map<string, Msg[]>, 
   return (state.sessions || []).map((s) => {
     const root = msgs.find((m) => m.id === s.id), all = [...(root ? [root] : []), ...(replies.get(s.id) || [])], last = all.at(-1);
     return {
-      id: s.id, title: s.title || "New chat", wolts: s.wolts || [], at: last?.at || s.last_at || s.at,
+      id: s.id, title: s.title || "New chat", wolts: s.wolts || [], by: s.by, at: last?.at || s.last_at || s.at,
       last: last ? { text: preview(last), who: name(last) } : s.last_text ? { text: s.last_text, who: s.last_by || "" } : undefined,
       fresh: all.filter((m) => m.n > (seen[s.id] || 0) && !mine(m, state.me)).length,
     };
@@ -53,8 +53,8 @@ export function Face({ w, ctx, size = 46, bare, className = "" }: { w?: Wolt; ct
 const SEC = "px-4 pt-3 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 const ROW = "flex w-full items-center gap-3 px-4 py-2 border-0 border-b border-[#ece4d6] text-left cursor-pointer active:opacity-70";
 const AddButton = ({ label, onClick }: { label: string; onClick: () => void }) =>
-  <button type="button" onClick={onClick} className="flex-none flex items-center justify-center gap-1.5 -my-2 h-[34px] w-[150px] rounded-full border border-[#c4531e88] bg-transparent font-mono font-semibold text-[13px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
-    <Plus size={16} strokeWidth={3} />{label}</button>;
+  <button type="button" onClick={onClick} className="flex-none flex items-center justify-center gap-1 -my-2 h-8 w-[136px] rounded-full border-0 bg-[#f6e2d6] font-mono font-semibold text-[12.5px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
+    <Plus size={14} strokeWidth={3} />{label}</button>;
 const Badge = ({ n }: { n: number }) => n > 0 ? <span className="inline-block min-w-5 h-5 px-1.5 rounded-full bg-acc text-white font-sans font-bold text-[11px] leading-5 text-center">{n}</span> : null;
 export const PlusButton = ({ label, onClick, small }: { label: string; onClick: () => void; small?: boolean }) =>
   <button type="button" aria-label={label} title={label} onClick={onClick}
@@ -74,6 +74,28 @@ function ChatRow({ c, ctx, here, group, onOpen }: { c: Chat; ctx: Ctx; here?: bo
     </span>
     <span className="flex-none text-right text-xs text-dim">{when(c.at)}{c.fresh > 0 && <><br /><Badge n={c.fresh} /></>}</span>
   </button>;
+}
+
+// A group on home: a small card. Whoever may rename it gets a pencil in its top right corner, and types the name right there.
+function GroupCard({ c, ctx, here, onOpen, onRename }: { c: Chat; ctx: Ctx; here?: boolean; onOpen: () => void; onRename?: (title: string) => Promise<string | null> }) {
+  const [naming, setNaming] = useState<string | null>(null), [problem, setProblem] = useState("");
+  const save = async () => {
+    const t = (naming || "").trim(); if (!t || t === c.title || !onRename) return setNaming(null);
+    const e = await onRename(t); if (e) setProblem(e); else { setNaming(null); setProblem(""); }
+  };
+  return <div role="button" tabIndex={0} onClick={() => { if (naming === null) onOpen(); }} onKeyDown={(e) => { if (e.key === "Enter" && naming === null) onOpen(); }}
+    className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
+    <span className="flex items-center gap-1.5"><Stack names={c.wolts} ctx={ctx} size={26} /><span className="flex-1" />{c.fresh > 0 && <Badge n={c.fresh} />}
+      {onRename && <button type="button" aria-label="Rename this group" title="Rename" onClick={(e) => { e.stopPropagation(); setNaming(naming === null ? (c.title === "New chat" ? "" : c.title) : null); }}
+        className="flex-none -mr-1 w-7 h-7 grid place-items-center rounded-full border-0 bg-[#f6e2d6] text-acc cursor-pointer"><Pencil size={13} /></button>}</span>
+    {naming !== null ? <form onSubmit={(e) => { e.preventDefault(); save(); }} onClick={(e) => e.stopPropagation()}>
+      <input autoFocus value={naming} maxLength={60} onChange={(e) => setNaming(e.target.value)} onBlur={save} aria-label="Name of this group" enterKeyHint="done" placeholder="Name this group"
+        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") { setNaming(null); setProblem(""); } }}
+        className="block w-full mt-0.5 bg-panel border border-acc rounded-lg px-1.5 py-0.5 font-mono font-semibold text-base outline-none" />
+      {problem && <small className="block text-[11px] text-acc">{problem}</small>}</form>
+    : <span className="block mt-0.5 font-mono font-semibold text-[13.5px] truncate">{c.title === "New chat" ? c.wolts.join(", ") : c.title}</span>}
+    <span className={`block text-xs truncate ${c.fresh ? "text-ink font-semibold" : "text-dim"}`}>{c.last ? c.last.text : c.wolts.join(", ")}</span>
+  </div>;
 }
 
 // The top of home: the wolts standing together at the campfire (Scene.tsx), under the phone's status strip, with the
@@ -100,9 +122,9 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
 }
 
 // Home: your wolts like contacts, then the groups, then everyone. On a computer it is the left column, without the scene.
-export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWolt, onChat, onEveryone, onNew, bell, onBell, onInvite, onDesk, onAgent }: {
+export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWolt, onChat, onEveryone, onNew, bell, onBell, onInvite, onDesk, onAgent, onRename }: {
   state: State; ctx: Ctx; chats: Chat[]; everyone: { at?: number; fresh: number }; compact?: boolean; sel?: string; here?: string;
-  onWolt: (w: string) => void; onChat: (id: string) => void; onEveryone: () => void; onNew: () => void; bell: number; onBell: () => void; onInvite?: () => void; onDesk?: () => void; onAgent?: () => void;
+  onWolt: (w: string) => void; onChat: (id: string) => void; onEveryone: () => void; onNew: () => void; bell: number; onBell: () => void; onInvite?: () => void; onDesk?: () => void; onAgent?: () => void; onRename?: (id: string, title: string) => Promise<string | null>;
 }) {
   const yours = state.members.wolts.filter((w) => w.owner === state.me), others = state.members.wolts.filter((w) => w.owner !== state.me);
   const groups = chats.filter((c) => c.wolts.length > 1);
@@ -147,12 +169,8 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
       </div>
       <div className={SEC}>Groups</div>
       <div className="grid grid-cols-2 gap-2 px-3 pb-1">
-        {groups.map((c) => <button key={c.id} type="button" onClick={() => onChat(c.id)} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here === c.id ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
-          <Stack names={c.wolts} ctx={ctx} size={26} />
-          <span className="block mt-0.5 font-mono font-semibold text-[13.5px] truncate">{c.title === "New chat" ? c.wolts.join(", ") : c.title}</span>
-          <span className={`block text-xs truncate ${c.fresh ? "text-ink font-semibold" : "text-dim"}`}>{c.last ? c.last.text : c.wolts.join(", ")}</span>
-          {c.fresh > 0 && <span className="absolute top-2 right-2"><Badge n={c.fresh} /></span>}
-        </button>)}
+        {groups.map((c) => <GroupCard key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)}
+          onRename={onRename && (c.by === state.me || state.me === state.host) ? (t) => onRename(c.id, t) : undefined} />)}
         <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-2 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
           <span className="block h-[30px] text-[22px] leading-[30px]">🐚</span>
           <span className="block mt-0.5 font-mono font-semibold text-[13.5px]">Everyone</span>
@@ -245,8 +263,22 @@ export function NewChat({ state, ctx, start, onBack, onStart }: {
 }
 
 // The top of a chat: back, who it's with (the face opens the contact card), its name, and its terminal at the top right.
-export function ChatHeader({ chat, ctx, compact, onBack, onCard }: { chat: Chat; ctx: Ctx; compact?: boolean; onBack: () => void; onCard?: (wolt: string) => void }) {
+export function ChatHeader({ chat, ctx, compact, onBack, onCard, onRename }: {
+  chat: Chat; ctx: Ctx; compact?: boolean; onBack: () => void; onCard?: (wolt: string) => void; onRename?: (title: string) => Promise<string | null>;
+}) {
   const names = chat.wolts, one = names.length === 1, title = !one && chat.title === "New chat" ? "" : chat.title;
+  // tap the chat's name to give it another: saved in the room, so everyone in it sees the new one
+  const [naming, setNaming] = useState<string | null>(null), [problem, setProblem] = useState("");
+  const save = async () => {
+    const t = (naming || "").trim(); if (!t || t === chat.title || !onRename) return setNaming(null);
+    const e = await onRename(t); if (e) setProblem(e); else { setNaming(null); setProblem(""); }
+  };
+  const name = (cls: string, shown: string) => naming !== null
+    ? <form onSubmit={(e) => { e.preventDefault(); save(); }} className="min-w-0 max-w-full"><input autoFocus value={naming} maxLength={60} onChange={(e) => setNaming(e.target.value)} onBlur={save} aria-label="Name of this chat" enterKeyHint="done"
+        onKeyDown={(e) => { if (e.key === "Escape") { setNaming(null); setProblem(""); } }}
+        className="w-[220px] max-w-full bg-panel border border-acc rounded-lg px-2 py-0.5 text-[15px] text-center outline-none" />{problem && <small className="block text-[11px] text-acc text-center">{problem}</small>}</form>
+    : <button type="button" onClick={onRename ? () => setNaming(chat.title === "New chat" ? "" : chat.title) : undefined} title={onRename ? "Rename" : undefined}
+        className={`max-w-full border-0 bg-transparent p-0 truncate ${onRename ? "cursor-pointer" : "cursor-default"} ${cls}`}>{shown}</button>;
   // the terminal of the first wolt here that you may open (the desk's tile on a computer, its lodge session on a phone)
   const term = names.find((n) => ctx.showTerminal || ctx.terminals?.[n]), link = term && !ctx.showTerminal ? ctx.terminals?.[term] : undefined;
   const termBtn = term && <a href={link} target="_blank" rel="noopener" aria-label={`${term}'s terminal`} title={`${term}'s terminal`}
@@ -254,7 +286,7 @@ export function ChatHeader({ chat, ctx, compact, onBack, onCard }: { chat: Chat;
     className="flex-none w-10 h-8 grid place-items-center rounded-[9px] border-2 border-acc text-acc cursor-pointer"><SquareTerminal size={18} /></a>;
   if (compact) return <header className="flex-none flex items-center gap-2.5 px-4 h-[60px] border-b border-line bg-paper">
     <button type="button" onClick={() => onCard?.(names[0])} aria-label="Contact card" className="flex-none border-0 bg-transparent p-0 cursor-pointer"><Stack names={names} ctx={ctx} size={38} /></button>
-    <div className="min-w-0 flex-1"><div className="font-mono font-bold text-[15px] truncate">{title || names.join(", ")}</div>
+    <div className="min-w-0 flex-1"><div className="flex">{name("font-mono font-bold text-[15px] text-ink text-left", title || names.join(", "))}</div>
       <div className="text-xs text-dim truncate">with {names.join(", ")}</div></div>
     {termBtn}
   </header>;
@@ -264,7 +296,7 @@ export function ChatHeader({ chat, ctx, compact, onBack, onCard }: { chat: Chat;
       <Stack names={names} ctx={ctx} size={40} />
       <span className="mt-0.5 flex items-center gap-0.5 max-w-full font-mono font-semibold text-[13px] text-ink"><span className="truncate">{names.join(", ")}</span><ChevronRight size={13} className="flex-none text-dim" /></span>
     </button>
-    {title && <div className="max-w-[70%] text-xs text-dim truncate">{title}</div>}
+    <div className="max-w-[70%] flex justify-center">{name("text-xs text-dim", title || (one ? "" : "Name this group"))}</div>
     <div className="absolute right-3 top-[calc(12px+env(safe-area-inset-top))]">{termBtn}</div>
   </header>;
 }

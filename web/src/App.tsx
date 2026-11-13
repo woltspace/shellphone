@@ -506,6 +506,7 @@ export function App() {
     catch (e) { if ((e as Error).name === "AbortError") return; }
     try { await navigator.clipboard.writeText(link); setError("Invite link copied"); } catch { setError(link); }
   };
+  const rename = (id: string, title: string) => say("/api/session-title", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, title }) });
   const openChat = (id: string, wolt?: string) => { setThread(""); setNav({ at: "chat", id, wolt }); };
   const selWolt = nav.at === "wolt" || nav.at === "chat" || nav.at === "new" ? nav.wolt : undefined;
   async function startChat(wolts: string[], first: string): Promise<string | null> {
@@ -709,7 +710,7 @@ export function App() {
   const woltOf = (name: string) => state.members.wolts.find((w) => w.wolt === name);
   const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId}
     everyone={{ at: main.at(-1)?.at, fresh: inboxCount }} onWolt={(w) => { setThread(""); setNav({ at: "wolt", wolt: w }); }} onChat={(id) => openChat(id)}
-    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} bell={notes.filter((n) => n.fresh).length} onBell={() => { setThread(""); setNav({ at: "bell" }); }} onInvite={state.me ? invite : undefined} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
+    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} bell={notes.filter((n) => n.fresh).length} onBell={() => { setThread(""); setNav({ at: "bell" }); }} onInvite={state.me ? invite : undefined} onRename={rename} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
   const woltList = (name: string, compact = false) => <WoltChats w={woltOf(name)!} state={state} ctx={ctx} chats={chats} compact={compact} here={chatId} onBack={toHome}
     onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} />;
   const back = () => (nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome();
@@ -751,7 +752,8 @@ export function App() {
       </ThreadSheet>}
       </>}
       {nav.at === "chat" && (chat ? <>
-        <ChatHeader chat={chat} ctx={ctx} compact={wideCols} onBack={back} onCard={setCard} />
+        <ChatHeader chat={chat} ctx={ctx} compact={wideCols} onBack={back} onCard={setCard}
+          onRename={chat.by === state.me || state.me === state.host ? (title) => rename(chat.id, title) : undefined} />
         <Feed list={chatList} ctx={ctx} working={state.working || {}} away={state.unreachable} stick={stickThread} place={chatId} />
         {composer}
       </> : <Standby state={state} />)}
