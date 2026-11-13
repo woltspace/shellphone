@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import type { Wolt } from "./room";
 import { woltColor, type Ctx } from "./Message";
 import { woltAvatar } from "./sprites";
@@ -61,7 +61,7 @@ function Tile({ w, ctx, sessions, big, flash, busy, toggle }: { w: Wolt; ctx: Ct
   </div>;
 }
 
-export default function Desk({ ctx, wolts, working, focus, onClose }: { ctx: Ctx; wolts: Wolt[]; working: Set<string>; focus: { wolt: string; at: number } | null; onClose?: () => void }) {
+export default function Desk({ ctx, wolts, working, focus }: { ctx: Ctx; wolts: Wolt[]; working: Set<string>; focus: { wolt: string; at: number } | null }) {
   const [sessions, setSessions] = useState<Session[] | null>(null), [down, setDown] = useState(false);
   const [big, setBig] = useState(""), [flash, setFlash] = useState("");
   useEffect(() => {
@@ -78,18 +78,16 @@ export default function Desk({ ctx, wolts, working, focus, onClose }: { ctx: Ctx
     setBig(focus.wolt); setFlash(focus.wolt); const t = setTimeout(() => setFlash(""), 900); return () => clearTimeout(t);
   }, [focus?.at]);
 
-  if (down) return <div className="relative flex-1 grid place-items-center bg-[#2a231c] text-[#e8e0d4] font-mono text-sm p-8 text-center">{onClose && <button type="button" onClick={onClose} aria-label="Close the terminals" className="absolute top-2 right-2 inline-flex items-center gap-1.5 rounded-full border-0 bg-[#14110e] text-[#e8e0d4] px-3 py-1.5 font-mono text-xs cursor-pointer"><X size={14} />close terminals</button>}
+  if (down) return <div className="flex-1 grid place-items-center bg-[#2a231c] text-[#e8e0d4] font-mono text-sm p-8 text-center">
     <div>Your wolts' terminals show here, from your own lodge.<br />Start the desk bridge on this computer:<br />
       <code className="inline-block mt-3 px-3 py-2 rounded bg-[#14110e] text-[#7ec27e]">node desk/bridge.mjs {location.origin}</code><br />
       <span className="text-[#a89f92] text-xs">(in the room's folder; it only shows terminals, it never types into them)</span></div></div>;
   const shown = big ? wolts.filter((w) => w.wolt === big) : wolts;
   const cols = shown.length <= 1 ? 1 : 2;
-  const close = onClose && <button type="button" onClick={onClose} title="Close the terminals" aria-label="Close the terminals"
-    className="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 rounded-full border-0 bg-[#14110e] text-[#e8e0d4] px-3 py-1.5 font-mono text-xs cursor-pointer shadow hover:bg-black"><X size={14} />close terminals</button>;
-  return <div className="relative flex-1 min-w-0 flex">{close}<div className="flex-1 min-w-0 grid gap-2.5 p-3 pt-11 bg-[#2a231c]" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "minmax(0, 1fr)" }}>
+  return <div className="flex-1 min-w-0 grid gap-2.5 p-3 bg-[#2a231c]" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "minmax(0, 1fr)" }}>
     {!sessions ? <div className="text-[#a89f92] font-mono text-sm">Looking for your lodge…</div>
       : !shown.length ? <div className="text-[#a89f92] font-mono text-sm">No wolts in this thread yet.</div>
       : shown.map((w) => <Tile key={w.wolt} w={w} ctx={ctx} sessions={sessions} big={big === w.wolt} flash={flash === w.wolt} busy={working.has(w.wolt)}
         toggle={() => setBig(big === w.wolt ? "" : w.wolt)} />)}
-  </div></div>;
+  </div>;
 }

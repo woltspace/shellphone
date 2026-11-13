@@ -680,7 +680,7 @@ export function App() {
   const woltOf = (name: string) => state.members.wolts.find((w) => w.wolt === name);
   const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId} dot={!!push.ask}
     everyone={{ at: main.at(-1)?.at, fresh: inboxCount }} onWolt={(w) => { setThread(""); setNav({ at: "wolt", wolt: w }); }} onChat={(id) => openChat(id)}
-    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} onMenu={() => setMenu(true)} />;
+    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} onMenu={() => setMenu(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
   const woltList = (name: string, compact = false) => <WoltChats w={woltOf(name)!} state={state} ctx={ctx} chats={chats} compact={compact} here={chatId} onBack={toHome}
     onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} />;
   const back = () => (nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome();
@@ -759,7 +759,12 @@ export function App() {
   if (!desk) return room;
   return <div className="h-full flex">
     <Suspense fallback={<div className="flex-1 bg-[#2a231c]" />}>
-      <Desk ctx={ctx} wolts={deskWolts} working={new Set(Object.keys(state.working || {}))} focus={focus} onClose={() => setDesk(false)} />
+      <div className="relative flex-1 min-w-0 flex">
+        <Desk ctx={ctx} wolts={deskWolts} working={new Set(Object.keys(state.working || {}))} focus={focus} />
+        {/* always a way out of the terminals, whatever the chat column is showing */}
+        <button type="button" onClick={() => setDesk(false)} aria-label="Close the terminals" title="Close the terminals"
+          className="absolute top-2 right-2 z-20 flex items-center gap-1.5 h-9 pl-2.5 pr-3 rounded-full border-0 bg-[#fffdf6] text-acc font-mono font-semibold text-xs cursor-pointer shadow-[0_2px_10px_#0006]"><X size={16} />close terminals</button>
+      </div>
     </Suspense>
     {/* its own box for everything fixed inside (menu, sheets), so they stay in the chat column */}
     <div className="flex-none w-[460px] h-full border-l border-line relative overflow-hidden [transform:translateZ(0)]">{room}</div>
