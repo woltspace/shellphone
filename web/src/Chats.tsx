@@ -122,9 +122,8 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
   const h = new Date().getHours(), hello = h < 5 ? "night" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
   const moods = state.members.wolts.map((w) => ({ w, m: mood(w, state) })), awake = moods.filter((x) => x.m.awake).length;
   return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKY }}>
-    {/* the picture bleeds into the page: its own strip of ground fades to the page's colour, nothing is added under it */}
-    <div className="relative"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} />
-      <div className="absolute inset-x-0 bottom-0 h-[19%] pointer-events-none" style={{ background: "linear-gradient(to bottom, #f5f1e800 0%, #f5f1e866 35%, #f5f1e8cc 70%, #f5f1e8 100%)" }} /></div>
+    {/* a short band that ends on a clean line: the scene keeps its size and loses only the strip of ground under the wolts' feet */}
+    <div className="max-h-[172px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
     <div className="absolute inset-x-0 top-[env(safe-area-inset-top)] flex items-start gap-2 px-4 pt-3">
       <div className="min-w-0 flex-1 text-white">
         <h1 className="m-0 font-mono font-bold text-[22px] truncate [text-shadow:0_2px_0_#0006]">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
