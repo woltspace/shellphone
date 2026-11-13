@@ -1,7 +1,8 @@
 // One bubble: who said it, the words (with @tags), a voice note with its words, a file or picture, a card.
 import { relayRoom } from "./relay";
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { RotateCw } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Check, Copy, Reply, RotateCw, SquareTerminal } from "lucide-react";
 import { Card } from "./Card";
 import { PageTile } from "./Page";
 import { ShareButton } from "./Share";
@@ -9,7 +10,7 @@ import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void };
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; terminals?: Record<string, string>; reply?: (m: Msg) => void };
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -131,10 +132,30 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
   const name = human ? who.name : `${m.wolt} · ${owner === ctx.me ? "yours" : who.name + "'s"}`;
   const avatar = human ? personAvatar(who.name, who.color) : woltAvatar(m.creature || "raccoon", who.color);
   const readers = mine ? ctx.seen[m.id] || [] : [];
+  // A wolt's terminal, for whoever may see it: the desk's tile on a computer, its session on your own lodge on a phone.
+  // Hold a message (or right-click it on a computer) and the room dims and shows a small bar of actions under it: the
+  // wolt's terminal, and copy. A short tap still does what it always did (in the main chat, it opens the thread);
+  // tapping outside the bar closes it. On a computer, hovering a wolt's message also shows a terminal button.
+  const link = !human && !ctx.showTerminal ? ctx.terminals?.[m.wolt!] : undefined;
+  const openTerm = !human && ctx.showTerminal ? () => ctx.showTerminal!(m.wolt!) : link ? () => window.open(link, "_blank", "noopener") : undefined;
+  const [acts, setActs] = useState<DOMRect | null>(null), [copied, setCopied] = useState(false);
+  const bubble = useRef<HTMLDivElement>(null);
+  const color = woltColor(m.wolt, ctx.wolts);
+  const hold = useHold(!m.pending && !m.failed, () => { if (bubble.current) { setActs(bubble.current.getBoundingClientRect()); setCopied(false); } });
+  const copy = async () => { try { await navigator.clipboard.writeText(m.text || ""); setCopied(true); setTimeout(() => setActs(null), 600); } catch { /* not allowed here */ } };
   return (
-    <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
-      <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
-      <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
+    <div>
+    {acts && bubble.current && <Held rect={acts} html={bubble.current.outerHTML} right={mine} close={() => setActs(null)} items={[
+      ...(ctx.reply ? [{ label: "Reply in thread", icon: <Reply size={18} />, run: () => ctx.reply!(m) }] : []),
+      ...(m.text ? [{ label: copied ? "Copied" : "Copy", icon: copied ? <Check size={18} /> : <Copy size={18} />, run: copy, keep: true }] : []),
+      ...(openTerm ? [{ label: `${m.wolt}'s terminal`, icon: <SquareTerminal size={18} />, href: link, run: link ? undefined : openTerm }] : []),
+    ]} />}
+    <div className={`group flex items-end gap-1.5 px-2.5 [@media(hover:none)]:select-none ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}
+      {...hold}>
+      {openTerm && firstOfRun ? <button type="button" data-tap onClick={(e) => { e.stopPropagation(); openTerm(); }} aria-label={`${m.wolt}'s terminal`} title={`${m.wolt}'s terminal`}
+          className="flex-none p-0 border-0 bg-transparent cursor-pointer rounded-full"><img src={avatar} alt="" className="pixel block w-7 h-7 rounded-full" /></button>
+        : <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />}
+      <div data-bubble ref={bubble} className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${acts ? "invisible" : ""} ${mine ? "border-line" : "bg-panel border-line"}`}
         style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
           : !human ? { background: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : undefined}>
         {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5" style={!human ? { color: woltColor(m.wolt, ctx.wolts) } : undefined}>[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
@@ -143,9 +164,6 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
         {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
         <Card msg={m} all={ctx.all} />
         {m.page && <PageTile m={m} ctx={ctx} />}
-        {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
-          className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
-          style={{ color: woltColor(m.wolt, ctx.wolts), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}
         <div className="flex justify-end items-center gap-1 mt-0.5 font-mono text-[10px] text-dim">
           {time(m.at)}
           {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
@@ -154,9 +172,14 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
         </div>
         {footer}
       </div>
+      {openTerm && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); openTerm(); }} title={`${m.wolt}'s terminal`} aria-label={`${m.wolt}'s terminal`}
+        className="hidden [@media(hover:hover)]:inline-flex self-center items-center gap-1 rounded-md border-0 bg-transparent px-1.5 py-1 font-mono text-[11px] cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+        style={{ color }}><SquareTerminal size={15} />terminal</button>}
+    </div>
     </div>
   );
 }
+
 
 // Each agent its own colour, so two agents of one person don't look alike: by its place in the room's list (the same on
 // every phone, and no two alike for the first eight), or from its name if it has left the room.
@@ -172,4 +195,46 @@ export function mix(hex: string, to: string, t: number) {  // blend a colour tow
   const c = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const [a, b] = [c(hex), c(to)];
   return "#" + a.map((v, i) => Math.round(v + (b[i] - v) * t).toString(16).padStart(2, "0")).join("");
+}
+
+// A long press: about half a second without moving. It also swallows the tap that ends it, and the phone's own
+// long-press menu, so holding never opens the thread or selects the words underneath.
+function useHold(on: boolean, fire: () => void) {
+  const t = useRef(0), at = useRef<{ x: number; y: number } | null>(null), fired = useRef(false);
+  if (!on) return {};
+  const stop = () => { clearTimeout(t.current); at.current = null; };
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0 || (e.target as HTMLElement).closest("a, button, audio, video, input, [data-tap]")) return;
+      fired.current = false; at.current = { x: e.clientX, y: e.clientY };
+      t.current = window.setTimeout(() => { fired.current = true; at.current = null; navigator.vibrate?.(10); fire(); }, 450);
+    },
+    onPointerMove: (e: React.PointerEvent) => { const a = at.current; if (a && Math.hypot(e.clientX - a.x, e.clientY - a.y) > 8) stop(); },
+    onPointerUp: stop, onPointerCancel: stop, onPointerLeave: stop,
+    onClickCapture: (e: React.MouseEvent) => { if (fired.current) { fired.current = false; e.stopPropagation(); e.preventDefault(); } },
+    onContextMenu: (e: React.MouseEvent) => { if ((e.target as HTMLElement).closest("a, img, video, audio")) return; e.preventDefault(); stop(); fire(); },
+    style: { WebkitTouchCallout: "none" } as React.CSSProperties,
+  };
+}
+
+// Held, like WhatsApp: the message lifts above a blurred, dimmed room, with a menu card under it (above it if there's no
+// room below). It lives on the page itself, outside any thread sheet, so tapping out closes only the menu.
+type Item = { label: string; icon: ReactNode; color?: string; href?: string; run?: () => void; keep?: boolean };
+function Held({ rect, html, right, close, items }: { rect: DOMRect; html: string; right: boolean; close: () => void; items: Item[] }) {
+  const menuH = items.length * 48 + 8, gap = 8, vh = window.innerHeight;
+  const top = Math.max(16, Math.min(rect.top, vh - 24 - menuH - gap - rect.height));
+  const side = right ? { right: window.innerWidth - rect.right } : { left: rect.left };
+  return createPortal(<div className="fixed inset-0 z-[3200] select-none [-webkit-touch-callout:none]" onClick={(e) => { e.stopPropagation(); close(); }} onPointerDown={(e) => e.stopPropagation()}>
+    <div className="absolute inset-0 bg-[#18100a1a] backdrop-blur-[3px] animate-[fadein_.15s_ease-out]" />
+    <div className="absolute pointer-events-none [&>*]:!max-w-none [&>*]:!m-0" style={{ top, ...side, width: rect.width }} dangerouslySetInnerHTML={{ __html: html.replace(" invisible", "") }} />
+    <div role="menu" className="absolute min-w-[210px] rounded-xl bg-panel shadow-[0_8px_24px_#18100a2e] overflow-hidden animate-[fadein_.15s_ease-out]"
+      style={{ top: top + rect.height + gap, ...side }} onClick={(e) => e.stopPropagation()}>
+      {items.map((it, i) => {
+        const inner = <><span className="flex-1">{it.label}</span><span className="text-ink/80">{it.icon}</span></>;
+        const cls = `flex items-center gap-3 w-full px-4 h-11 text-[15px] text-ink bg-transparent border-0 text-left no-underline cursor-pointer active:bg-line/40 ${i ? "border-t border-line/70" : ""}`;
+        return it.href ? <a key={i} role="menuitem" href={it.href} target="_blank" rel="noopener" onClick={close} className={cls} style={{ borderTopStyle: i ? "solid" : undefined }}>{inner}</a>
+          : <button key={i} role="menuitem" type="button" onClick={() => { it.run?.(); if (!it.keep) close(); }} className={cls} style={{ borderTopStyle: i ? "solid" : undefined }}>{inner}</button>;
+      })}
+    </div>
+  </div>, document.body);
 }
