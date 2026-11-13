@@ -343,6 +343,19 @@ function useMenuSwipe(menu: boolean, setMenu: (open: boolean) => void, canOpen: 
   };
 }
 
+// The room's line, beside its name: green and gently pulsing while it answers, amber while the page tries again, red when
+// it can't reach the room (this phone offline, or the room's computer asleep). The word shows on a computer, the dot everywhere.
+function Live({ link }: { link: "live" | "retry" | "down" }) {
+  const [color, word] = link === "live" ? ["#3aa45b", "live"] : link === "retry" ? ["#d99a1e", "reconnecting"] : ["#c8463a", "offline"];
+  return <span role="status" aria-label={`room ${word}`} title={`room ${word}`} className="inline-flex items-center gap-1 ml-2 align-middle font-normal text-[11px]" style={{ color }}>
+    <span className="relative inline-block w-2 h-2">
+      {link === "live" && <span className="absolute inset-0 rounded-full animate-ping opacity-40" style={{ background: color }} />}
+      <span className="absolute inset-0 rounded-full" style={{ background: color }} />
+    </span>
+    <span className="hidden sm:inline">{word}</span>
+  </span>;
+}
+
 // Through the relay the room lives on its host's computer. When that computer sleeps or the room is closed, say so
 // plainly (the pipe keeps trying by itself); a link without its key can't work at all.
 function Offline({ missing, state }: { missing: boolean; state: PipeState }) {
@@ -395,7 +408,7 @@ function NameFirst({ done }: { done: () => void }) {
 
 export function App() {
   useFit();
-  const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after } = useRoom();
+  const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after, link: line } = useRoom();
   const firstState = useRef(state), loading = state === firstState.current;  // nothing from the room yet
   const [naming, setNaming] = useState(needsName);  // an invite link: who are you, first
   const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
@@ -632,7 +645,7 @@ export function App() {
         </button>
         <img src="/room-icon.png" alt="" className="w-9 h-9 rounded-full" />
         <div className="min-w-0 flex-1">
-          <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
+          <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></div>
           <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
         </div>
         {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
