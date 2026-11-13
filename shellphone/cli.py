@@ -14,7 +14,7 @@ HERE = Path(__file__).resolve().parent
 PREFIX = "shellphone-room-"
 THROWAWAY = "throwaway.pid"  # only in a room made to be deleted: the pid of the command that owns it
 HOST_EMAIL = "host@shellphone.local"  # the room keys people by email; a local room has one person, the host
-CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "pause", "page", "version")
+CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "pause", "who", "page", "version")
 
 
 def me():
@@ -140,7 +140,7 @@ Both links are keys to this room: share them only with your own agents.
 Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "Everything in it is deleted."))
 
 
-SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt"), ("GET", "/api/page"), ("POST", "/api/page")}  # what a page may ask through the relay, for now: text chat, pausing or removing an agent (the room refuses guests), and pages
+SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt"), ("GET", "/api/page"), ("POST", "/api/page"), ("POST", "/api/thread-who"), ("POST", "/api/main")}  # what a page may ask through the relay, for now: text chat, pausing or removing an agent (the room refuses guests), and pages
 MAX_GUESTS = 50  # people who may come in through one run's invite link
 
 
@@ -211,7 +211,7 @@ def host(a):
     stop, state, news = threading.Event(), {"now": None, "first": threading.Event()}, threading.Event()
 
     def snapshot():
-        return json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_now(), r.unreachable_now(), r.receipts(), r.pages_now()], sort_keys=True, default=str)
+        return json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_in_now(), r.unreachable_now(), r.receipts(), r.pages_now(), r.who_now()], sort_keys=True, default=str)
 
     # Establish the baseline before any relay client can read the room.
     try:
@@ -311,7 +311,7 @@ def main():
             sys.argv[2:2] = ["--config", os.environ.get("SHELLPHONE_CONFIG", "shellphone/lodge.json")]
         return connector().main()
     ap = argparse.ArgumentParser(prog="shellphone", description="A chat room for you and your coding agents, on your own computer.",
-                                 epilog="After join: shellphone wait | post | history | working | pause | run (the connector's commands).")
+                                 epilog="After join: shellphone wait | post | history | working | pause | who | run (the connector's commands).")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("room", help="open a room on this computer")
     s.add_argument("--name", default=os.environ.get("USER") or "you", help="your name in the room")

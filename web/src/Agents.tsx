@@ -2,14 +2,18 @@
 // it nothing, a tag included, and it can't post, so it costs nothing. The switches show where you may use them: on every
 // agent for the room's host, on your own agents otherwise. Everyone sees the list.
 import { useState } from "react";
-import { Pause, Play, X } from "lucide-react";
+import { ChevronDown, Pause, Play, X } from "lucide-react";
 import { say, type Person, type Wolt } from "./room";
 import { woltAvatar } from "./sprites";
 
 const set = (wolt: string, state: "on" | "paused" | "removed") =>
   say("/api/wolt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt, state }) });
 
-export function Agents({ wolts, people, me, host, sec }: { wolts: Wolt[]; people: Person[]; me: string; host?: string; sec: string }) {
+// The main agent (main): in every thread, and the one you can ask to bring others in or out. Only the host picks it.
+const crown = (wolt: string | null) =>
+  say("/api/main", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt }) });
+
+export function Agents({ wolts, people, me, host, sec, main }: { wolts: Wolt[]; people: Person[]; me: string; host?: string; sec: string; main?: string | null }) {
   const [busy, setBusy] = useState("");      // the agent a change is on its way for
   const [asking, setAsking] = useState("");  // the agent whose removal waits for a second tap
   const [note, setNote] = useState("");
@@ -30,7 +34,7 @@ export function Agents({ wolts, people, me, host, sec }: { wolts: Wolt[]; people
         <img src={woltAvatar(w.creature || "raccoon", owner?.color || "#8a6a52")} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />
         <span className="flex-1 min-w-0">
           <span className={`block truncate font-mono text-sm ${w.paused ? "text-dim" : "text-ink"}`}>{w.wolt}</span>
-          <small className="block text-xs text-dim">{w.paused ? "paused · hears nothing" : `${owner?.name || w.owner}'s`}</small>
+          <small className="block text-xs text-dim">{w.paused ? "paused · hears nothing" : `${owner?.name || w.owner}'s`}{main === w.wolt ? " · main" : ""}</small>
         </span>
         {may(w) && (asking === w.wolt
           ? <>
@@ -45,6 +49,19 @@ export function Agents({ wolts, people, me, host, sec }: { wolts: Wolt[]; people
           </>)}
       </div>;
     })}
+    {me === host && main !== undefined && <label className="relative flex items-center gap-2.5 px-4 py-2 cursor-pointer">
+      <span className="flex-1 min-w-0">
+        <span className="block font-mono text-sm text-ink">Main agent: <span className={main ? "text-acc" : "text-dim"}>{main || "none"}</span></span>
+        <small className="block text-xs text-dim">in every thread, brings others in or out when you ask</small>
+      </span>
+      <ChevronDown size={16} className="flex-none text-dim" />
+      {/* the phone's own picker, laid invisibly over the row */}
+      <select aria-label="Main agent" value={main || ""} disabled={busy === "main"} className="absolute inset-0 opacity-0 cursor-pointer"
+        onChange={async (e) => { setBusy("main"); setNote((await crown(e.target.value || null)) || ""); setBusy(""); }}>
+        <option value="">none</option>
+        {wolts.map((w) => <option key={w.wolt} value={w.wolt}>{w.wolt}</option>)}
+      </select>
+    </label>}
     {note && <div className="px-4 pb-1 text-xs text-acc">{note}</div>}
   </>;
 }

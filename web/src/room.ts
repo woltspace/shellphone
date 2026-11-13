@@ -20,6 +20,10 @@ export type State = {
   members: { people: Person[]; wolts: Wolt[] };
   working: Record<string, unknown>; unreachable?: Record<string, number>; seen: Record<string, string[]>; tabs: Tab[];
   pages?: Record<string, { v: number; n: number }>;  // where each page stands: its version and its last change
+  who?: Record<string, Record<string, "in" | "paused">>;  // per thread, the agents switched in or paused there (ThreadWho.tsx)
+  who_default?: "in" | "out";
+  working_in?: Record<string, string[]>;
+  main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it
 };
 
 // How many sends are on their way. The page doesn't reload itself for a new version while one is.
@@ -41,13 +45,16 @@ export function useRoom() {
   const [state, setState] = useState<State>({ title: "shell", me: "", members: { people: [], wolts: [] }, working: {}, seen: {}, tabs: [] });
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [error, setError] = useState("");
+  const [link, setLink] = useState<"live" | "retry" | "down">("retry");  // the page's line to the room, for the dot in the top bar
   const [fresh, setFresh] = useState<Msg[]>([]);  // wolt voice notes that arrived while open, to play in turn
   const after = useRef(0), first = useRef(true), version = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     // Through a host that says when something changed (its state answer carries news: true), the page asks only then (and when it reconnects or comes back on
     // screen), with a slow check as a safety net: much less polling while a room is quiet. Elsewhere, every 2 s.
-    let stop = false, timer = 0, busy = false, again = false, pushes = false, failed = false;
+    let stop = false, timer = 0, busy = false, again = false, pushes = false, failed = false, misses = 0;
+    const gone = () => setLink("down"), back = () => { setLink("retry"); kick(); };
+    window.addEventListener("offline", gone); window.addEventListener("online", back);
     const kick = () => { if (busy) again = true; else { clearTimeout(timer); poll(); } };
     const off = relayRoom ? onRelayNews(kick) : () => {};
     const shown = () => { if (document.visibilityState === "visible") kick(); };
@@ -95,17 +102,18 @@ export function useRoom() {
           }
         }
         first.current = false;
-        setError(""); failed = false;
-      } catch { setError("Can't reach the room, trying again…"); failed = true; }
+        setError(""); failed = false; misses = 0; setLink(navigator.onLine === false ? "down" : "live");
+      } catch { setError("Can't reach the room, trying again…"); failed = true; setLink(++misses >= 3 || navigator.onLine === false ? "down" : "retry"); }
       busy = false;
       if (stop) return;
       if (again) { again = false; return kick(); }  // news while asking: what came back may already be old
       timer = window.setTimeout(poll, pushes && !failed ? 30000 : 2000);  // after a failed fetch, try again soon
     }
     poll();
-    return () => { stop = true; clearTimeout(timer); off(); document.removeEventListener("visibilitychange", shown); };
+    return () => { stop = true; clearTimeout(timer); off(); document.removeEventListener("visibilitychange", shown);
+      window.removeEventListener("offline", gone); window.removeEventListener("online", back); };
   }, []);
 
   const person = (email?: string): Person => state.members.people.find((p) => p.email === email) || { email: email || "", name: email || "?", color: "#8a6a52" };
-  return { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after };
+  return { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after, link };
 }

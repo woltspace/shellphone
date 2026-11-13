@@ -58,6 +58,7 @@ you ask:
 
 - **shellphone-host**: run a room from the Start page's message (and where to look for a lasting, self-hosted room).
 - **shellphone-join**: join with a room's join line, listen with `wait`, and how to behave in the room.
+- **shellphone-setup** (draft): "make me a shellphone with my wolts": a wolt sets up a room for someone who never opens a terminal, brings their wolts in, and sends them the link.
 
 Claude Code:
 

@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { ChevronLeft, ChevronRight, MessagesSquare } from "lucide-react";
 import type { Ctx } from "./Message";
-import type { Msg } from "./room";
+import type { Msg, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 
 export function ago(at: number) {
@@ -51,7 +51,15 @@ export const unread = (list: Msg[], seen: number | undefined, me: string) => lis
 
 // A message's thread, as a bar along the bottom of its bubble: who replied, how many, a dot when there's something new.
 // It's part of the message, so it reads as "tap to open".
-export function ThreadFooter({ list, fresh, ctx, onOpen }: { list: Msg[]; fresh: boolean; ctx: Ctx; onOpen: () => void }) {
+// a wolt working in a thread: its face chews right on the thread's row, so you see it from outside without opening it
+export function Busy({ wolts, ctx }: { wolts?: Wolt[]; ctx: Ctx }) {
+  if (!wolts?.length) return null;
+  return <span className="flex flex-none items-center gap-1 font-mono text-[11px] text-acc" aria-label={`${wolts.map((w) => w.wolt).join(", ")} working here`}>
+    {wolts.slice(0, 3).map((w) => <img key={w.wolt} src={woltAvatar(w.creature || "raccoon", ctx.person(w.owner).color)} alt="" className="gnaw-img pixel w-5 h-5" />)}
+    working…</span>;
+}
+
+export function ThreadFooter({ list, fresh, ctx, onOpen, busy }: { list: Msg[]; fresh: boolean; ctx: Ctx; onOpen: () => void; busy?: Wolt[] }) {
   const faces: Msg[] = [];
   for (const m of [...list].reverse()) if (faces.length < 3 && !faces.some((f) => (f.wolt || f.email) === (m.wolt || m.email))) faces.push(m);
   const face = (m: Msg) => { const p = ctx.person(m.kind === "human" ? m.email : m.owner);
@@ -62,7 +70,7 @@ export function ThreadFooter({ list, fresh, ctx, onOpen }: { list: Msg[]; fresh:
     <b className={`text-[13.5px] ${fresh ? "text-acc" : "text-ink"}`}>{list.length} {list.length === 1 ? "reply" : "replies"}</b>
     {fresh && <i className="flex-none w-[7px] h-[7px] rounded-full bg-acc" aria-label="new replies" />}
     <span className="flex-1" />
-    <span className="flex-none font-mono text-[11px] text-dim">{ago(list.at(-1)!.at)}</span>
+    {busy?.length ? <Busy wolts={busy} ctx={ctx} /> : <span className="flex-none font-mono text-[11px] text-dim">{ago(list.at(-1)!.at)}</span>}
     <ChevronRight className="flex-none text-dim" size={16} />
   </button>;
 }
@@ -117,6 +125,7 @@ export function InboxSheet({ top, main, roots, replies, ctx, seen, current, onMa
   const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
   const count = (n: number) => <span className="flex-none min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{n}</span>;
   const newCount = (list: Msg[], id: string) => list.filter((m) => m.n > (seen[id] || 0) && !(m.kind === "human" && m.email === ctx.me)).length;
+  const busyAt = (key: string) => ctx.busy?.(key === "main" || key === "main-back" ? "" : key) || [];
   const sec = "px-4 pt-3.5 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
   const row = (key: string, color: string, title: React.ReactNode, line: string, when: number, n: number, here: boolean, go: () => void) =>
     <button key={key} type="button" onClick={go} style={{ borderLeft: `4px solid ${color}` }}
@@ -124,7 +133,7 @@ export function InboxSheet({ top, main, roots, replies, ctx, seen, current, onMa
       <div className="flex items-center gap-2 font-mono text-[13px] font-semibold">
         <span className="flex-1 min-w-0 truncate" style={{ color }}>{title}</span>
         {n > 0 && count(n)}
-        <span className="flex-none text-[11px] font-normal text-dim">{ago(when)}</span>
+        {busyAt(key).length ? <Busy wolts={busyAt(key)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(when)}</span>}
       </div>
       <div className={`mt-0.5 text-sm truncate ${n ? "text-ink font-semibold" : "text-dim"}`}>{line}</div>
     </button>;
