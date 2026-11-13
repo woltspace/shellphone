@@ -2,7 +2,7 @@
 // is a plain conversation. Underneath, a chat is a thread the room marked as standing on its own (state.sessions), so
 // messages, voice, files and the hold menu work as everywhere else. "Everyone" is the room's shared chat, as before.
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronLeft, ChevronRight, Menu as MenuIcon, Plus, SquareTerminal } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Menu as MenuIcon, Monitor, Plus, SquareTerminal } from "lucide-react";
 import { woltColor, type Ctx } from "./Message";
 import type { Msg, State, Wolt } from "./room";
 import { LORE, personAvatar } from "./sprites";
@@ -101,9 +101,9 @@ function Hero({ state, ctx, onNew, onMenu, dot }: { state: State; ctx: Ctx; onNe
 }
 
 // Home: your wolts like contacts, then the groups, then everyone. On a computer it is the left column, without the scene.
-export function HomeList({ state, ctx, chats, everyone, compact, sel, here, dot, onWolt, onChat, onEveryone, onNew, onMenu }: {
+export function HomeList({ state, ctx, chats, everyone, compact, sel, here, dot, onWolt, onChat, onEveryone, onNew, onMenu, onDesk }: {
   state: State; ctx: Ctx; chats: Chat[]; everyone: { at?: number; fresh: number }; compact?: boolean; sel?: string; here?: string; dot?: boolean;
-  onWolt: (w: string) => void; onChat: (id: string) => void; onEveryone: () => void; onNew: () => void; onMenu: () => void;
+  onWolt: (w: string) => void; onChat: (id: string) => void; onEveryone: () => void; onNew: () => void; onMenu: () => void; onDesk?: () => void;
 }) {
   const yours = state.members.wolts.filter((w) => w.owner === state.me), others = state.members.wolts.filter((w) => w.owner !== state.me);
   const groups = chats.filter((c) => c.wolts.length > 1);
@@ -128,6 +128,7 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, dot,
       <button type="button" aria-label="Menu" onClick={onMenu} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
         <MenuIcon size={20} />{dot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}</button>
       <h1 className="m-0 flex-1 min-w-0 truncate font-mono font-bold text-lg">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
+      {onDesk && <button type="button" aria-label="Show the terminals" title="desk: your wolts' terminals" onClick={onDesk} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><Monitor size={19} /></button>}
       <PlusButton small label="New chat" onClick={onNew} /></header>
       : <Hero state={state} ctx={ctx} onNew={onNew} onMenu={onMenu} dot={dot} />}
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))]">
