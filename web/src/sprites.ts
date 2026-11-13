@@ -27,3 +27,8 @@ export function woltAvatar(creature: string, color: string) {
   const pad = side * 0.25, box = side + pad * 2;
   return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${box} ${box}" shape-rendering="crispEdges"><circle cx="${side / 2}" cy="${side / 2}" r="${box / 2 - 1}" fill="${color}33" stroke="${color}" stroke-width="1.6"/>${rects}</svg>`);
 }
+// the creature alone, no circle: standing in a scene
+export function woltSprite(creature: string) {
+  const { map } = SPRITES[creature] || SPRITES.raccoon, { rects } = spriteRects(creature);
+  return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.max(...map.map((r) => r.length))} ${map.length}" shape-rendering="crispEdges">${rects}</svg>`);
+}

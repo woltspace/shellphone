@@ -11,6 +11,8 @@ import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { InboxSheet, ThreadFooter, threadColor, threadTitle, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
+import { ChatHeader, chatsOf, HomeList, NewChat, Standby, WoltChats, type Chat, type Nav } from "./Chats";
+import { ContactCard } from "./CardContact";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
 import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, X } from "lucide-react";
@@ -430,11 +432,20 @@ export function App() {
   const setDesk = (on: boolean) => { setDeskOn(on); try { localStorage.setItem("desk", on ? "1" : "0"); } catch { /* private mode */ } };
   const [focus, setFocus] = useState<{ wolt: string; at: number } | null>(null);
   const [thread, setThread] = useState("");
+  // Wolts as contacts (Chats.tsx): home, a wolt's chats, a new chat, a chat, or the room's shared chat ("Everyone").
+  // A room from before chats says nothing about them: it stays one shared chat, as always.
+  const chatsOn = state.sessions !== undefined;
+  const [navNow, setNav] = useState<Nav>({ at: "home" });
+  const nav: Nav = chatsOn ? navNow : { at: "everyone" };
+  const chatId = nav.at === "chat" ? nav.id : "";
+  const place = chatId || thread;  // where what you send goes: the open chat, the open thread, or ("") the shared chat
+  const [card, setCard] = useState("");  // the wolt whose contact card is open
+  const cols = typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches;
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined, terminals: state.terminals,
-    reply: (m: Msg) => { if (!m.thread) open(m.id); setTimeout(() => { const c = document.querySelectorAll<HTMLTextAreaElement>("[data-composer] textarea"); c[c.length - 1]?.focus(); }, 280); },
+  const ctx: Ctx = { me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined, terminals: state.terminals, looks: state.looks,
+    reply: (m: Msg) => { if (!chatId && !m.thread) open(m.id); setTimeout(() => { const c = document.querySelectorAll<HTMLTextAreaElement>("[data-composer] textarea"); c[c.length - 1]?.focus(); }, 280); },
     // who's working where ("" the main chat, else a thread); a room that doesn't say where: everywhere, as before
     busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]) };
 
@@ -443,7 +454,7 @@ export function App() {
     const replies = new Map<string, Msg[]>(), main: Msg[] = [];
     for (const m of msgs) {
       if (m.thread) replies.set(m.thread, [...(replies.get(m.thread) || []), m]);
-      else main.push(m);
+      else if (!m.session) main.push(m);  // a chat's first message belongs to the chat, not to the shared one
     }
     return { main, replies };
   }, [msgs]);
@@ -455,6 +466,25 @@ export function App() {
   // an open thread counts as read, including replies that arrive while you're in it
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
   const roots = main.filter((m) => replies.has(m.id));
+  const chats = useMemo(() => chatsOf(state, msgs, replies, seen), [state.sessions, state.me, msgs, replies, seen]);
+  const chatRoot = chatId ? msgs.find((m) => m.id === chatId) : undefined;
+  // a chat you just started is on screen before the room's list says so
+  const chat: Chat | undefined = chats.find((c) => c.id === chatId) || (chatRoot?.session ? { id: chatId, title: threadTitle(chatRoot), wolts: chatRoot.to || [], at: chatRoot.at, fresh: 0 } : undefined);
+  const chatList = chatRoot ? [chatRoot, ...(replies.get(chatId) || [])] : [];
+  useEffect(() => { if (chatList.length) mark(chatId, chatList.at(-1)!.n); }, [chatId, chatList.length]);  // an open chat counts as read
+  // a notification that lands in a chat arrives as "its thread": show the chat instead
+  useEffect(() => { if (thread && state.sessions?.some((x) => x.id === thread)) { setNav({ at: "chat", id: thread }); setThread(""); } }, [thread, state.sessions]);
+  const openChat = (id: string, wolt?: string) => { setThread(""); setNav({ at: "chat", id, wolt }); };
+  const selWolt = nav.at === "wolt" || nav.at === "chat" || nav.at === "new" ? nav.wolt : undefined;
+  async function startChat(wolts: string[], first: string): Promise<string | null> {
+    const r = await send("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolts, text: first, cid: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }) });
+    if (!r) return "Can't reach the room.";
+    if (!r.ok) return r.status === 404 ? "This room can't start chats yet." : ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't start.";
+    const m = (await r.json()) as Msg;
+    setMsgs((old) => (old.some((x) => x.id === m.id) ? old : [...old, m].sort((a, b) => a.n - b.n)));
+    openChat(m.id, wolts.length === 1 ? wolts[0] : undefined);
+    return null;
+  }
   // a room with no threads yet opens on its chat, not on an empty list (a brand-new room, someone's first)
   const settled = useRef(false);
   const threadsSeen = useRef(false); threadsSeen.current = replies.size > 0;
@@ -465,7 +495,7 @@ export function App() {
   useEffect(() => { if (!thread && main.length) mark("main", main.at(-1)!.n); }, [thread, main]);
   const inboxCount = freshCount + mainFresh.length;
   const hdr = useRef<HTMLElement>(null), [hdrH, setHdrH] = useState(0);
-  useLayoutEffect(() => { const el = hdr.current; if (!el) return; const ro = new ResizeObserver(() => setHdrH(el.offsetHeight)); ro.observe(el); return () => ro.disconnect(); }, []);
+  useLayoutEffect(() => { const el = hdr.current; if (!el) return; const ro = new ResizeObserver(() => setHdrH(el.offsetHeight)); ro.observe(el); return () => ro.disconnect(); }, [nav.at]);
   const swipe = useSwipeBack(() => setThread(""));
 
   // Where the app opens. A tapped notification lands on its message: inside its thread if it's a reply, or the main
@@ -480,7 +510,7 @@ export function App() {
     target.current = { m: h.get("m")!, t: h.get("t") || "" };
     // the address says where we're going until we get there, so a reload on the way (a room update) still lands
     history.replaceState(null, "", location.pathname + "#m=" + encodeURIComponent(h.get("m")!) + (h.get("t") ? "&t=" + encodeURIComponent(h.get("t")!) : ""));
-    setMenu(false); setListOpen(false);
+    setMenu(false); setListOpen(false); setNav({ at: "everyone" });
     if (target.current.t) open(target.current.t); else setThread("");  // no jump to the bottom: we're going to the message
     setLanding((x) => x + 1);
     const mine = target.current; setTimeout(() => { if (target.current === mine) { target.current = null; history.replaceState(null, "", location.pathname); } }, 8000);  // not here after all: let it go
@@ -525,8 +555,8 @@ export function App() {
   // leaving the spot you landed on (back to the list, another thread) clears it from the address
   useEffect(() => {
     const h = new URLSearchParams(location.hash.slice(1));
-    if (h.get("m") && !target.current && (listOpen || (h.get("t") || "") !== thread)) history.replaceState(null, "", location.pathname);
-  }, [thread, listOpen]);
+    if (h.get("m") && !target.current && (listOpen || (h.get("t") || "") !== place)) history.replaceState(null, "", location.pathname);
+  }, [place, listOpen]);
 
   const menuSwipe = useMenuSwipe(menu, setMenu, !listOpen);
 
@@ -552,7 +582,7 @@ export function App() {
   const report = (e: string | null) => setError(e || "");
   const push = usePush(report);
   const where = (t?: string) => (t ? `&thread=${t}` : "");
-  const stick = () => (thread ? stickThread : stickMain).current();
+  const stick = () => (place ? stickThread : stickMain).current();
   // A voice note waits on this phone until the room has it. If it doesn't get there, it stays with "Tap to send again".
   type Typed = { cid: string; text: string; thread?: string };
   const outgoing = useRef(new Map<string, Outgoing | Typed>());
@@ -560,7 +590,7 @@ export function App() {
   // words are written down. The recording joins it a moment later, when the phone has handed it over.
   const voiceAt = useRef(new Map<string, { thread?: string; at: number }>());
   function voiceStart(seconds: number) {
-    const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t = thread || undefined, at = Date.now() / 1000;
+    const cid = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t = place || undefined, at = Date.now() / 1000;
     voiceAt.current.set(cid, { thread: t, at });
     setListening(false);
     setMsgs((m) => [...m, { id: cid, cid, n: after.current + 0.9, at, kind: "human", email: state.me, text: "", audio: "local", seconds, pending: true, thread: t }]); stick();
@@ -616,7 +646,7 @@ export function App() {
     if ("blob" in o) { if (o.owner === state.me) sendVoice(o); } else sendTyped(o);
   }
   async function files(list: File[], text: string) {
-    const t = thread || undefined;
+    const t = place || undefined;
     // all of them in one message, one after another in the body; their sizes tell the room where each ends
     const q = list.map((f) => `name=${encodeURIComponent(f.name)}&size=${f.size}`).join("&");
     report(await say(`/api/files?${q}&text=${encodeURIComponent(text)}${where(t)}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: new Blob(list) }));
@@ -628,7 +658,7 @@ export function App() {
   // what you type shows at once, then becomes the room's copy as soon as the room has it (no wait for the next poll)
   async function text(t: string) {
     stick();
-    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t, thread: thread || undefined };
+    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t, thread: place || undefined };
     setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, thread: o.thread }]);
     sendTyped(o);
   }
@@ -640,21 +670,34 @@ export function App() {
   }
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
-  const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
+  const composer = <Composer key={place || "main"} draft={place || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={chat ? `message ${chat.wolts.join(chat.wolts.length === 2 ? " and " : ", ")}…` : thread ? "$ reply in thread" : undefined} />;
   // on the desk: the wolts of the open thread (or every wolt that isn't paused, in the main chat)
-  const deskWolts = state.members.wolts.filter((w) => !w.paused && (!thread || !state.who || state.main === w.wolt || state.who[thread]?.[w.wolt] === "in"));
+  const deskWolts = state.members.wolts.filter((w) => !w.paused && (!place || !state.who || (state.main === w.wolt && !chatId) || state.who[place]?.[w.wolt] === "in"));
+  const wideCols = chatsOn && !desk && cols;  // a computer: wolts · chats · chat side by side
+  const toHome = () => { setThread(""); setNav({ at: "home" }); };
+  const woltOf = (name: string) => state.members.wolts.find((w) => w.wolt === name);
+  const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId} dot={!!push.ask}
+    everyone={{ at: main.at(-1)?.at, fresh: inboxCount }} onWolt={(w) => { setThread(""); setNav({ at: "wolt", wolt: w }); }} onChat={(id) => openChat(id)}
+    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} onMenu={() => setMenu(true)} />;
+  const woltList = (name: string, compact = false) => <WoltChats w={woltOf(name)!} state={state} ctx={ctx} chats={chats} compact={compact} here={chatId} onBack={toHome}
+    onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} />;
+  const cardWolt = card ? woltOf(card) : undefined;
+  const cardView = cardWolt && <ContactCard wolt={cardWolt} ctx={ctx} host={state.host} look={state.looks?.[cardWolt.wolt]} onClose={() => setCard("")}
+    onNewChat={(w) => { setCard(""); setNav({ at: "new", wolts: [w], wolt: w }); }} />;
   const room = (
     <div className="h-full flex flex-col relative bg-paper" {...menuSwipe.screen}>
+      {nav.at === "everyone" && <>
       <header ref={hdr} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-paper border-b border-line">
         {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
-        <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={() => setMenu(!menu)}
+        {chatsOn ? (!wideCols && <button type="button" aria-label="Back to your wolts" onClick={toHome} className="flex-none w-9 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={26} /></button>)
+        : <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={() => setMenu(!menu)}
           className={`relative ${menu ? "z-[1720]" : ""} flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-[10px]`}>
           {menu ? <X size={22} /> : <MenuIcon size={22} />}
           {!menu && push.ask && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-acc" />}
-        </button>
+        </button>}
         <span className="relative flex-none w-12 h-12 rounded-full bg-[#f5f1e8] ring-1 ring-line"><img src="/room-icon.png" alt="" className="absolute inset-1 w-10 h-10 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
         <div className="min-w-0 flex-1">
-          <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
+          <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{chatsOn ? "everyone" : state.title || "shell"}</span></div>
           <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
         </div>
         {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
@@ -673,6 +716,16 @@ export function App() {
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} place={thread} />
         {composer}
       </ThreadSheet>}
+      </>}
+      {nav.at === "chat" && (chat ? <>
+        <ChatHeader chat={chat} ctx={ctx} compact={wideCols} onBack={() => (nav.wolt ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome())} onCard={setCard} />
+        <Feed list={chatList} ctx={ctx} working={state.working || {}} away={state.unreachable} stick={stickThread} place={chatId} />
+        {composer}
+      </> : <Standby state={state} />)}
+      {nav.at === "new" && <NewChat key={nav.wolts.join()} state={state} ctx={ctx} start={nav.wolts} onStart={startChat}
+        onBack={() => (nav.wolt ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome())} />}
+      {(nav.at === "home" || nav.at === "wolt") && (wideCols ? <Standby state={state} /> : nav.at === "wolt" && woltOf(nav.wolt) ? woltList(nav.wolt) : homeList(false))}
+      {cardView && !wideCols && <div className="absolute inset-0 z-[1560] bg-paper animate-[fadein_.15s_ease-out]">{cardView}</div>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} onAgent={() => setAdding(true)} main={state.main} />
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
@@ -684,6 +737,12 @@ export function App() {
       {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>
   );
+  if (wideCols) return <div className="h-full flex">
+    <aside className="flex-none w-[300px] h-full border-r border-line">{homeList(true)}</aside>
+    {selWolt && woltOf(selWolt) && <aside className="flex-none w-[270px] h-full border-r border-line">{woltList(selWolt, true)}</aside>}
+    <div className="flex-1 min-w-0 h-full relative overflow-hidden [transform:translateZ(0)]">{room}</div>
+    {cardView && <aside className="flex-none w-[340px] h-full border-l border-line">{cardView}</aside>}
+  </div>;
   if (!desk) return room;
   return <div className="h-full flex">
     <Suspense fallback={<div className="flex-1 bg-[#2a231c]" />}>
