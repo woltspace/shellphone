@@ -53,7 +53,7 @@ export function Face({ w, ctx, size = 46, bare, className = "" }: { w?: Wolt; ct
 const SEC = "px-4 pt-3 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 const ROW = "flex w-full items-center gap-3 px-4 py-2 border-0 border-b border-[#ece4d6] text-left cursor-pointer active:opacity-70";
 const AddButton = ({ label, onClick }: { label: string; onClick: () => void }) =>
-  <button type="button" onClick={onClick} className="flex-none flex items-center justify-center gap-1.5 -my-2 h-[34px] w-[150px] rounded-full border-0 bg-acc font-mono font-semibold text-[13px] tracking-normal normal-case text-white cursor-pointer shadow-[0_2px_6px_#c4531e55] active:opacity-80">
+  <button type="button" onClick={onClick} className="flex-none flex items-center justify-center gap-1.5 -my-2 h-[34px] w-[150px] rounded-full border border-[#c4531e88] bg-transparent font-mono font-semibold text-[13px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
     <Plus size={16} strokeWidth={3} />{label}</button>;
 const Badge = ({ n }: { n: number }) => n > 0 ? <span className="inline-block min-w-5 h-5 px-1.5 rounded-full bg-acc text-white font-sans font-bold text-[11px] leading-5 text-center">{n}</span> : null;
 export const PlusButton = ({ label, onClick, small }: { label: string; onClick: () => void; small?: boolean }) =>
