@@ -321,7 +321,8 @@ def sessions_now():
         last = as_message(last[0]) if last else root
         count = q("select count(*) as k from messages where json_extract(data, '$.thread') = ? and kind in ('human', 'wolt')", root["id"])[0]["k"]
         text = (root.get("text") or "").strip().split("\n")[0]
-        out.append({"id": root["id"], "title": titles.get(root["id"]) or (text[:40] + ("…" if len(text) > 40 else "")) or "new chat",
+        out.append({"id": root["id"], "named": root["id"] in titles,  # not named: a group goes by its members, like iMessage
+                    "title": titles.get(root["id"]) or (text[:40] + ("…" if len(text) > 40 else "")) or "new chat",
                     "by": root.get("email"), "at": root["at"], "wolts": [w for w, st in (who.get(root["id"]) or {}).items() if st == "in"],
                     "last_at": last["at"], "last_text": (last.get("text") or ("a voice note" if last.get("audio") else "a file" if last.get("files") else ""))[:140],
                     "last_by": last.get("wolt") if last["kind"] == "wolt" else (names.get(last.get("email"), {}).get("name") or last.get("email")),

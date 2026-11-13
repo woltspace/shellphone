@@ -12,7 +12,8 @@ is not part of the lobby (the old shared chat) and only the wolts in it hear it.
 
 - Who's in it: the wolts picked when it started, plus anyone @tagged in it later (the same switches as threads,
   `who[session_id]`). The main wolt is **not** in a session unless it was picked or tagged.
-- Its title: the first message's words, cut short. (Renaming can come later.)
+- Its title: the name someone gave it (`"named": true`), else the first message's words, cut short (`"named": false`;
+  a group can then go by its members' names, like iMessage).
 
 ### Start one
 

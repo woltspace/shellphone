@@ -234,6 +234,7 @@ class FrontDoor(unittest.TestCase):
         # A group, a name for it, and a tag that brings one more in.
         group = page("/api/sessions", {"wolts": ["helper", "second"], "text": "both of you", "title": "Saturday"})["id"]
         self.assertEqual(r.state()["sessions"][0]["title"], "Saturday")
+        self.assertEqual([c["named"] for c in r.state()["sessions"]], [True, False])
         self.assertEqual(page("/api/session-title", {"id": group, "title": "Saturday demo"}), {"id": group, "title": "Saturday demo"})
         self.assertEqual(page("/api/session-title", {"id": "nope", "title": "x"}), 404)
         self.assertIn("both of you", hear(work, 5)), self.assertIn("both of you", hear(other, 5))
