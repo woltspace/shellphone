@@ -290,6 +290,19 @@ class FrontDoor(unittest.TestCase):
         self.assertNotEqual(run("who", "--thread", side, cwd=other).returncode, 0)  # it can't take itself out
         self.assertNotEqual(run("who", "--thread", side, "second", "paused", cwd=work).returncode, 0)  # and nobody else got its rights
         self.assertEqual(agent(other, "/lodge/state", {"wolt": "helper", "paused": True}), 403)  # the room-wide switches stay with people
+        # With a main agent, the main chat goes to it and to whoever is @tagged; untagged, only the main agent hears it.
+        hear(work, 3)
+        page("/api/messages", {"text": "an untagged word in the main chat"})
+        self.assertNotIn("untagged word", hear(work))
+        page("/api/messages", {"text": "helper, your name alone in the main chat"})
+        self.assertNotIn("your name alone", hear(work))
+        page("/api/messages", {"text": "@helper a tagged word in the main chat"})
+        self.assertIn("tagged word in the main chat", hear(work, 5))
+        heard = ""
+        while "tagged word in the main chat" not in heard and (got := hear(other, 5)) and "No new messages" not in got:
+            heard += got
+        self.assertIn("an untagged word", heard)  # the main agent heard both
+        self.assertIn("tagged word in the main chat", heard)
         self.assertEqual(page("/api/main", {"wolt": None}), {"main": None})
         self.assertEqual(agent(other, "/lodge/thread-who", {"thread": side, "wolt": "helper", "state": "paused"}), 403)
         hear(work, 3)

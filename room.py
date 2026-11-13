@@ -264,7 +264,8 @@ def mark_asked(text, email, tid=None):
     """Tagged wolts light up the moment the message lands, even before their connector picks it up."""
     with tx() as c:
         for l in wolts():
-            if not l["paused"] and asks({"kind": "human", "email": email, "text": text}, l["wolt"], l["owner"]) and (not tid or hears(tid, l["wolt"])):
+            m = {"kind": "human", "email": email, "text": text}
+            if not l["paused"] and asks(m, l["wolt"], l["owner"]) and (hears(tid, l["wolt"]) if tid else hears_main(m, l["wolt"])):
                 set_working(c, l["wolt"], ASKED_FOR, tid)
 
 
@@ -275,6 +276,13 @@ def mark_asked(text, email, tid=None):
 def main_wolt():
     row = q("select value from meta where key = 'main' and value in (select wolt from wolts)")
     return row[0]["value"] if row else None
+
+
+def hears_main(m, wolt):
+    """A message in the main chat, once the room has a main agent, goes to the main agent and the agents @tagged in it (an
+    agent also gets its own). Untagged, only the main agent hears it and brings in whoever it needs. No main agent: everyone."""
+    main = main_wolt()
+    return not main or wolt == main or tagged(m, wolt) or (m.get("kind") == "wolt" and m.get("wolt") == wolt)
 
 
 def set_main(wolt):
@@ -946,7 +954,8 @@ def for_wolt(req, l):
                 new = [m if m["kind"] not in ("human", "wolt", "activity") else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
             else:  # a thread it isn't in, or is paused in: the same, for that thread only
                 deaf = {t: not hears(t, l["wolt"]) for t in {m["thread"] for m in new if m.get("thread")}}
-                new = [m if m["kind"] not in ("human", "wolt", "activity") or not deaf.get(m.get("thread")) else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
+                gone = lambda m: deaf.get(m["thread"]) if m.get("thread") else not hears_main(m, l["wolt"])  # the main chat: see hears_main
+                new = [m if m["kind"] not in ("human", "wolt", "activity") or not gone(m) else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
             fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
                 m["kind"] == "human" or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]
             read = [m["id"] for m in new if m["kind"] == "human"]
