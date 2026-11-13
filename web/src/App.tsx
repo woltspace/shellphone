@@ -499,6 +499,8 @@ export function App() {
   }).filter((n) => n.chat || tagsMe(n.m.text)).reverse(), [msgs, chats, seen, state.me, state.members.people]);
   // the host passes the room's invite link on: shared from the phone's own sheet, or copied
   const invite = async () => {
+    // a room behind a login has no link to hand out: its host puts people on the list
+    if (!relayHost) return setError(state.me === state.host ? "This room is behind your login: ask your wolt to add someone by email." : "Only the room's host can add people here.");
     const link = await inviteLink(); if (!link) return setError("Couldn't get the invite link from the room.");
     try { if (navigator.share) { await navigator.share({ title: "shellphone", text: "Join my shellphone room", url: link }); return; } }
     catch (e) { if ((e as Error).name === "AbortError") return; }
@@ -707,7 +709,7 @@ export function App() {
   const woltOf = (name: string) => state.members.wolts.find((w) => w.wolt === name);
   const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId}
     everyone={{ at: main.at(-1)?.at, fresh: inboxCount }} onWolt={(w) => { setThread(""); setNav({ at: "wolt", wolt: w }); }} onChat={(id) => openChat(id)}
-    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} bell={notes.filter((n) => n.fresh).length} onBell={() => { setThread(""); setNav({ at: "bell" }); }} onInvite={relayHost ? invite : undefined} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
+    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} bell={notes.filter((n) => n.fresh).length} onBell={() => { setThread(""); setNav({ at: "bell" }); }} onInvite={state.me ? invite : undefined} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
   const woltList = (name: string, compact = false) => <WoltChats w={woltOf(name)!} state={state} ctx={ctx} chats={chats} compact={compact} here={chatId} onBack={toHome}
     onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} />;
   const back = () => (nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome();
@@ -755,7 +757,7 @@ export function App() {
       </> : <Standby state={state} />)}
       {nav.at === "new" && <NewChat key={nav.wolts.join()} state={state} ctx={ctx} start={nav.wolts} onStart={startChat}
         onBack={back} />}
-      {nav.at === "bell" && <BellScreen notes={notes} ctx={ctx} push={push} compact={wideCols} onBack={toHome}
+      {nav.at === "bell" && <BellScreen notes={notes} ctx={ctx} push={push} compact={wideCols} onBack={toHome} onReadAll={() => { for (const n of notes) if (n.fresh) mark(n.place || "main", n.m.n); }}
         onOpen={(n) => { if (n.chat) openChat(n.place); else { setNav({ at: "everyone" }); setThread(n.place); } }} />}
       {(nav.at === "home" || nav.at === "wolt") && (wideCols ? <Standby state={state} /> : nav.at === "wolt" && woltOf(nav.wolt) ? woltList(nav.wolt) : homeList(false))}
   </>;

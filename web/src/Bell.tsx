@@ -14,8 +14,8 @@ function ago(at: number) {
 }
 const words = (m: Msg) => (m.text || (m.files?.length ? "sent " + m.files.map((f) => f.name).join(", ") : m.audio ? "sent a voice note" : m.page ? "posted " + m.page.title : "")).replace(/\s+/g, " ").slice(0, 110);
 
-export function BellScreen({ notes, ctx, push, compact, onBack, onOpen }: {
-  notes: Note[]; ctx: Ctx; push: { state: "ask" | "on" | "off"; turnOn: () => void }; compact?: boolean; onBack: () => void; onOpen: (n: Note) => void;
+export function BellScreen({ notes, ctx, push, compact, onBack, onOpen, onReadAll }: {
+  notes: Note[]; ctx: Ctx; push: { state: "ask" | "on" | "off"; turnOn: () => void }; compact?: boolean; onBack: () => void; onOpen: (n: Note) => void; onReadAll: () => void;
 }) {
   const on = push.state === "on", fresh = notes.filter((n) => n.fresh), earlier = notes.filter((n) => !n.fresh).slice(0, 20);
   const SEC = "px-4 pt-3.5 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
@@ -32,6 +32,7 @@ export function BellScreen({ notes, ctx, push, compact, onBack, onOpen }: {
     <header className={`relative flex-none grid place-items-center border-b border-line ${compact ? "h-[60px]" : "pt-[calc(8px+env(safe-area-inset-top))] pb-2 min-h-[52px]"}`}>
       <button type="button" aria-label="Back" onClick={onBack} className={`absolute left-1 ${compact ? "top-2.5" : "top-[calc(6px+env(safe-area-inset-top))]"} w-9 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer`}><ChevronLeft size={26} /></button>
       <h1 className="m-0 font-mono font-bold text-[17px]">Notifications</h1>
+      {fresh.length > 0 && <button type="button" onClick={onReadAll} className={`absolute right-3 ${compact ? "top-3.5" : "top-[calc(10px+env(safe-area-inset-top))]"} h-8 px-3 rounded-full border border-acc bg-panel font-mono font-semibold text-[13px] text-acc cursor-pointer active:opacity-70`}>Read all</button>}
     </header>
     <button type="button" role="switch" aria-checked={on} onClick={push.state === "ask" ? push.turnOn : undefined}
       className={`flex-none flex items-center gap-3 w-full px-4 py-2.5 border-0 border-b border-line bg-paper text-left ${push.state === "ask" ? "cursor-pointer" : "cursor-default"}`}>
