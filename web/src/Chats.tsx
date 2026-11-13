@@ -54,7 +54,7 @@ export function Face({ w, ctx, size = 46, bare, className = "" }: { w?: Wolt; ct
 }
 const SEC = "px-4 pt-2.5 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 const ROW = "flex w-full items-center gap-3 px-4 py-2 border-0 border-b border-[#ece4d6] text-left cursor-pointer active:opacity-70";
-const HEAD = "flex items-center px-4 pt-5 pb-1.5 font-mono font-bold text-[15px] text-ink";
+const HEAD = "flex items-center px-4 pt-3.5 pb-1 font-mono font-bold text-[15px] text-ink";
 const AddButton = ({ label, onClick }: { label: string; onClick: () => void }) =>
   <button type="button" onClick={onClick} className="flex-none flex items-center gap-1 -my-1 py-1 border-0 bg-transparent font-sans font-semibold text-[15px] tracking-normal normal-case text-acc cursor-pointer active:opacity-60">
     <Plus size={15} strokeWidth={3} />{label}</button>;
@@ -95,9 +95,9 @@ function ChatRow({ c, ctx, here, group, onOpen, onRename }: { c: Chat; ctx: Ctx;
 // A person: the same soft circle the wolts stand on, their letter in their colour, and the Hat Shop hat they picked.
 const hatOf = (face?: string) => (face?.startsWith("hat-") && hatUrl(face.slice(4)) ? face.slice(4) : "");
 export function PersonFace({ p, hat, size = 38 }: { p: { name: string; color: string }; hat?: string; size?: number }) {
-  return <span className="relative block mx-auto" style={{ width: size, height: size, marginTop: hat ? Math.round(size * 0.42) : 0 }}>
-    <span className="grid place-items-center w-full h-full rounded-full font-mono font-bold" style={{ background: p.color + "30", color: p.color, fontSize: Math.round(size * 0.45) }}>{(p.name || "?").trim()[0]?.toUpperCase()}</span>
-    {hat && <img src={hatUrl(hat)} alt="" className="pixel absolute left-1/2 -translate-x-1/2 pointer-events-none" style={{ width: Math.round(size * 0.84), bottom: Math.round(size * 0.8) }} />}
+  return <span className="relative block mx-auto" style={{ width: size, height: size, marginTop: Math.round(size * 0.2) }}>
+    <span className="grid place-items-center w-full h-full rounded-full font-mono font-bold" style={{ background: p.color + "30", color: p.color, fontSize: Math.round(size * 0.45), paddingTop: hat ? Math.round(size * 0.16) : 0 }}>{(p.name || "?").trim()[0]?.toUpperCase()}</span>
+    {hat && <img src={hatUrl(hat)} alt="" className="pixel absolute left-1/2 pointer-events-none" style={{ width: Math.round(size * 0.84), bottom: Math.round(size * 0.58), transform: "translateX(-50%) rotate(-8deg)" }} />}
   </span>;
 }
 // Pick the hat you wear in this room: everyone sees it on your circle.
@@ -152,7 +152,7 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
   const moods = state.members.wolts.map((w) => ({ w, m: mood(w, state) })), awake = moods.filter((x) => x.m.awake).length;
   return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKY }}>
     {/* a short band that ends on a clean line: the scene keeps its size and loses only the strip of ground under the wolts' feet */}
-    <div className="max-h-[210px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
+    <div className="max-h-[200px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
     <div className="absolute inset-x-0 top-[env(safe-area-inset-top)] flex items-start gap-2 px-4 pt-3">
       <div className="min-w-0 flex-1 text-white">
         <h1 className="m-0 font-mono font-bold text-[22px] truncate [text-shadow:0_2px_0_#0006]">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
@@ -176,8 +176,8 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
     const own = chats.filter((c) => c.wolts.length === 1 && c.wolts[0] === w.wolt), top = own[0], fresh = own.reduce((n, c) => n + c.fresh, 0), m = mood(w, state);
     // no chat with it yet: the last thing it said in the room
     const said = top ? undefined : [...ctx.all].reverse().find((x) => x.kind === "wolt" && x.wolt === w.wolt);
-    return <button key={w.wolt} type="button" onClick={() => onWolt(w.wolt)} className={`${ROW} !py-[9px] ${sel === w.wolt ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
-      <span className="relative flex-none"><Face w={w} ctx={ctx} size={46} />
+    return <button key={w.wolt} type="button" onClick={() => onWolt(w.wolt)} className={`${ROW} !py-[7px] ${sel === w.wolt ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
+      <span className="relative flex-none"><Face w={w} ctx={ctx} size={44} />
         <i className={`absolute right-px bottom-px w-3 h-3 rounded-full border-2 border-paper ${m.awake ? "bg-go" : "bg-[#c9bfae]"}`} /></span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-1.5 font-mono font-semibold text-[16px]"><span className="truncate">{w.wolt}</span>
@@ -208,20 +208,20 @@ export function HomeList({ state, ctx, chats, everyone, compact, sel, here, onWo
         {state.members.people.map((p) => { const mine = p.email === state.me && !!onHat;
           return <div key={p.email} role={mine ? "button" : undefined} tabIndex={mine ? 0 : undefined} aria-label={mine ? "Pick your hat" : undefined} onClick={mine ? () => setHats(true) : undefined}
             className={`flex-none w-[68px] text-center ${mine ? "cursor-pointer active:opacity-70" : ""}`}>
-            <PersonFace p={p} hat={hatOf(state.faces?.[p.email])} size={56} />
+            <PersonFace p={p} hat={hatOf(state.faces?.[p.email])} size={52} />
             <span className="block mt-1 font-mono font-semibold text-[12.5px] truncate">{p.email === state.me ? "you" : p.name}</span>
           </div>; })}
       </div>
       <div className={HEAD}><span className="flex-1">Groups</span><AddButton label="New group" onClick={onNew} /></div>
-      <div className="grid grid-cols-2 gap-2 px-3 pt-1 pb-1">
-        {groups.map((c) => <GroupCard key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)}
-          onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
-        <button type="button" onClick={onEveryone} className={`relative min-w-0 text-left rounded-[14px] border border-line px-3 py-1.5 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
+      <div className="flex gap-2 overflow-x-auto px-3 pt-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>*]:w-[46%]">
+        <button type="button" onClick={onEveryone} className={`relative flex-none w-[46%] min-w-0 text-left rounded-[14px] border border-line px-3 py-1.5 cursor-pointer active:opacity-70 ${here === "everyone" ? "bg-[#f6e2d6]" : "bg-transparent"}`}>
           <span className="block h-7 text-[20px] leading-7">🐚</span>
           <span className="block font-mono font-semibold text-[13.5px]">Everyone</span>
           <span className="block text-xs text-dim truncate">the whole room</span>
           {everyone.fresh > 0 && <span className="absolute top-2 right-2"><Badge n={everyone.fresh} /></span>}
         </button>
+        {groups.map((c) => <GroupCard key={c.id} c={c} ctx={ctx} here={here === c.id} onOpen={() => onChat(c.id)}
+          onRename={onRename ? (t) => onRename(c.id, t) : undefined} />)}
       </div>
     </div>
   </div>;
