@@ -1,14 +1,15 @@
 // Desk bridge: lets the room's desktop view show your wolts' live terminals, from your own lodge, read-only.
 //
-//   node desk/bridge.mjs            # then open the room on this computer and press "desk"
+//   node desk/bridge.mjs https://shellphone-myroom.example.com    # then open that room on this computer, press "desk"
 //
 // It runs on this computer only (127.0.0.1) and talks to the lodge on :7777. The room's page, open in your browser on
 // this same computer, asks it two things:
 //   GET  /sessions          → your lodge's running sessions: name, wolt, last activity (nothing else)
 //   WS   /tui?session=NAME  → that session's terminal, as it is drawn (tmux attach), output only
 // Read-only: nothing the page sends ever reaches the terminal, so no keystroke from a browser can type into a wolt.
-// Only pages from the rooms you allow (DESK_ORIGINS, default your woltspace.com rooms and localhost) may connect, so
-// another website open in your browser can't watch your terminals. Anyone else in the room opening the desk view
+// Only the rooms you name may connect: each one an exact origin, on the command line or in DESK_ORIGINS (comma
+// separated). There is no default and no pattern: another website, or another room, open in your browser can't watch
+// your terminals. A room on this computer (http://127.0.0.1:PORT) is allowed only if you name it with its port. Anyone else in the room opening the desk view
 // reaches their own computer, not yours: they see nothing.
 // Node stdlib only (Node 22+, for its built-in WebSocket client).
 import http from 'node:http';
@@ -16,9 +17,15 @@ import crypto from 'node:crypto';
 
 const PORT = Number(process.env.DESK_PORT || 7791);
 const LODGE = process.env.DESK_LODGE || '127.0.0.1:7777';
-const ORIGINS = (process.env.DESK_ORIGINS || '^https://shellphone-[a-z0-9-]+\\.woltspace\\.com$,^http://(127\\.0\\.0\\.1|localhost)(:\\d+)?$')
-  .split(',').map((s) => new RegExp(s));
-const allowed = (o) => !!o && ORIGINS.some((r) => r.test(o));
+const named = process.argv.slice(2).concat((process.env.DESK_ORIGINS || '').split(',')).map((s) => s.trim()).filter(Boolean);
+const ORIGINS = new Set();
+for (const o of named) {
+  let u; try { u = new URL(o); } catch { u = null; }
+  if (!u || !/^https?:$/.test(u.protocol) || u.origin !== o.replace(/\/$/, '')) { console.error(`not a room origin: ${o} (like https://shellphone-myroom.example.com)`); process.exit(2); }
+  ORIGINS.add(u.origin);
+}
+if (!ORIGINS.size) { console.error('name the room(s) the desk may show your terminals to: node desk/bridge.mjs https://shellphone-myroom.example.com'); process.exit(2); }
+const allowed = (o) => !!o && ORIGINS.has(o);
 
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin;

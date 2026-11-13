@@ -80,7 +80,7 @@ export default function Desk({ ctx, wolts, working, focus }: { ctx: Ctx; wolts: 
 
   if (down) return <div className="flex-1 grid place-items-center bg-[#2a231c] text-[#e8e0d4] font-mono text-sm p-8 text-center">
     <div>Your wolts' terminals show here, from your own lodge.<br />Start the desk bridge on this computer:<br />
-      <code className="inline-block mt-3 px-3 py-2 rounded bg-[#14110e] text-[#7ec27e]">node desk/bridge.mjs</code><br />
+      <code className="inline-block mt-3 px-3 py-2 rounded bg-[#14110e] text-[#7ec27e]">node desk/bridge.mjs {location.origin}</code><br />
       <span className="text-[#a89f92] text-xs">(in the room's folder; it only shows terminals, it never types into them)</span></div></div>;
   const shown = big ? wolts.filter((w) => w.wolt === big) : wolts;
   const cols = shown.length <= 1 ? 1 : 2;
