@@ -14,6 +14,9 @@ import { Menu } from "./Menu";
 import { ChatHeader, chatsOf, HomeList, NewChat, Standby, WoltChats, type Chat, type Nav } from "./Chats";
 import { ContactCard } from "./CardContact";
 import { SKY } from "./Scene";
+import { BellScreen, type Note } from "./Bell";
+import { inviteLink, relayHost } from "./relay";
+import { handle as handleOf } from "./mentions.js";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
 import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, X } from "lucide-react";
@@ -486,6 +489,21 @@ export function App() {
   useEffect(() => { if (chatList.length) mark(chatId, chatList.at(-1)!.n); }, [chatId, chatList.length]);  // an open chat counts as read
   // a notification that lands in a chat arrives as "its thread": show the chat instead
   useEffect(() => { if (thread && state.sessions?.some((x) => x.id === thread)) { setNav({ at: "chat", id: thread }); setThread(""); } }, [thread, state.sessions]);
+  const myTag = handleOf(person(state.me).name).toLowerCase();
+  const tagsMe = (text?: string) => !!myTag && (text || "").toLowerCase().split(/[^\w@-]+/).includes("@" + myTag);
+  // the bell: what others said, newest first; new until you've been where it was said
+  const notes: Note[] = useMemo(() => msgs.filter((m) => !m.pending && (m.kind === "wolt" || (m.kind === "human" && m.email !== state.me))).map((m) => {
+    const place = m.session ? m.id : m.thread || "", c = chats.find((x) => x.id === place);
+    return { m, place, chat: !!c, where: c ? c.title : "Everyone", fresh: m.n > (seen[place || "main"] || 0) };
+  // in your chats, everything the others say; in the shared chat, only what names you (it would drown the rest)
+  }).filter((n) => n.chat || tagsMe(n.m.text)).reverse(), [msgs, chats, seen, state.me, state.members.people]);
+  // the host passes the room's invite link on: shared from the phone's own sheet, or copied
+  const invite = async () => {
+    const link = await inviteLink(); if (!link) return setError("Couldn't get the invite link from the room.");
+    try { if (navigator.share) { await navigator.share({ title: "shellphone", text: "Join my shellphone room", url: link }); return; } }
+    catch (e) { if ((e as Error).name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(link); setError("Invite link copied"); } catch { setError(link); }
+  };
   const openChat = (id: string, wolt?: string) => { setThread(""); setNav({ at: "chat", id, wolt }); };
   const selWolt = nav.at === "wolt" || nav.at === "chat" || nav.at === "new" ? nav.wolt : undefined;
   async function startChat(wolts: string[], first: string): Promise<string | null> {
@@ -687,9 +705,9 @@ export function App() {
   const deskWolts = state.members.wolts.filter((w) => !w.paused && (!place || !state.who || (state.main === w.wolt && !chatId) || state.who[place]?.[w.wolt] === "in"));
   const toHome = () => { setThread(""); setNav({ at: "home" }); };
   const woltOf = (name: string) => state.members.wolts.find((w) => w.wolt === name);
-  const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId} dot={!!push.ask}
+  const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId}
     everyone={{ at: main.at(-1)?.at, fresh: inboxCount }} onWolt={(w) => { setThread(""); setNav({ at: "wolt", wolt: w }); }} onChat={(id) => openChat(id)}
-    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} push={push} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
+    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} bell={notes.filter((n) => n.fresh).length} onBell={() => { setThread(""); setNav({ at: "bell" }); }} onInvite={relayHost ? invite : undefined} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
   const woltList = (name: string, compact = false) => <WoltChats w={woltOf(name)!} state={state} ctx={ctx} chats={chats} compact={compact} here={chatId} onBack={toHome}
     onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} />;
   const back = () => (nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome();
@@ -737,6 +755,8 @@ export function App() {
       </> : <Standby state={state} />)}
       {nav.at === "new" && <NewChat key={nav.wolts.join()} state={state} ctx={ctx} start={nav.wolts} onStart={startChat}
         onBack={back} />}
+      {nav.at === "bell" && <BellScreen notes={notes} ctx={ctx} push={push} compact={wideCols} onBack={toHome}
+        onOpen={(n) => { if (n.chat) openChat(n.place); else { setNav({ at: "everyone" }); setThread(n.place); } }} />}
       {(nav.at === "home" || nav.at === "wolt") && (wideCols ? <Standby state={state} /> : nav.at === "wolt" && woltOf(nav.wolt) ? woltList(nav.wolt) : homeList(false))}
   </>;
   const room = (
