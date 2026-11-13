@@ -123,9 +123,9 @@ function Hero({ state, ctx, onNew, onBell, bell }: { state: State; ctx: Ctx; onN
   const moods = state.members.wolts.map((w) => ({ w, m: mood(w, state) })), awake = moods.filter((x) => x.m.awake).length;
   return <div className="relative flex-none overflow-hidden pt-[env(safe-area-inset-top)]" style={{ background: SKY }}>
     {/* a short band: the scene keeps its size and loses only the strip of ground under the wolts' feet */}
-    <div className="max-h-[172px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
+    <div className="max-h-[204px] overflow-hidden"><Squad wolts={moods.slice(0, 6).map(({ w, m }) => ({ name: w.wolt, look: normalizeLook(ctx.looks?.[w.wolt], w.creature), busy: m.busy, away: !m.awake }))} /></div>
     {/* the ground melts into the page; the wolts above it stay crisp */}
-    <div className="h-10" style={{ background: "linear-gradient(to bottom, #3a3326, #8a7f6c 38%, #f5f1e8)" }} />
+    <div className="h-14" style={{ background: "linear-gradient(to bottom, #3a3326 0%, #5a5142 18%, #8f8573 42%, #c9c0ae 68%, #e9e3d6 86%, #f5f1e8 100%)" }} />
     <div className="absolute inset-x-0 top-[env(safe-area-inset-top)] flex items-start gap-2 px-4 pt-3">
       <div className="min-w-0 flex-1 text-white">
         <h1 className="m-0 font-mono font-bold text-[22px] truncate [text-shadow:0_2px_0_#0006]">{state.title && state.title !== "shell" ? state.title : "shellphone"}</h1>
