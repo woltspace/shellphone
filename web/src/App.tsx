@@ -689,7 +689,7 @@ export function App() {
   const woltOf = (name: string) => state.members.wolts.find((w) => w.wolt === name);
   const homeList = (compact: boolean) => <HomeList state={state} ctx={ctx} chats={chats} compact={compact} sel={selWolt} here={nav.at === "everyone" ? "everyone" : chatId} dot={!!push.ask}
     everyone={{ at: main.at(-1)?.at, fresh: inboxCount }} onWolt={(w) => { setThread(""); setNav({ at: "wolt", wolt: w }); }} onChat={(id) => openChat(id)}
-    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} onMenu={() => setMenu(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
+    onEveryone={() => { setNav({ at: "everyone" }); stickMain.current(); }} onNew={() => setNav({ at: "new", wolts: [] })} push={push} onAgent={relayRoom ? undefined : () => setAdding(true)} onDesk={wide && compact ? () => setDesk(true) : undefined} />;
   const woltList = (name: string, compact = false) => <WoltChats w={woltOf(name)!} state={state} ctx={ctx} chats={chats} compact={compact} here={chatId} onBack={toHome}
     onChat={(id) => openChat(id, name)} onNew={() => setNav({ at: "new", wolts: [name], wolt: name })} onCard={setCard} />;
   const back = () => (nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? setNav({ at: "wolt", wolt: nav.wolt }) : toHome();
@@ -742,12 +742,12 @@ export function App() {
   const room = (
     <div className="h-full flex flex-col relative bg-paper" {...menuSwipe.screen}>
       {stacked ? <>
-        <div className="absolute inset-0" aria-hidden>{(nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? woltList(nav.wolt) : homeList(false)}</div>
+        <div className="absolute inset-0" aria-hidden inert>{(nav.at === "chat" || nav.at === "new") && nav.wolt && woltOf(nav.wolt) ? woltList(nav.wolt) : homeList(false)}</div>
         <div key={nav.at + (nav.at === "chat" ? nav.id : nav.at === "wolt" ? nav.wolt : "")} ref={swipe.el} onTouchStart={(e) => { if (!thread && !listOpen && !card) swipe.handlers.onTouchStart(e); }}
           onTouchMove={swipe.handlers.onTouchMove} onTouchEnd={swipe.handlers.onTouchEnd} className="absolute inset-0 flex flex-col bg-paper animate-[slidein_.2s_ease-out]">{screen}</div>
       </> : screen}
       {cardView && !wideCols && <div className="absolute inset-0 z-[1560] bg-paper animate-[fadein_.15s_ease-out]">{cardView}</div>}
-      {!wideCols && menuEl}
+      {!chatsOn && menuEl}
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}
@@ -759,7 +759,6 @@ export function App() {
     </div>
   );
   if (wideCols) return <div className="h-full flex relative overflow-hidden">
-    {menuEl}
     <aside className="flex-none w-[300px] h-full border-r border-line">{homeList(true)}</aside>
     {selWolt && woltOf(selWolt) && <aside className="flex-none w-[270px] h-full border-r border-line">{woltList(selWolt, true)}</aside>}
     <div className="flex-1 min-w-0 h-full relative overflow-hidden [transform:translateZ(0)]">{room}</div>
