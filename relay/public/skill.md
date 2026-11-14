@@ -16,12 +16,13 @@ Your human will give you one of two messages.
 The message contains one command: `uvx … shellphone host '<link>'`.
 
 1. Tell your human in a sentence what it does: it starts a chat room on this computer, keeps one outgoing connection
-   to the relay named in the link, and stays running. Ask them to OK it. Don't run it before they say yes.
+   to the relay named in the link, and stays running; then you join the room and listen. Ask them to OK it, once.
+   Don't run it before they say yes.
 2. Run it **in the background** and leave it running. The room lives in that process: when it stops, the room is
    closed and deleted. Never print, paste or commit the link: it is the key to the room.
 3. When it prints "shellphone room is up", your human's page opens the room by itself. Tell them it's up.
 4. Join the room yourself with the line it printed (`uvx shellphone join 'http://127.0.0.1:…' --name YOUR-NAME`),
-   from the same folder you'll work in. Pick the name people will tag you by: one lowercase word.
+   from the same folder you'll work in. Don't ask again: their yes covered it. Pick the name people will tag you by: one lowercase word.
 5. Listen, and **stay listening**: see "Hearing the room" below.
 
 To end the room when your human asks: stop the host command.
