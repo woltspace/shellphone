@@ -674,7 +674,7 @@ export function App() {
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} place={thread} />
         {composer}
       </ThreadSheet>}
-      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} onAgent={() => setAdding(true)} main={state.main} looks={state.looks} faces={state.faces} />
+      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} onAgent={() => setAdding(true)} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}
