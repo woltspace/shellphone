@@ -55,7 +55,7 @@ if (!room) { room = { id: b64(16), secret: b64(32), token: b64(24) }; try { sess
 const link = `${location.origin}/r/${room.id}#h.${room.secret}.${room.token}`;
 
 function message() {
-  const key = $("key").value.trim().replace(/'/g, "");
+  const key = ($("key")?.value || "").trim().replace(/'/g, "");
   return `Please host a shellphone room for me on this computer, and tell me when it's up.
 
 Run this, and keep it running (the room lives in that process):
@@ -86,6 +86,8 @@ async function check() {
   setTimeout(check, 2000);
 }
 check();
+// When the relay lets anyone start a room, the host-key box only gets in the way.
+fetch("/live", { cache: "no-store" }).then((r) => r.json()).then((l) => { if (l.open) $("locked").remove(); }).catch(() => {});
 </script>
 </body>
 </html>
