@@ -276,8 +276,24 @@ def mark_asked(text, email, tid=None):
 # is all: pausing or removing an agent for the whole room, inviting, and naming the main agent stay with people. Paused
 # for the whole room, it is off like any other.
 def main_wolt():
-    row = q("select value from meta where key = 'main' and value in (select wolt from wolts)")
-    return row[0]["value"] if row else None
+    """The room's main agent: the one the host named; if none was named, the first of the host's own wolts still in the
+    room (a guest's agent never runs the room by joining first). The host can also say nobody: then everyone hears."""
+    row = q("select value from meta where key = 'main'")
+    if row and row[0]["value"] == "":
+        return None
+    named = q("select wolt from wolts where wolt = ?", row[0]["value"]) if row else []
+    if named:
+        return named[0]["wolt"]
+    first = q("select wolt from wolts where owner = ? order by rowid limit 1", host() or "")
+    return first[0]["wolt"] if first else None
+
+
+def keep_main(c):
+    """Once the host's first wolt is in, it stays the main agent by name, even when it joins again later."""
+    if not c.execute("select 1 from meta where key = 'main'").fetchone():
+        first = c.execute("select wolt from wolts where owner = ? order by rowid limit 1", (host() or "",)).fetchone()
+        if first:
+            c.execute("insert into meta values ('main', ?)", (first["wolt"],))
 
 
 def hears_main(m, wolt):
@@ -290,8 +306,7 @@ def hears_main(m, wolt):
 def set_main(wolt):
     with tx() as c:
         c.execute("delete from meta where key = 'main'")
-        if wolt:
-            c.execute("insert into meta values ('main', ?)", (wolt,))
+        c.execute("insert into meta values ('main', ?)", (wolt or "",))  # "": the host said nobody
     return {"main": main_wolt()}
 
 
@@ -926,6 +941,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     c.execute("delete from wolts where wolt = ?", (wolt,))  # a wolt joining again gets a fresh key
                     c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), inv["owner"], creature, voice))
                     dress(c, wolt=wolt)
+                    keep_main(c)
                     if inv["once"]:  # codes from the join page work once
                         c.execute("delete from invites where code_hash = ?", (self.bearer(),))
                 return self.send(200, {"key": key, "wolt": wolt, "owner": inv["owner"], "voice": voice})
@@ -1241,6 +1257,7 @@ def lodge_file(wolt, owner, creature, voice, base_url):
         c.execute("delete from wolts where wolt = ?", (wolt,))
         c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), owner, creature, voice))
         dress(c, wolt=wolt)
+        keep_main(c)
     return {"room_url": base_url, "key": key, "wolt": wolt}
 
 
