@@ -32,6 +32,14 @@
   .warn ul { margin:0; padding:0 14px 12px 40px; } .warn li { margin:2px 0; }
   nav { display:flex; align-items:center; } nav .src { margin-left:auto; display:flex; align-items:center; gap:6px; font:600 13px ui-monospace,Menlo,monospace; letter-spacing:0; color:var(--ink); border:1px solid var(--line); background:var(--panel); padding:6px 10px; }
   nav .src svg { width:16px; height:16px; }
+  .steps { list-style:none; counter-reset:s; margin:18px 0 18px; padding:0; }
+  .steps > li { counter-increment:s; position:relative; padding:0 0 18px 44px; }
+  .steps > li::before { content:counter(s); position:absolute; left:0; top:-2px; width:30px; height:30px; border-radius:50%; background:var(--acc); color:#fff; font:700 15px/30px ui-monospace,Menlo,monospace; text-align:center; }
+  .steps b { display:block; font-size:17px; margin:0 0 8px; }
+  button.big { display:block; width:100%; padding:16px; font-size:17px; border-radius:12px; }
+  #share { display:block; margin:8px 0 0; padding:6px 0; border:0; background:none; color:var(--acc); font-size:14px; }
+  .agents { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 6px; } .agents span { border:1px solid var(--line); background:var(--panel); border-radius:999px; padding:4px 11px; font-size:14px; color:var(--ink); }
+  .peek { margin:0 0 14px; } .peek summary { cursor:pointer; color:var(--muted); font-size:14px; margin:0 0 8px; } .peek pre { margin-top:8px; }
 </style>
 </head>
 <body>
@@ -44,11 +52,18 @@
     </ul>
   </details>
   <h1>Start a room</h1>
-  <p>Give this message to your coding agent (Claude Code, Codex, a wolt…), wherever you talk to it. It checks with you once, then runs your room on its computer.</p>
-  <div class="row"><button id="share">Share</button><button id="copy" class="alt">Copy</button></div>
-  <pre id="message"></pre>
-  <div class="status"><span class="dot" id="dot"></span><span id="status">Waiting for your agent to bring the room up…</span></div>
-  <p class="small">Keep this page open: it opens the room by itself. The room lives on the computer your agent runs on, and is gone when it stops.</p>
+  <ol class="steps">
+    <li><b>Copy the message</b>
+      <button id="copy" class="big">Copy message</button>
+      <button id="share" class="alt">Share instead</button></li>
+    <li><b>Paste it to your agent</b>
+      <span class="agents"><span>🤖 Claude Code</span><span>⌘ Codex</span><span>🦝 a wolt</span></span>
+      <span class="small">It checks with you once, then runs your room on its computer.</span></li>
+    <li><b>Keep this page open</b>
+      <div class="status"><span class="dot" id="dot"></span><span id="status">Waiting for your agent to bring the room up…</span></div>
+      <span class="small">It opens your room by itself. The room lives on your agent's computer, and is gone when it stops.</span></li>
+  </ol>
+  <details class="peek"><summary>See the message</summary><pre id="message"></pre></details>
   <p class="small">No agent? You can still join a room someone else started, with their link.</p>
   <div id="locked">
     <label for="key">shellphone isn't open to everyone yet. If you were given a host key, put it here:</label>
@@ -84,7 +99,7 @@ try { localStorage.removeItem("shellphone:hostkey"); } catch {}  // an earlier v
 $("key").oninput = show;
 show();
 
-$("copy").onclick = async () => { try { await navigator.clipboard.writeText(message()); $("copy").textContent = "Copied"; } catch { $("copy").textContent = "Select it below"; } };
+$("copy").onclick = async () => { try { await navigator.clipboard.writeText(message()); $("copy").textContent = "Copied ✓ now paste it to your agent"; } catch { $("copy").textContent = "Copy didn\'t work: open See the message"; document.querySelector(".peek").open = true; } };
 if (navigator.share) $("share").onclick = () => navigator.share({ text: message() }).catch(() => {}); else $("share").remove();
 
 async function check() {
