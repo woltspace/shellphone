@@ -314,6 +314,15 @@ LOOKS = {"creature": {"raccoon", "beaver", "otter"}, "glasses": {"shades", "avia
 FACE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")  # a person's face: an id the page's set knows
 
 
+def dress(c, wolt=None, email=None):
+    """Someone new gets a random hat: a wolt when it joins (one that already has a look keeps it), a person when they're added."""
+    hat = secrets.choice(sorted(LOOKS["hat"]))
+    if wolt:
+        c.execute("insert or ignore into looks values (?, ?)", (wolt, json.dumps({"hat": hat})))
+    if email:
+        c.execute("insert or ignore into faces values (?, ?)", (email, "hat-" + hat))
+
+
 def faces_now():
     return {r["email"]: r["face"] for r in q("select * from faces where email in (select email from people)")}
 
@@ -916,6 +925,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     key = secrets.token_urlsafe(32)
                     c.execute("delete from wolts where wolt = ?", (wolt,))  # a wolt joining again gets a fresh key
                     c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), inv["owner"], creature, voice))
+                    dress(c, wolt=wolt)
                     if inv["once"]:  # codes from the join page work once
                         c.execute("delete from invites where code_hash = ?", (self.bearer(),))
                 return self.send(200, {"key": key, "wolt": wolt, "owner": inv["owner"], "voice": voice})
@@ -1230,6 +1240,7 @@ def lodge_file(wolt, owner, creature, voice, base_url):
     with tx() as c:  # one key per wolt; a new one replaces the old
         c.execute("delete from wolts where wolt = ?", (wolt,))
         c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), owner, creature, voice))
+        dress(c, wolt=wolt)
     return {"room_url": base_url, "key": key, "wolt": wolt}
 
 
@@ -1240,6 +1251,7 @@ def add_person(email, name):
         return found
     with tx() as c:
         c.execute("insert into people (email, name, color) values (?, ?, ?)", (email.lower(), name, color := next_color()))
+        dress(c, email=email.lower())
     print(f"{name} <{email.lower()}> is in, colour {color}")
     return email.lower()
 
@@ -1259,6 +1271,7 @@ def add_guest(name):
     with LOCK, tx() as c:
         email = f"guest-{secrets.token_hex(4)}@room.local"  # never reused: a past guest's messages stay theirs
         c.execute("insert into people (email, name, color, guest) values (?, ?, ?, 1)", (email, name, next_color()))
+        dress(c, email=email)
     return email
 
 

@@ -201,6 +201,8 @@ class FrontDoor(unittest.TestCase):
                 return e.code
 
         me = r.state()["me"]
+        self.assertTrue(r.state()["faces"][me].startswith("hat-"))  # everyone comes in with a random hat
+        self.assertIn("hat", r.state()["looks"]["helper"])
         self.assertEqual(page("/api/face", {"face": "hat-crown"}), {"email": me, "face": "hat-crown"})
         self.assertEqual(r.state()["faces"], {me: "hat-crown"})
         self.assertEqual(page("/api/face", {"face": "<b>"}), 400)
