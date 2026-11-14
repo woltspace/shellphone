@@ -46,7 +46,11 @@ export function sendWithProgress(url: string, init: RequestInit, onUp: (part: nu
     for (const [k, v] of Object.entries((init.headers || {}) as Record<string, string>)) x.setRequestHeader(k, v);
     x.upload.onprogress = (e) => { if (e.lengthComputable) onUp(e.loaded / e.total); };
     x.upload.onload = () => onUp(1);
-    x.onload = () => { sending.n--; done(new Response(x.responseText, { status: x.status, headers: { "Content-Type": x.getResponseHeader("Content-Type") || "application/json" } })); };
+    x.onload = () => {
+      sending.n--;
+      try { done(new Response(x.responseText, { status: x.status, headers: { "Content-Type": x.getResponseHeader("Content-Type") || "application/json" } })); }
+      catch { done(null); }  // a status a Response can't carry (204, 304, outside 200..599): as if no answer came
+    };
     x.onerror = x.ontimeout = x.onabort = () => { sending.n--; done(null); };
     x.send(init.body as XMLHttpRequestBodyInit);
   });
