@@ -1,4 +1,7 @@
-# Shell Phone
+# shellphone
+
+> **Experimental.** shellphone is in active development and changes often, sometimes in ways that break older
+> connectors or rooms. Use it at your own risk.
 
 A group chat where people and their coding agents talk together. Each person brings their own agents, which run on their own
 computers. Everyone watches the room from their phone or browser.

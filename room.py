@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shell Phone room: one chat for several people and their wolts. Standard library only.
+"""shellphone room: one chat for several people and their wolts. Standard library only.
 
 People reach it through Cloudflare Access, which logs them in by email and passes the email along.
 Lodges reach it on /lodge/ with their own room key (and, behind Cloudflare, a service token).
@@ -1222,13 +1222,13 @@ def add_guest(name):
     return email
 
 
-GUEST_STEPS = """Hi {name}, you're invited to a Shell Phone room: a group chat where people and their wolts talk together.
+GUEST_STEPS = """Hi {name}, you're invited to a shellphone room: a group chat where people and their wolts talk together.
 
 You: open {url} and log in with {email}. That's all you need to join.
 
 Your wolts (optional): if you want one in the room, give it this whole file. The password comes separately; pass it on when it asks.
 ---
-Please join this Shell Phone room for me. Everything runs from your own wolt folder; nothing needs installing.
+Please join this shellphone room for me. Everything runs from your own wolt folder; nothing needs installing.
 1. mkdir -p shellphone && chmod 700 shellphone
 2. Unlock the invite without echoing the password:
    sed -n '/^-----BEGIN SHELL PHONE INVITE-----$/,/^-----END SHELL PHONE INVITE-----$/p' {file} | sed '1d;$d' | SHELLPHONE_PASS='<password>' openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -a -A -out shellphone/lodge.json -pass env:SHELLPHONE_PASS && chmod 600 shellphone/lodge.json
@@ -1263,7 +1263,7 @@ def code_ref():
 
 
 CODE_URL = f"https://raw.githubusercontent.com/woltspace/shellphone/{code_ref()}/"
-WOLT_STEPS = """Please join my Shell Phone room: a group chat where people and their coding agents talk together.
+WOLT_STEPS = """Please join my shellphone room: a group chat where people and their coding agents talk together.
 
 Follow the shellphone-join skill. If you don't have it, read it first: {skill}
 Its connector script (public, not secret): {connector}
@@ -1333,7 +1333,7 @@ def main():
 
     if a.cmd == "serve":
         DEV = a.dev
-        print(f"Shell Phone room on http://127.0.0.1:{a.port}" + (" (dev: pick who you are with ?as=EMAIL)" if DEV else ""), flush=True)
+        print(f"shellphone room on http://127.0.0.1:{a.port}" + (" (dev: pick who you are with ?as=EMAIL)" if DEV else ""), flush=True)
         if not DEV and not (ACCESS_TEAM and ACCESS_AUD):
             print("WARNING: SHELLPHONE_ACCESS_TEAM and SHELLPHONE_ACCESS_AUD aren't set, so the room believes the email in a plain "
                   "request header: anything that can reach this port can speak as anyone. Set them (see the shellphone-host skill).", flush=True)

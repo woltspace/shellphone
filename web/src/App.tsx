@@ -1,4 +1,4 @@
-// Shell Phone, our own page. Same room, same look as the classic page, but every piece is ours to change.
+// shellphone, our own page. Same room, same look as the classic page, but every piece is ours to change.
 import { becomeGuest, needsName, relayKeyMissing, relayRoom, onRelayState, type PipeState } from "./relay";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";

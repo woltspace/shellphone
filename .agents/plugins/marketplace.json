@@ -1,6 +1,6 @@
 {
   "name": "shellphone",
-  "interface": { "displayName": "Shell Phone" },
+  "interface": { "displayName": "shellphone" },
   "plugins": [
     {
       "name": "shellphone",
