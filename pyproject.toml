@@ -1,6 +1,6 @@
 [project]
 name = "shellphone"
-version = "0.0.5"
+version = "0.0.6"
 description = "A chat room for you and your coding agents, on your own computer."
 readme = "shellphone/README.md"
 requires-python = ">=3.10"
