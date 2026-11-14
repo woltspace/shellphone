@@ -239,6 +239,7 @@ class FrontDoor(unittest.TestCase):
                 return e.code
         hear = lambda folder, seconds=2: run("wait", "--timeout", str(seconds), cwd=folder).stdout
 
+        page("/api/main", {"wolt": None})  # no main agent here (the host's first wolt would be): the main chat reaches everyone
         # A person starts a thread and tags one agent: that one is in, the other is not.
         top = page("/api/messages", {"text": "the plan for the launch"})["id"]
         self.assertIn("plan for the launch", hear(work, 5))  # the main chat reaches everyone, as before
@@ -298,7 +299,7 @@ class FrontDoor(unittest.TestCase):
         self.assertIn("come and look", back)  # what it missed is in the thread it is shown
         self.assertEqual(agent(work, "/lodge/thread?id=" + top), 200)
 
-        # The host names a main agent: it is in every thread, and it holds the thread switches for the others.
+        # The host names a main agent: it is in every thread unless switched off there, and it holds the thread switches for the others.
         self.assertEqual(agent(other, "/lodge/thread-who", {"thread": top, "wolt": "helper", "state": "paused"}), 403)
         self.assertEqual(page("/api/main", {"wolt": "nobody"}), 404)
         self.assertEqual(page("/api/main", {"wolt": "second"}), {"main": "second"})
@@ -312,14 +313,20 @@ class FrontDoor(unittest.TestCase):
             heard += got
         self.assertIn("never tagged in", heard)  # it hears every thread,
         self.assertIn("You are this room's main agent", heard)  # and is told what it may do
-        self.assertEqual(page("/api/thread-who", {"thread": side, "wolt": "second", "state": "paused"}), 400)  # its own switch is locked on
         self.assertIn("helper is paused in this thread", run("who", "--thread", side, "helper", "paused", cwd=other).stdout)
         self.assertEqual(r.state()["who"][side], {"helper": "paused", "second": "in"})
         self.assertIn("helper is in this thread", run("who", "--thread", side, "helper", "in", cwd=other).stdout)
         self.assertEqual(r.state()["who"][side]["helper"], "in")
-        self.assertNotEqual(run("who", "--thread", side, cwd=other).returncode, 0)  # it can't take itself out
+        self.assertNotEqual(run("who", "--thread", side, "second", "in", cwd=other).returncode, 0)  # it can't bring itself back in
         self.assertNotEqual(run("who", "--thread", side, "second", "paused", cwd=work).returncode, 0)  # and nobody else got its rights
         self.assertEqual(agent(other, "/lodge/state", {"wolt": "helper", "paused": True}), 403)  # the room-wide switches stay with people
+        page("/api/thread-who", {"thread": side, "wolt": "second", "state": "paused"})  # a person switches the main agent off in one thread
+        self.assertEqual(r.state()["who"][side]["second"], "paused")
+        page("/api/messages", {"text": "@helper only helper here now", "thread": side})
+        self.assertNotIn("only helper here now", hear(other, 3))
+        self.assertEqual(r.state()["who"][top]["second"], "in")  # and it is still in the others
+        page("/api/thread-who", {"thread": side, "wolt": "second", "state": "in"})
+        self.assertEqual(r.state()["who"][side]["second"], "in")
         # With a main agent, the main chat goes to it and to whoever is @tagged; untagged, only the main agent hears it.
         hear(work, 3)
         page("/api/messages", {"text": "an untagged word in the main chat"})
@@ -489,6 +496,31 @@ class FrontDoor(unittest.TestCase):
                 t.join(10)
         self.assertEqual(sorted(got.values()), [200, 401])
         self.assertEqual(len(room.members()["wolts"]), 1)
+    def test_the_hosts_first_wolt_is_the_main_agent_unless_the_host_says_otherwise(self):
+        import importlib, io, contextlib
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SHELLPHONE_DATA": self.tmp.name}):
+            room = importlib.import_module("room")
+        self.addCleanup(sys.modules.pop, "room", None)
+        self.addCleanup(lambda: room.CON and room.CON.close())
+        with contextlib.redirect_stdout(io.StringIO()):
+            room.add_person("sam@example.com", "Sam")  # the host
+            room.add_person("kim@example.com", "Kim")
+        add = lambda wolt, owner: room.lodge_file(wolt, owner, "raccoon", None, "http://127.0.0.1:1")
+        add("kims", "kim@example.com")
+        self.assertIsNone(room.main_wolt())  # someone else's wolt coming first doesn't run the room
+        add("first", "sam@example.com")
+        add("second", "sam@example.com")
+        self.assertEqual(room.main_wolt(), "first")
+        add("first", "sam@example.com")  # joining again keeps it main
+        self.assertEqual(room.main_wolt(), "first")
+        room.set_main("second")
+        self.assertEqual(room.main_wolt(), "second")
+        room.set_main(None)  # the host says nobody: everyone hears
+        self.assertIsNone(room.main_wolt())
+        room.set_main("first")
+        room.remove_wolt("first")
+        self.assertEqual(room.main_wolt(), "second")  # gone: the host's next wolt takes over
 
     def test_only_the_host_or_its_own_keeper_changes_an_agent(self):
         import importlib, io, contextlib

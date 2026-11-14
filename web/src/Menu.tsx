@@ -36,6 +36,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
           {push.state === "on" ? <Check size={20} className="text-go" /> : push.state === "ask" ? <span className="font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">turn on</span> : null}
         </button>}
         {relayHost && <Invite row={row} />}
+        {relayRoom && !relayHost && <div className={`${row} cursor-default`}><UserPlus size={20} className="text-dim" /><span className="flex-1 text-dim">Invite people<small className="block text-xs">Only {people.find((p) => p.email === host)?.name || "the host"} can invite people. Message them to ask.</small></span></div>}
         {!relayRoom && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayRoom && (relayHost || guestAgents !== false) && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Bring your agent<small className="block text-xs text-dim">Experimental: your own agent, from your computer</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayHost && <GuestAgents row={row} on={guestAgents !== false} />}
