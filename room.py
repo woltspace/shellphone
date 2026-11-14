@@ -272,7 +272,7 @@ def mark_asked(text, email, tid=None):
 
 
 # The main agent. A room's host can name one agent its main one. It is in every thread, so it hears a person wherever they
-# ask, and it holds the thread switches for every agent: it brings one into a thread, pauses it there, brings it back. That
+# ask (unless a person switches it off in a thread), and it holds the thread switches for every agent: it brings one into a thread, pauses it there, brings it back. That
 # is all: pausing or removing an agent for the whole room, inviting, and naming the main agent stay with people. Paused
 # for the whole room, it is off like any other.
 def main_wolt():
@@ -390,9 +390,9 @@ def who_now():
     out, main = {}, main_wolt()
     for row in q("select thread, wolt, state from thread_who where wolt in (select wolt from wolts) order by thread, rowid"):
         out.setdefault(row["thread"], {})[row["wolt"]] = row["state"]
-    if main:
+    if main:  # in every thread by default, unless a person switched it off there
         for row in q("select thread from thread_seen"):
-            out.setdefault(row["thread"], {})[main] = "in"
+            out.setdefault(row["thread"], {}).setdefault(main, "in")
     # paused for the whole room is paused in every thread: the room's switch is the bigger one, and what each thread
     # remembers comes back when the agent is brought back in the room
     off = [l["wolt"] for l in wolts() if l["paused"]]
@@ -409,10 +409,10 @@ def where_in(tid, wolt):
         seed(c, tid)
     if any(l["wolt"] == wolt and l["paused"] for l in wolts()):  # paused for the whole room: paused here too
         return "paused"
-    if wolt == main_wolt():
-        return "in"
     row = q("select state from thread_who where thread = ? and wolt = ?", tid, wolt)
-    return row[0]["state"] if row else None
+    if row:
+        return row[0]["state"]
+    return "in" if wolt == main_wolt() else None  # the main agent: in every thread unless switched off there
 
 
 def hears(tid, wolt):
@@ -1037,8 +1037,8 @@ def for_wolt(req, l):
         if not where or state not in ("in", "paused"):
             return reply(400, {"error": "which thread, and in or paused?"})
         if l["wolt"] == main_wolt():  # the main agent holds the thread switches ({"thread", "wolt", "state": "in" | "paused"})
-            if who == l["wolt"]:
-                return reply(400, {"error": "you're the room's main agent: you stay in every thread"})
+            if who == l["wolt"] and state != "paused":
+                return reply(403, {"error": "you can take yourself out of a thread; a person brings you back"})
             if not any(x["wolt"] == who for x in wolts()):
                 return reply(404, {"error": f"there's no {who} in this room"})
             return reply(200, set_who(where["thread"], who, state))
@@ -1169,8 +1169,6 @@ def for_person(req, email):
             return reply(404, {"error": f"there's no {who} in this room"})
         if not may_switch(email, who):
             return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
-        if state == "paused" and who == main_wolt():
-            return reply(400, {"error": f"{who} is the room's main agent: it stays in every thread"})
         return reply(200, set_who(where["thread"], who, state))
     if path == "/api/look":  # dress a wolt ({"wolt", "look": {"hat", ...}}): its keeper or the host
         data = json.loads(req.read(20_000) or b"{}")
