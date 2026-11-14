@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
-import { say, send, useRoom, type Msg } from "./room";
+import { say, send, sendWithProgress, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
 import { wear, worn } from "./hats";
@@ -582,7 +582,19 @@ export function App() {
   async function sendVoice(o: Outgoing) {
     outgoing.current.set(o.cid, o);
     shown(o.cid, { pending: true, failed: false });
-    const r = await send(`/api/voice?seconds=${o.seconds}&cid=${o.cid}${where(o.thread)}`, { method: "POST", headers: { "Content-Type": o.type }, body: o.blob });
+    // A note that doesn't get an answer (the connection dropped, the room was busy) is sent again by itself a few times
+    // before it shows "didn't send". The same cid each time, so the room keeps one copy: a try that did get there
+    // is handed back, not posted twice. A refusal (4xx) is final.
+    let r: Response | null = null;
+    const waits = [0, 2000, 5000, 10000];
+    for (const [i, wait] of waits.entries()) {
+      if (wait) { shown(o.cid, { progress: `trying again (${i}/${waits.length - 1})` }); await new Promise((ok) => setTimeout(ok, wait)); if (msgsNow.current.some((x) => x.cid === o.cid && x.id !== o.cid)) break; }
+      shown(o.cid, { progress: "sending" });
+      // where it is, as it is: the upload's own progress, then the room writing it down (the speech server isn't asked)
+      r = await sendWithProgress(`/api/voice?seconds=${o.seconds}&cid=${o.cid}${where(o.thread)}`, { method: "POST", headers: { "Content-Type": o.type }, body: o.blob },
+        (part) => shown(o.cid, { progress: part < 1 ? `sending ${Math.round(part * 100)}%` : "transcribing" }));
+      if (r?.ok || (r && r.status < 500 && r.status !== 408 && r.status !== 429)) break;
+    }
     settle(o.cid, r);
   }
   // Only the copy shown while sending (its id is still the cid) is ever marked; the room's copy never is.
@@ -601,7 +613,7 @@ export function App() {
       return;
     }
     shown(cid, { pending: false, failed: true });
-    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
+    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || `That didn't send (${r.status}).` : "Can't reach the room.");
   }
   // after a reload or a closed app: notes the room never got come back, ready to send again
   useEffect(() => {

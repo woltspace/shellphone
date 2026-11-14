@@ -1243,7 +1243,7 @@ def for_person(req, email):
             try:
                 text = transcribe(f)
             except Exception as exc:
-                return reply(502, {"error": f"couldn't transcribe: {exc}"})
+                return reply(424, {"error": f"couldn't transcribe: {exc}"})  # final: the note got here, sending it again won't help
             try:
                 seconds = round(min(3600, max(0, float(q.get("seconds", ["0"])[0]))), 1)
             except ValueError:
