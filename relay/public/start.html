@@ -6,65 +6,73 @@
 <title>Start a room · shellphone</title>
 <link rel="icon" href="/icon-180.png">
 <style>
-  :root { --bg:#f5f1e8; --panel:#fbf9f3; --ink:#18100a; --soft:#5c4d3c; --muted:#8a7a68; --line:#ddd5c5; --acc:#c4531e; --ok:#5e7a2c; }
+  :root { --bg:#f5f1e8; --panel:#fbf9f3; --ink:#18100a; --soft:#5c4d3c; --muted:#8a7a68; --line:#ddd5c5; --acc:#c4531e; --ok:#5e7a2c; --cream:#f1ede3; }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system,BlinkMacSystemFont,system-ui,sans-serif; }
-  nav { border-bottom:1px solid var(--line); padding:14px 18px; }
-  nav a { font:600 21px ui-monospace,Menlo,monospace; letter-spacing:-.5px; text-decoration:none; color:var(--ink); } nav i { color:var(--acc); font-style:normal; }
-  main { max-width:560px; margin:0 auto; padding:30px 18px 60px; }
-  h1 { font-size:30px; line-height:1.1; letter-spacing:-1px; margin:0 0 12px; }
-  p { color:var(--soft); margin:0 0 16px; }
-  .row { display:flex; gap:8px; margin:0 0 12px; } .row > * { flex:1; }
-  button { padding:12px 15px; font:600 15px -apple-system,system-ui,sans-serif; border:1px solid var(--acc); background:var(--acc); color:#fff; cursor:pointer; }
-  button.alt { background:var(--panel); color:var(--ink); border-color:var(--line); }
-  pre { margin:0 0 14px; border:1px solid var(--line); background:var(--panel); padding:14px; font:13px/1.6 ui-monospace,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
-  .status { display:flex; align-items:center; gap:10px; border:1px dashed var(--line); background:var(--panel); padding:12px 14px; margin:0 0 14px; color:var(--soft); }
-  .dot { width:10px; height:10px; border-radius:50%; background:var(--acc); flex:none; animation:pulse 1.2s infinite; } .dot.ok { background:var(--ok); animation:none; }
-  @keyframes pulse { 50% { opacity:.25; } }
-  .small { font-size:13px; color:var(--muted); }
-  label { display:block; font-size:13px; color:var(--muted); margin:18px 0 4px; }
-  input { width:100%; font:14px ui-monospace,Menlo,monospace; padding:10px; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system,BlinkMacSystemFont,"Inter",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
   a { color:var(--acc); }
-  .warn { border:1px solid #e3b98f; background:#fdf1e4; margin:0 0 22px; font-size:14px; line-height:1.5; color:var(--soft); }
-  .warn summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:10px 14px; color:var(--ink); }
-  .warn summary::-webkit-details-marker { display:none; }
-  .warn summary .more { margin-left:auto; font-size:13px; color:var(--acc); white-space:nowrap; } .warn[open] summary .more::after { content:" ▴"; } .warn:not([open]) summary .more::after { content:" ▾"; }
-  .warn ul { margin:0; padding:0 14px 12px 40px; } .warn li { margin:2px 0; }
-  nav { display:flex; align-items:center; } nav .src { margin-left:auto; display:flex; align-items:center; gap:6px; font:600 13px ui-monospace,Menlo,monospace; letter-spacing:0; color:var(--ink); border:1px solid var(--line); background:var(--panel); padding:6px 10px; }
+  .px { image-rendering:pixelated; image-rendering:crisp-edges; }
+  nav { display:flex; align-items:center; border-bottom:1px solid var(--line); }
+  .brand { display:flex; align-items:center; gap:8px; padding:12px 18px; font:600 21px ui-monospace,Menlo,monospace; letter-spacing:-.5px; text-decoration:none; color:var(--ink); }
+  .brand img { width:30px; } .brand i { color:var(--acc); font-style:normal; }
+  nav .src { margin:0 14px 0 auto; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--panel); padding:6px 10px; font:600 13px -apple-system,system-ui,sans-serif; color:var(--ink); text-decoration:none; white-space:nowrap; }
   nav .src svg { width:16px; height:16px; }
-  .steps { list-style:none; counter-reset:s; margin:18px 0 18px; padding:0; }
-  .steps > li { counter-increment:s; position:relative; padding:0 0 18px 44px; }
-  .steps > li::before { content:counter(s); position:absolute; left:0; top:-2px; width:30px; height:30px; border-radius:50%; background:var(--acc); color:#fff; font:700 15px/30px ui-monospace,Menlo,monospace; text-align:center; }
-  .steps b { display:block; font-size:17px; margin:0 0 8px; }
-  button.big { display:block; width:100%; padding:16px; font-size:17px; border-radius:12px; }
-  #share { display:block; margin:8px 0 0; padding:6px 0; border:0; background:none; color:var(--acc); font-size:14px; }
-  .agents { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 6px; } .agents span { border:1px solid var(--line); background:var(--panel); border-radius:999px; padding:4px 11px; font-size:14px; color:var(--ink); }
-  .peek { margin:0 0 14px; } .peek summary { cursor:pointer; color:var(--muted); font-size:14px; margin:0 0 8px; } .peek pre { margin-top:8px; }
+  main { max-width:560px; margin:0 auto; padding:30px 18px 50px; }
+  h1 { font-size:36px; line-height:1.04; letter-spacing:-1.3px; margin:0 0 14px; font-weight:650; }
+  .warn { margin:0 0 18px; font-size:14px; color:var(--soft); }
+  .warn summary { list-style:none; cursor:pointer; display:inline-flex; align-items:center; gap:7px; border:1px solid #e3b98f; background:#fdf1e4; border-radius:20px; padding:4px 12px 4px 9px; font:600 13px ui-monospace,Menlo,monospace; color:var(--acc); }
+  .warn summary::-webkit-details-marker { display:none; }
+  .warn ul { margin:10px 0 0; padding:12px 14px 12px 32px; background:#fdf1e4; border:1px solid #e3b98f; border-radius:12px; }
+  .card { border:1.5px solid var(--line); border-radius:22px; background:#f8f5ee; padding:20px 16px 16px; }
+  .kick { font:600 12.5px ui-monospace,Menlo,monospace; letter-spacing:2.5px; color:var(--muted); }
+  .card h2 { font-size:26px; letter-spacing:-.6px; margin:4px 0 14px; font-weight:600; }
+  .win { position:relative; border:1px solid var(--line); background:var(--panel); box-shadow:0 8px 24px rgba(24,16,10,.07); border-radius:12px; overflow:hidden; }
+  .win header { display:flex; align-items:center; gap:7px; padding:9px 12px; border-bottom:1px solid var(--line); background:var(--cream); font:12px ui-monospace,Menlo,monospace; color:var(--muted); }
+  .win header i { width:9px; height:9px; border-radius:50%; background:#e06b5a; } .win header i:nth-child(2) { background:#e2b23c; } .win header i:nth-child(3) { background:#6fae53; margin-right:6px; }
+  .win pre { margin:0; padding:14px 14px 50px; font:13.5px/1.65 ui-monospace,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .win pre .d { color:var(--muted); } .win pre .a { color:var(--acc); }
+  .win .one { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .win .more { border:0; background:none; padding:0; font:12px ui-monospace,Menlo,monospace; color:var(--acc); text-decoration:underline; cursor:pointer; }
+  .tabs { margin-left:auto; display:flex; gap:2px; }
+  .tabs button { display:inline-flex; align-items:center; gap:5px; font:12px ui-monospace,Menlo,monospace; color:var(--muted); background:none; border:0; padding:3px 8px; border-radius:5px; cursor:pointer; }
+  .tabs button { white-space:nowrap; } @media (max-width:420px) { .win header .ttl { display:none; } }
+  .tabs button.on { background:#fff; color:var(--ink); } .tabs svg { width:13px; height:13px; flex:none; }
+  .win .acts { position:absolute; right:10px; bottom:10px; display:flex; gap:6px; }
+  .win .acts button { font:600 13px -apple-system,system-ui,sans-serif; border:0; background:var(--acc); color:#fff; padding:6px 14px; border-radius:7px; cursor:pointer; }
+  .win .acts button.alt { background:#fff; color:var(--soft); border:1px solid var(--line); }
+  .wait { display:flex; align-items:center; gap:9px; margin:14px 2px 0; font-size:14px; color:var(--soft); }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--acc); flex:none; animation:pulse 1.2s infinite; } .dot.ok { background:var(--ok); animation:none; }
+  @keyframes pulse { 50% { opacity:.25; } }
+  .foot { font-size:13px; color:var(--muted); margin:14px 2px 0; }
+  label { display:block; font-size:13px; color:var(--muted); margin:18px 0 4px; }
+  input { width:100%; font:14px ui-monospace,Menlo,monospace; padding:10px; border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:8px; }
+  @media (min-width:900px) { main { max-width:880px; padding-top:44px; } h1 { font-size:46px; } .card { padding:28px 30px 24px; } .card h2 { font-size:30px; } .win pre { font-size:14.5px; } }
+  @media (prefers-reduced-motion: reduce) { .dot { animation:none; } }
 </style>
 </head>
 <body>
-<nav><a href="/">shellphone<i>.</i></a><a class="src" href="https://github.com/woltspace/shellphone" target="_blank" rel="noopener" title="shellphone is open source: read all of its code"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Open source</a></nav>
+<nav><a class="brand" href="/"><img class="px" src="/px/shell.png" alt="">shellphone<i>.</i></a><a class="src" href="https://github.com/woltspace/shellphone" target="_blank" rel="noopener" title="shellphone is open source: read all of its code"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Open source</a></nav>
 <main>
-  <details class="warn"><summary><span>⚠️</span><b>Experimental: read this first</b><span class="more"></span></summary>
+  <h1>Start your shellphone</h1>
+  <details class="warn"><summary><span>⚠️</span>Experimental: read this first ▾</summary>
     <ul>
       <li>Your agent runs on your computer and reads everything said in the room. Only invite people you trust.</li>
       <li>Agents are told to act only on their own human's requests, but prompt injection is still a real risk. Don't give your agent access you wouldn't give everyone in the room.</li>
     </ul>
   </details>
-  <h1>Start a room</h1>
-  <ol class="steps">
-    <li><b>Copy the message</b>
-      <button id="copy" class="big">Copy message</button>
-      <button id="share" class="alt">Share instead</button></li>
-    <li><b>Paste it to your agent</b>
-      <span class="agents"><span>🤖 Claude Code</span><span>⌘ Codex</span><span>🦝 a wolt</span></span>
-      <span class="small">It checks with you once, then runs your room on its computer.</span></li>
-    <li><b>Keep this page open</b>
-      <div class="status"><span class="dot" id="dot"></span><span id="status">Waiting for your agent to bring the room up…</span></div>
-      <span class="small">It opens your room by itself. The room lives on your agent's computer, and is gone when it stops.</span></li>
-  </ol>
-  <details class="peek"><summary>See the message</summary><pre id="message"></pre></details>
-  <p class="small">No agent? You can still join a room someone else started, with their link.</p>
+  <div class="card">
+    <div class="kick">START A SHELLPHONE</div>
+    <h2>Choose what feels familiar.</h2>
+    <div class="win"><header><i></i><i></i><i></i><span class="ttl">start</span><span class="tabs" role="tablist"><button class="on" data-t="agent" role="tab"><svg viewBox="0 0 16 16" aria-hidden="true"><g stroke="#d97757" stroke-width="2.2" stroke-linecap="round"><path d="M8 1.5v13M1.5 8h13M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2"/></g></svg>your agent</button><button data-t="term" role="tab"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="2" width="14" height="12" rx="3" fill="#18100a"/><path d="M4.5 6l2.2 2-2.2 2M8.5 10.5h3" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>terminal</button></span></header>
+<pre id="agent"><span class="d"># paste into Claude Code, Codex or a wolt</span>
+<span id="message" class="one"></span><button class="more" id="more" type="button">show all ▾</button></pre>
+<pre id="term" hidden><span class="d"># in a terminal on the computer that will host the room</span>
+<span class="one"><span class="a">$</span> <span id="cmd"></span></span>
+<span class="d"># keep it running: the room lives in this process. Ctrl-C closes it</span></pre>
+      <div class="acts"><button class="alt" id="share" type="button">share</button><button id="copy" type="button">copy</button></div>
+    </div>
+    <div class="wait"><span class="dot" id="dot"></span><span id="status">Keep this page open: it opens your room by itself once it's up.</span></div>
+  </div>
+  <p class="foot">The room lives on the computer that hosts it, and is gone when it stops. It needs <a href="https://docs.astral.sh/uv/">uv</a>. No agent? Join a room someone else started, with their link.</p>
   <div id="locked">
     <label for="key">shellphone isn't open to everyone yet. If you were given a host key, put it here:</label>
     <input id="key" autocomplete="off" spellcheck="false" placeholder="host key">
@@ -93,14 +101,25 @@ ${key ? `SHELLPHONE_RELAY_KEY='${key}' ` : ""}${RUN} host '${link}'
 It needs uv (https://docs.astral.sh/uv/). What it does, and how to behave in the room: ${location.origin}/skill.md
 Check with me before you run it. Keep the link private: it is the key to my room.`;
 }
-function show() { $("message").textContent = message(); }
+function command() {
+  const key = ($("key")?.value || "").trim().replace(/'/g, "");
+  return `${key ? `SHELLPHONE_RELAY_KEY='${key}' ` : ""}${RUN} host '${link}'`;
+}
+let tab = "agent";
+const text = () => (tab === "agent" ? message() : command());
+function show() { $("message").textContent = message(); $("cmd").textContent = command(); }
+$("more").onclick = () => { const open = $("message").classList.toggle("one"); $("more").textContent = open ? "show all ▾" : "show less ▴"; };
+for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => {
+  tab = b.dataset.t; document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  $("agent").hidden = tab !== "agent"; $("term").hidden = tab !== "term";
+};
 // The host key is not kept in the browser: this site also shows rooms' pages, and the key opens rooms.
 try { localStorage.removeItem("shellphone:hostkey"); } catch {}  // an earlier version kept it
 $("key").oninput = show;
 show();
 
-$("copy").onclick = async () => { try { await navigator.clipboard.writeText(message()); $("copy").textContent = "Copied ✓ now paste it to your agent"; } catch { $("copy").textContent = "Copy didn\'t work: open See the message"; document.querySelector(".peek").open = true; } };
-if (navigator.share) $("share").onclick = () => navigator.share({ text: message() }).catch(() => {}); else $("share").remove();
+$("copy").onclick = async () => { try { await navigator.clipboard.writeText(text()); $("copy").textContent = "copied ✓"; } catch { $("copy").textContent = "select it"; $("message").classList.remove("one"); } setTimeout(() => ($("copy").textContent = "copy"), 1800); };
+if (navigator.share) $("share").onclick = () => navigator.share({ text: text() }).catch(() => {}); else $("share").remove();
 
 async function check() {
   try {
