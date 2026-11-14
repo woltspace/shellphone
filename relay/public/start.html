@@ -66,7 +66,7 @@
 <pre id="agent"><span class="d"># paste into Claude Code, Codex or a wolt</span>
 <span id="message" class="one"></span><button class="more" id="more" type="button">show all ▾</button></pre>
 <pre id="term" hidden><span class="d"># in a terminal on the computer that will host the room</span>
-<span class="one"><span class="a">$</span> <span id="cmd"></span></span>
+<span class="one" id="cmdline"><span class="a">$</span> <span id="cmd"></span></span>
 <span class="d"># keep it running: the room lives in this process. Ctrl-C closes it</span></pre>
       <div class="acts"><button class="alt" id="share" type="button">share</button><button id="copy" type="button">copy</button></div>
     </div>
@@ -108,6 +108,9 @@ function command() {
 let tab = "agent";
 const text = () => (tab === "agent" ? message() : command());
 function show() { $("message").textContent = message(); $("cmd").textContent = command(); }
+function unfold() {  // copying didn't work: show the whole text, so it can be selected by hand
+  if (tab === "agent") { $("message").classList.remove("one"); $("more").textContent = "show less ▴"; } else $("cmdline").classList.remove("one");
+}
 $("more").onclick = () => { const open = $("message").classList.toggle("one"); $("more").textContent = open ? "show all ▾" : "show less ▴"; };
 for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => {
   tab = b.dataset.t; document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
@@ -118,7 +121,7 @@ try { localStorage.removeItem("shellphone:hostkey"); } catch {}  // an earlier v
 $("key").oninput = show;
 show();
 
-$("copy").onclick = async () => { try { await navigator.clipboard.writeText(text()); $("copy").textContent = "copied ✓"; } catch { $("copy").textContent = "select it"; $("message").classList.remove("one"); } setTimeout(() => ($("copy").textContent = "copy"), 1800); };
+$("copy").onclick = async () => { try { await navigator.clipboard.writeText(text()); $("copy").textContent = "copied ✓"; } catch { $("copy").textContent = "select it"; unfold(); } setTimeout(() => ($("copy").textContent = "copy"), 1800); };
 if (navigator.share) $("share").onclick = () => navigator.share({ text: text() }).catch(() => {}); else $("share").remove();
 
 async function check() {
