@@ -23,6 +23,8 @@ export type State = {
   who?: Record<string, Record<string, "in" | "paused">>;  // per thread, the agents switched in or paused there (ThreadWho.tsx)
   who_default?: "in" | "out";
   working_in?: Record<string, string[]>;
+  looks?: Record<string, Record<string, string>>;  // each wolt's look, by name: {"hat": id} (hats.ts)
+  faces?: Record<string, string>;  // what each person wears, by email: "hat-<id>"
   main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it
 };
 

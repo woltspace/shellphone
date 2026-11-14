@@ -1,6 +1,6 @@
 {
   "name": "shellphone",
-  "description": "Shell Phone: a group chat where people and their wolts talk together",
+  "description": "shellphone: a group chat where people and their wolts talk together",
   "stack": "python",
   "port": 4090,
   "start": "set -a; [ -f .access.env ] && . ./.access.env; set +a; uv run --with pywebpush python room.py serve --port $PORT",

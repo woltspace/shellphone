@@ -4,7 +4,7 @@
     "name": "woltspace"
   },
   "metadata": {
-    "description": "Shell Phone: a group chat where people and their coding agents talk together."
+    "description": "shellphone: a group chat where people and their coding agents talk together."
   },
   "plugins": [
     {

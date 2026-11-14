@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shell Phone room: one chat for several people and their wolts. Standard library only.
+"""shellphone room: one chat for several people and their wolts. Standard library only.
 
 People reach it through Cloudflare Access, which logs them in by email and passes the email along.
 Lodges reach it on /lodge/ with their own room key (and, behind Cloudflare, a service token).
@@ -87,6 +87,8 @@ create table if not exists page_changes(page text not null, n integer not null, 
 create table if not exists thread_who(thread text not null, wolt text not null, state text not null, primary key(thread, wolt));
 create table if not exists thread_seen(thread text primary key);
 create table if not exists working_in(wolt text not null, thread text not null, until real not null, primary key(wolt, thread));
+create table if not exists looks(wolt text primary key, look text not null);
+create table if not exists faces(email text primary key, face text not null);
 """
 CON = None
 
@@ -301,6 +303,32 @@ def set_main(wolt):
 # brings a paused one back. WHO_DEFAULT is the rule for an agent that is neither: "out" (it hears nothing from the thread
 # until it is brought in) or "in" (every agent hears every thread, as rooms did before, until someone pauses it there).
 WHO_DEFAULT = "in" if os.environ.get("SHELLPHONE_THREAD_DEFAULT") == "in" else "out"
+
+
+# Hats (the Hat Shop's): a wolt's look is a few short names the page chose ({"hat"} for now, room for "creature",
+# "glasses" and "scene"), set by its keeper or the host and seen by everyone. A person's face is "hat-<id>": the hat
+# they picked for themselves.
+LOOKS = {"creature": {"raccoon", "beaver", "otter"}, "glasses": {"shades", "aviators", "rose", "nerd"},
+         "scene": {"forest", "pond", "camp", "autumn", "winter"},
+         "hat": {"top-hat", "crown", "jewel-crown", "wizard-hat", "old-wizard-hat", "cowboy-hat", "teal-cowboy-hat", "red-beanie", "orange-beanie", "red-cap", "blue-cap", "straw-hat", "pirate-hat", "party-hat", "pink-party-hat", "chef-hat", "viking-helmet", "hard-hat", "beret", "elf-hat", "flower-crown", "pink-flower-crown", "propeller-hat", "fedora", "graduation-cap", "sprout"}}
+FACE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")  # a person's face: an id the page's set knows
+
+
+def dress(c, wolt=None, email=None):
+    """Someone new gets a random hat: a wolt when it joins (one that already has a look keeps it), a person when they're added."""
+    hat = secrets.choice(sorted(LOOKS["hat"]))
+    if wolt:
+        c.execute("insert or ignore into looks values (?, ?)", (wolt, json.dumps({"hat": hat})))
+    if email:
+        c.execute("insert or ignore into faces values (?, ?)", (email, "hat-" + hat))
+
+
+def faces_now():
+    return {r["email"]: r["face"] for r in q("select * from faces where email in (select email from people)")}
+
+
+def looks_now():
+    return {r["wolt"]: json.loads(r["look"]) for r in q("select * from looks where wolt in (select wolt from wolts)")}
 
 
 def may_switch(email, wolt):
@@ -897,6 +925,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     key = secrets.token_urlsafe(32)
                     c.execute("delete from wolts where wolt = ?", (wolt,))  # a wolt joining again gets a fresh key
                     c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), inv["owner"], creature, voice))
+                    dress(c, wolt=wolt)
                     if inv["once"]:  # codes from the join page work once
                         c.execute("delete from invites where code_hash = ?", (self.bearer(),))
                 return self.send(200, {"key": key, "wolt": wolt, "owner": inv["owner"], "voice": voice})
@@ -1067,7 +1096,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "messages": messages(after)})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
@@ -1127,6 +1156,27 @@ def for_person(req, email):
         if state == "paused" and who == main_wolt():
             return reply(400, {"error": f"{who} is the room's main agent: it stays in every thread"})
         return reply(200, set_who(where["thread"], who, state))
+    if path == "/api/look":  # dress a wolt ({"wolt", "look": {"hat", ...}}): its keeper or the host
+        data = json.loads(req.read(20_000) or b"{}")
+        who, look = str(data.get("wolt") or ""), data.get("look")
+        if not any(l["wolt"] == who for l in wolts()):
+            return reply(404, {"error": f"there's no {who} in this room"})
+        if not may_switch(email, who):
+            return reply(403, {"error": "only the room's host, or the wolt's own keeper, can change its look"})
+        if not isinstance(look, dict) or not all(k in LOOKS and isinstance(v, str) and (v == "" or v in LOOKS[k]) for k, v in look.items()):
+            return reply(400, {"error": "a look is creature, hat, glasses and scene, each one the Hat Shop has (or empty)"})
+        look = {k: v for k, v in look.items() if v}
+        with tx() as c:
+            c.execute("insert or replace into looks values (?, ?)", (who, json.dumps(look))) if look else c.execute("delete from looks where wolt = ?", (who,))
+        return reply(200, {"wolt": who, "look": look})
+    if path == "/api/face":  # a person picks their own face ({"face": "hat-<id>"}, or "" for none): only for themselves
+        data = json.loads(req.read(20_000) or b"{}")
+        face = data.get("face")
+        if not isinstance(face, str) or (face and not FACE.fullmatch(face)):
+            return reply(400, {"error": "a face is a short name, like \"hat-crown\""})
+        with tx() as c:
+            c.execute("insert or replace into faces values (?, ?)", (email, face)) if face else c.execute("delete from faces where email = ?", (email,))
+        return reply(200, {"email": email, "face": face})
     if path == "/api/main":  # the host names the room's main agent ({"wolt": name}), or takes the role away ({"wolt": null})
         data = json.loads(req.read(20_000) or b"{}")
         who = data.get("wolt")
@@ -1190,6 +1240,7 @@ def lodge_file(wolt, owner, creature, voice, base_url):
     with tx() as c:  # one key per wolt; a new one replaces the old
         c.execute("delete from wolts where wolt = ?", (wolt,))
         c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), owner, creature, voice))
+        dress(c, wolt=wolt)
     return {"room_url": base_url, "key": key, "wolt": wolt}
 
 
@@ -1200,6 +1251,7 @@ def add_person(email, name):
         return found
     with tx() as c:
         c.execute("insert into people (email, name, color) values (?, ?, ?)", (email.lower(), name, color := next_color()))
+        dress(c, email=email.lower())
     print(f"{name} <{email.lower()}> is in, colour {color}")
     return email.lower()
 
@@ -1219,16 +1271,17 @@ def add_guest(name):
     with LOCK, tx() as c:
         email = f"guest-{secrets.token_hex(4)}@room.local"  # never reused: a past guest's messages stay theirs
         c.execute("insert into people (email, name, color, guest) values (?, ?, ?, 1)", (email, name, next_color()))
+        dress(c, email=email)
     return email
 
 
-GUEST_STEPS = """Hi {name}, you're invited to a Shell Phone room: a group chat where people and their wolts talk together.
+GUEST_STEPS = """Hi {name}, you're invited to a shellphone room: a group chat where people and their wolts talk together.
 
 You: open {url} and log in with {email}. That's all you need to join.
 
 Your wolts (optional): if you want one in the room, give it this whole file. The password comes separately; pass it on when it asks.
 ---
-Please join this Shell Phone room for me. Everything runs from your own wolt folder; nothing needs installing.
+Please join this shellphone room for me. Everything runs from your own wolt folder; nothing needs installing.
 1. mkdir -p shellphone && chmod 700 shellphone
 2. Unlock the invite without echoing the password:
    sed -n '/^-----BEGIN SHELL PHONE INVITE-----$/,/^-----END SHELL PHONE INVITE-----$/p' {file} | sed '1d;$d' | SHELLPHONE_PASS='<password>' openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -a -A -out shellphone/lodge.json -pass env:SHELLPHONE_PASS && chmod 600 shellphone/lodge.json
@@ -1263,7 +1316,7 @@ def code_ref():
 
 
 CODE_URL = f"https://raw.githubusercontent.com/woltspace/shellphone/{code_ref()}/"
-WOLT_STEPS = """Please join my Shell Phone room: a group chat where people and their coding agents talk together.
+WOLT_STEPS = """Please join my shellphone room: a group chat where people and their coding agents talk together.
 
 Follow the shellphone-join skill. If you don't have it, read it first: {skill}
 Its connector script (public, not secret): {connector}
@@ -1333,7 +1386,7 @@ def main():
 
     if a.cmd == "serve":
         DEV = a.dev
-        print(f"Shell Phone room on http://127.0.0.1:{a.port}" + (" (dev: pick who you are with ?as=EMAIL)" if DEV else ""), flush=True)
+        print(f"shellphone room on http://127.0.0.1:{a.port}" + (" (dev: pick who you are with ?as=EMAIL)" if DEV else ""), flush=True)
         if not DEV and not (ACCESS_TEAM and ACCESS_AUD):
             print("WARNING: SHELLPHONE_ACCESS_TEAM and SHELLPHONE_ACCESS_AUD aren't set, so the room believes the email in a plain "
                   "request header: anything that can reach this port can speak as anyone. Set them (see the shellphone-host skill).", flush=True)

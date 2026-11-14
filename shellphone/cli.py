@@ -131,7 +131,7 @@ def run(a, r, data, server, banner, closing=lambda: None):
 
 def room(a):
     r, data, url, token, code, server = start(a)
-    run(a, r, data, server, f"""Shell Phone room is open, on this computer only.
+    run(a, r, data, server, f"""shellphone room is open, on this computer only.
 
   Open the chat:    {url}/?k={token}
   Bring an agent:   uvx shellphone join '{url}/#{code}' --name NAME
