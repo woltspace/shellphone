@@ -473,6 +473,29 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual([w["wolt"] for w in room.members()["wolts"]], ["helper"])
         self.assertEqual(ask("sam@example.com", "paused"), (200, {"wolt": "helper", "paused": True}))
 
+    def test_two_agents_racing_with_one_code_get_in_once(self):
+        import importlib, io, contextlib, threading
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SHELLPHONE_DATA": self.tmp.name}):
+            room = importlib.import_module("room")
+        self.addCleanup(sys.modules.pop, "room", None)
+        self.addCleanup(lambda: room.CON and room.CON.close())
+        with contextlib.redirect_stdout(io.StringIO()):
+            room.add_person("sam@example.com", "Sam")
+        code, check = room.agent_code("sam@example.com"), room.invite_of
+        def slow(code_hash):  # each one waits after checking, so a check made apart from the code's use lets both in
+            got = check(code_hash)
+            time.sleep(0.3)
+            return got
+        got = {}
+        with mock.patch.object(room, "invite_of", slow):
+            racers = [threading.Thread(target=lambda n=n: got.__setitem__(n, room.join_wolt(room.key_hash(code), {"wolt": n})[0])) for n in ("one", "two")]
+            for t in racers:
+                t.start()
+            for t in racers:
+                t.join(10)
+        self.assertEqual(sorted(got.values()), [200, 401])
+        self.assertEqual(len(room.members()["wolts"]), 1)
     def test_the_hosts_first_wolt_is_the_main_agent_unless_the_host_says_otherwise(self):
         import importlib, io, contextlib
         from unittest import mock
