@@ -359,6 +359,7 @@ def free_port():
 def start_relay(*variables):
     """The relay on this computer, in Cloudflare's local simulator, with these settings (NAME:value)."""
     port, fresh = free_port(), tempfile.mkdtemp()  # nothing the relay kept from an earlier run: the desk's counts start at zero
+    if not any(v.startswith("OPEN_HOSTING:") for v in variables): variables = ("OPEN_HOSTING:", *variables)  # closed unless a test opens it, whatever the live relay is set to
     proc = subprocess.Popen([NPX, "-y", "wrangler@4", "dev", "--local", "--port", str(port), "--persist-to", fresh, *[x for v in variables for x in ("--var", v)]],
                             cwd=REPO / "relay", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
     proc.fresh = fresh
@@ -411,7 +412,9 @@ class RelaySettings(unittest.TestCase):
         self.assertEqual(host_status(base, ""), 401)
 
     def test_hosting_is_opened_to_everyone_only_on_purpose(self):
-        self.assertEqual(host_status(self.relay("OPEN_HOSTING:1")), 101)
+        base = self.relay("OPEN_HOSTING:1")
+        self.assertEqual(host_status(base), 101)
+        self.assertTrue(json.load(urllib.request.urlopen(base + "/live"))["open"])  # so the start page drops its host-key box
 
     def test_switched_off_means_nothing_is_served_or_carried(self):
         base = self.relay("RELAY_OFF:1", "HOST_KEY:k")
@@ -774,11 +777,11 @@ class RoomCap(unittest.TestCase):
         host = self.host(self.link())[0]
         self.assertEqual(self.stats()[0], 1)
         first = urllib.request.urlopen(self.base + "/live")
-        self.assertEqual(json.load(first), {"rooms": 1})  # one number, no key asked for, and nothing beside it
+        self.assertEqual(json.load(first), {"rooms": 1, "open": False})  # one number and whether anyone may host, no key asked for, nothing else
         self.assertIn("max-age=30", first.headers["cache-control"])
         self.close(host)
         self.assertEqual(self.stats()[0], 0)
-        self.assertEqual(json.load(urllib.request.urlopen(self.base + "/live")), {"rooms": 1})  # kept for half a minute: asked again here, the desk isn't
+        self.assertEqual(json.load(urllib.request.urlopen(self.base + "/live")), {"rooms": 1, "open": False})  # kept for half a minute: asked again here, the desk isn't
         with self.assertRaises(urllib.error.HTTPError) as no:
             urllib.request.urlopen(urllib.request.Request(self.base + "/live", method="POST", data=b"{}"))
         self.assertEqual(no.exception.code, 404)
