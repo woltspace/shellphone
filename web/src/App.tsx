@@ -582,7 +582,15 @@ export function App() {
   async function sendVoice(o: Outgoing) {
     outgoing.current.set(o.cid, o);
     shown(o.cid, { pending: true, failed: false });
-    const r = await send(`/api/voice?seconds=${o.seconds}&cid=${o.cid}${where(o.thread)}`, { method: "POST", headers: { "Content-Type": o.type }, body: o.blob });
+    // A note that doesn't get an answer (the connection dropped, the room was busy) is sent again by itself a few times
+    // before it shows "didn't send". The same cid each time, so the room keeps one copy: a try that did get there
+    // is handed back, not posted twice. A refusal (4xx) is final.
+    let r: Response | null = null;
+    for (const wait of [0, 2000, 5000, 10000]) {
+      if (wait) { await new Promise((ok) => setTimeout(ok, wait)); if (msgsNow.current.some((x) => x.cid === o.cid && x.id !== o.cid)) break; }
+      r = await send(`/api/voice?seconds=${o.seconds}&cid=${o.cid}${where(o.thread)}`, { method: "POST", headers: { "Content-Type": o.type }, body: o.blob });
+      if (r?.ok || (r && r.status < 500 && r.status !== 408 && r.status !== 429)) break;
+    }
     settle(o.cid, r);
   }
   // Only the copy shown while sending (its id is still the cid) is ever marked; the room's copy never is.
@@ -601,7 +609,7 @@ export function App() {
       return;
     }
     shown(cid, { pending: false, failed: true });
-    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
+    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || `That didn't send (${r.status}).` : "Can't reach the room.");
   }
   // after a reload or a closed app: notes the room never got come back, ready to send again
   useEffect(() => {
