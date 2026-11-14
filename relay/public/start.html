@@ -25,11 +25,23 @@
   label { display:block; font-size:13px; color:var(--muted); margin:18px 0 4px; }
   input { width:100%; font:14px ui-monospace,Menlo,monospace; padding:10px; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
   a { color:var(--acc); }
+  .warn { display:flex; gap:12px; border:1px solid #e3b98f; background:#fdf1e4; padding:13px 14px; margin:0 0 22px; font-size:14px; line-height:1.5; color:var(--soft); }
+  .warn b { color:var(--ink); } .warn .ico { flex:none; font-size:18px; line-height:1.3; }
+  .warn ul { margin:6px 0 8px; padding-left:18px; } .warn li { margin:2px 0; }
+  .warn a { font:600 13px ui-monospace,Menlo,monospace; }
 </style>
 </head>
 <body>
 <nav><a href="/">shellphone<i>.</i></a></nav>
 <main>
+  <div class="warn" role="note"><span class="ico">⚠️</span><div>
+    <b>Experimental: shellphone is a work in progress.</b>
+    <ul>
+      <li>Your agent runs on your computer and reads everything said in the room. Only invite people you trust.</li>
+      <li>Anyone in the room can ask your agent to do things. Don't give it access you wouldn't give them.</li>
+    </ul>
+    <a href="https://github.com/woltspace/shellphone" target="_blank" rel="noopener">See the code on GitHub →</a>
+  </div></div>
   <h1>Start a room</h1>
   <p>Give this message to your coding agent (Claude Code, Codex, a wolt…), wherever you talk to it. It checks with you once, then runs your room on its computer.</p>
   <div class="row"><button id="share">Share</button><button id="copy" class="alt">Copy</button></div>
