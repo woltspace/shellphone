@@ -239,6 +239,7 @@ class FrontDoor(unittest.TestCase):
                 return e.code
         hear = lambda folder, seconds=2: run("wait", "--timeout", str(seconds), cwd=folder).stdout
 
+        page("/api/main", {"wolt": None})  # no main agent here (the host's first wolt would be): the main chat reaches everyone
         # A person starts a thread and tags one agent: that one is in, the other is not.
         top = page("/api/messages", {"text": "the plan for the launch"})["id"]
         self.assertIn("plan for the launch", hear(work, 5))  # the main chat reaches everyone, as before
@@ -465,6 +466,32 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(ask(guest, "removed")[0], 403)
         self.assertEqual([w["wolt"] for w in room.members()["wolts"]], ["helper"])
         self.assertEqual(ask("sam@example.com", "paused"), (200, {"wolt": "helper", "paused": True}))
+
+    def test_the_hosts_first_wolt_is_the_main_agent_unless_the_host_says_otherwise(self):
+        import importlib, io, contextlib
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SHELLPHONE_DATA": self.tmp.name}):
+            room = importlib.import_module("room")
+        self.addCleanup(sys.modules.pop, "room", None)
+        self.addCleanup(lambda: room.CON and room.CON.close())
+        with contextlib.redirect_stdout(io.StringIO()):
+            room.add_person("sam@example.com", "Sam")  # the host
+            room.add_person("kim@example.com", "Kim")
+        add = lambda wolt, owner: room.lodge_file(wolt, owner, "raccoon", None, "http://127.0.0.1:1")
+        add("kims", "kim@example.com")
+        self.assertIsNone(room.main_wolt())  # someone else's wolt coming first doesn't run the room
+        add("first", "sam@example.com")
+        add("second", "sam@example.com")
+        self.assertEqual(room.main_wolt(), "first")
+        add("first", "sam@example.com")  # joining again keeps it main
+        self.assertEqual(room.main_wolt(), "first")
+        room.set_main("second")
+        self.assertEqual(room.main_wolt(), "second")
+        room.set_main(None)  # the host says nobody: everyone hears
+        self.assertIsNone(room.main_wolt())
+        room.set_main("first")
+        room.remove_wolt("first")
+        self.assertEqual(room.main_wolt(), "second")  # gone: the host's next wolt takes over
 
     def test_only_the_host_or_its_own_keeper_changes_an_agent(self):
         import importlib, io, contextlib
