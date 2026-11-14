@@ -12,7 +12,7 @@ export type Msg = {
   n: number; id: string; cid?: string; at: number; kind: "human" | "wolt" | "patch" | "activity";  // activity: "maya made 3 changes to …", said by the room
   email?: string; wolt?: string; owner?: string; creature?: string;
   text?: string; audio?: string; seconds?: number; files?: FileInfo[]; file?: FileInfo; card?: CardNode; of?: string; page?: PageRef; activity?: Activity;
-  localUrl?: string; pending?: boolean; failed?: boolean; thread?: string;
+  localUrl?: string; pending?: boolean; failed?: boolean; thread?: string; progress?: string;  // progress: a note on its way ("sending 40%")
 };
 export type Tab = { slug: string; title: string; v: number };
 export type State = {
@@ -33,6 +33,22 @@ export const sending = { n: 0 };
 export async function send(url: string, init: RequestInit) {
   sending.n++;
   try { return await (relayRoom ? call(url, init) : fetch(url, init)).catch(() => null); } finally { sending.n--; }
+}
+// A send that says how far the upload has got (0..1). On this page's own room the browser reports it; through the
+// relay the pipe doesn't, so it is just sent. Either way the answer is a Response, or null when it never arrived.
+export function sendWithProgress(url: string, init: RequestInit, onUp: (part: number) => void): Promise<Response | null> {
+  if (relayRoom) return send(url, init);
+  sending.n++;
+  return new Promise((done) => {
+    const x = new XMLHttpRequest();
+    x.open(init.method || "GET", url);
+    for (const [k, v] of Object.entries((init.headers || {}) as Record<string, string>)) x.setRequestHeader(k, v);
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onUp(e.loaded / e.total); };
+    x.upload.onload = () => onUp(1);
+    x.onload = () => { sending.n--; done(new Response(x.responseText, { status: x.status, headers: { "Content-Type": x.getResponseHeader("Content-Type") || "application/json" } })); };
+    x.onerror = x.ontimeout = x.onabort = () => { sending.n--; done(null); };
+    x.send(init.body as XMLHttpRequestBodyInit);
+  });
 }
 export async function say(url: string, init: RequestInit): Promise<string | null> {
   const r = await send(url, init);

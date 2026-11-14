@@ -84,7 +84,7 @@ function Voice({ m, ctx }: { m: Msg; ctx: Ctx }) {
   return <div className="w-[min(260px,68vw)]">
     <Player src={src} seconds={m.seconds} seed={m.id || m.cid || "v"} guess={m.text ? Math.max(1, m.text.split(/\s+/).length / 2.6) : undefined} />
     {m.failed ? <Unsent m={m} ctx={ctx} /> : m.pending
-      ? <div className="h-5 leading-5 mt-1.5 text-xs text-dim flex items-center gap-1.5 animate-[pulse-soft_1.4s_ease-in-out_infinite]"><i className="w-[11px] h-[11px] border-2 border-line border-t-acc rounded-full animate-spin" />transcribing</div>
+      ? <div className="h-5 leading-5 mt-1.5 text-xs text-dim flex items-center gap-1.5 animate-[pulse-soft_1.4s_ease-in-out_infinite]"><i className="w-[11px] h-[11px] border-2 border-line border-t-acc rounded-full animate-spin" />{m.progress || "transcribing"}</div>
       : m.text ? <div data-tap onClick={() => setOpen(!open)} className={`mt-1.5 text-sm leading-snug whitespace-pre-wrap cursor-pointer ${open ? "" : "line-clamp-1 text-dim"}`}>
           <span className="text-acc">{open ? "▾ " : "▸ "}</span>{m.text}</div> : null}
   </div>;
