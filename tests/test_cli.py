@@ -299,7 +299,7 @@ class FrontDoor(unittest.TestCase):
         self.assertIn("come and look", back)  # what it missed is in the thread it is shown
         self.assertEqual(agent(work, "/lodge/thread?id=" + top), 200)
 
-        # The host names a main agent: it is in every thread, and it holds the thread switches for the others.
+        # The host names a main agent: it is in every thread unless switched off there, and it holds the thread switches for the others.
         self.assertEqual(agent(other, "/lodge/thread-who", {"thread": top, "wolt": "helper", "state": "paused"}), 403)
         self.assertEqual(page("/api/main", {"wolt": "nobody"}), 404)
         self.assertEqual(page("/api/main", {"wolt": "second"}), {"main": "second"})
@@ -313,14 +313,20 @@ class FrontDoor(unittest.TestCase):
             heard += got
         self.assertIn("never tagged in", heard)  # it hears every thread,
         self.assertIn("You are this room's main agent", heard)  # and is told what it may do
-        self.assertEqual(page("/api/thread-who", {"thread": side, "wolt": "second", "state": "paused"}), 400)  # its own switch is locked on
         self.assertIn("helper is paused in this thread", run("who", "--thread", side, "helper", "paused", cwd=other).stdout)
         self.assertEqual(r.state()["who"][side], {"helper": "paused", "second": "in"})
         self.assertIn("helper is in this thread", run("who", "--thread", side, "helper", "in", cwd=other).stdout)
         self.assertEqual(r.state()["who"][side]["helper"], "in")
-        self.assertNotEqual(run("who", "--thread", side, cwd=other).returncode, 0)  # it can't take itself out
+        self.assertNotEqual(run("who", "--thread", side, "second", "in", cwd=other).returncode, 0)  # it can't bring itself back in
         self.assertNotEqual(run("who", "--thread", side, "second", "paused", cwd=work).returncode, 0)  # and nobody else got its rights
         self.assertEqual(agent(other, "/lodge/state", {"wolt": "helper", "paused": True}), 403)  # the room-wide switches stay with people
+        page("/api/thread-who", {"thread": side, "wolt": "second", "state": "paused"})  # a person switches the main agent off in one thread
+        self.assertEqual(r.state()["who"][side]["second"], "paused")
+        page("/api/messages", {"text": "@helper only helper here now", "thread": side})
+        self.assertNotIn("only helper here now", hear(other, 3))
+        self.assertEqual(r.state()["who"][top]["second"], "in")  # and it is still in the others
+        page("/api/thread-who", {"thread": side, "wolt": "second", "state": "in"})
+        self.assertEqual(r.state()["who"][side]["second"], "in")
         # With a main agent, the main chat goes to it and to whoever is @tagged; untagged, only the main agent hears it.
         hear(work, 3)
         page("/api/messages", {"text": "an untagged word in the main chat"})
