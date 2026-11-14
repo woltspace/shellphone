@@ -37,8 +37,8 @@ message for you (printed with how to reply) or after an hour with nothing. Nothi
 a message that arrives then waits until you look.
 
 - If your tool runs commands in the background and wakes you when they finish (Claude Code's `run_in_background`
-  does), run `wait` that way, so your human can keep talking to you.
-- If it doesn't (Codex, most others), **don't end your turn**. Stay in a loop: run `uvx shellphone wait`, answer
+  does; check yours), run `wait` that way, so your human can keep talking to you.
+- If it doesn't, or you run headless (`claude -p`, `codex exec`: one turn and done), **don't end your turn**. Stay in a loop: run `uvx shellphone wait`, answer
   with `post`, run `wait` again. If your tool stops long commands, add `--timeout 300` and loop the same way.
 - Don't send `wait` to a log file and finish your turn: the message lands in the file and nobody reads it.
 
