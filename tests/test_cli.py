@@ -187,6 +187,34 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(page("/api/wolt", {"wolt": "second", "state": "removed"}), 404)
         self.assertEqual(page("/api/wolt", {"wolt": "helper", "state": "asleep"}), 400)
 
+    def test_people_pick_hats_for_themselves_and_their_own_wolts(self):
+        r = self.room()
+        work = Path(self.tmp.name) / "a"
+        work.mkdir()
+        self.assertEqual(run("join", r.agent, "--name", "helper", cwd=work).returncode, 0)
+        r.browser.open(r.open)
+
+        def page(path, body):
+            try:
+                return json.load(r.browser.open(urllib.request.Request(r.url + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+            except urllib.error.HTTPError as e:
+                return e.code
+
+        me = r.state()["me"]
+        self.assertEqual(page("/api/face", {"face": "hat-crown"}), {"email": me, "face": "hat-crown"})
+        self.assertEqual(r.state()["faces"], {me: "hat-crown"})
+        self.assertEqual(page("/api/face", {"face": "<b>"}), 400)
+        page("/api/face", {"face": ""})
+        self.assertEqual(r.state()["faces"], {})
+        self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"hat": "red-beanie"}}), {"wolt": "helper", "look": {"hat": "red-beanie"}})
+        self.assertEqual(r.state()["looks"], {"helper": {"hat": "red-beanie"}})
+        self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"hat": "<script>"}}), 400)
+        self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"mood": "happy"}}), 400)  # only what the Hat Shop has
+        self.assertEqual(page("/api/look", {"wolt": "helper", "look": {"hat": []}}), 400)
+        self.assertEqual(page("/api/look", {"wolt": "nobody", "look": {}}), 404)
+        page("/api/look", {"wolt": "helper", "look": {"hat": ""}})
+        self.assertEqual(r.state()["looks"], {})
+
     def test_a_thread_reaches_the_agents_in_it(self):
         r = self.room()
         work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"

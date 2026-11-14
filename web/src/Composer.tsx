@@ -6,6 +6,7 @@ import { File as FileIcon, Mic, Paperclip, Pause, SendHorizontal, X } from "luci
 import { relayRoom } from "./relay";
 import type { Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
+import { worn } from "./hats";
 import { handle as handleOf, mentionNames } from "./mentions.js";
 
 // What you were typing, kept per box (the main chat, each thread) while you go back and forth.
@@ -79,13 +80,13 @@ export function Composer({ draft, wolts, people = [], working = {}, host, me, on
       {(tagOpts.length > 0 || tagPeople.length > 0) && <div className={menu + " z-20 max-h-[min(210px,34dvh)] overflow-y-auto overscroll-contain touch-pan-y"}>
         {tagPeople.length > 0 && <div className={sec}>Humans · {tagPeople.length}</div>}
         {tagPeople.map((p) => <button key={p.email} type="button" className={who} onMouseDown={keep} onClick={() => set(text.replace(/@[\w-]*$/, "@" + handle(p) + " "))}>
-          <img src={personAvatar(p.name, p.color)} alt="" className="w-[30px] h-[30px] rounded-full flex-none" />
+          <img src={personAvatar(p.name, p.color, worn.people[p.email])} alt="" className="w-[30px] h-[30px] rounded-full flex-none" />
           <span className="flex-1 min-w-0"><span className="block font-mono font-semibold text-sm truncate">{p.name}</span>
             <span className="block text-xs text-dim">{[p.email === host && "host", p.guest && "guest", p.email === me && "you"].filter(Boolean).join(" · ") || "member"}</span></span>
         </button>)}
         {tagOpts.length > 0 && <div className={sec}>Agents · {tagOpts.length}</div>}
         {tagOpts.map((w) => { const o = owner(w.owner); return <button key={w.wolt} type="button" className={`${who} ${w.paused ? "opacity-50" : ""}`} onMouseDown={keep} onClick={() => set(text.replace(/@[\w-]*$/, "@" + w.wolt + " "))}>
-          <img src={woltAvatar(w.creature || "raccoon", o?.color || "#8a7a68")} alt="" className="pixel w-[30px] h-[30px] flex-none" />
+          <img src={woltAvatar(w.creature || "raccoon", o?.color || "#8a7a68", worn.wolts[w.wolt])} alt="" className="pixel w-[30px] h-[30px] flex-none" />
           <span className="flex-1 min-w-0"><span className="block font-mono font-semibold text-sm truncate">{w.wolt}</span>
             <span className="block text-xs text-dim truncate">{o ? `${o.email === me ? "your" : o.name + "'s"} ${w.creature || "raccoon"}` : w.creature}</span></span>
           {w.paused ? <span className="flex-none inline-flex items-center gap-1 text-[11px] font-mono text-dim border border-line rounded-lg px-1.5"><Pause size={10} />paused</span>

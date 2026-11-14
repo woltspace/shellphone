@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ChevronDown, Pause, Play, X } from "lucide-react";
 import { say, type Person, type Wolt } from "./room";
 import { woltAvatar } from "./sprites";
+import { worn } from "./hats";
 
 const set = (wolt: string, state: "on" | "paused" | "removed") =>
   say("/api/wolt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt, state }) });
@@ -31,7 +32,7 @@ export function Agents({ wolts, people, me, host, sec, main }: { wolts: Wolt[]; 
     {wolts.map((w) => {
       const owner = people.find((p) => p.email === w.owner);
       return <div key={w.wolt} className="flex items-center gap-2.5 px-4 py-2">
-        <img src={woltAvatar(w.creature || "raccoon", owner?.color || "#8a6a52")} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />
+        <img src={woltAvatar(w.creature || "raccoon", owner?.color || "#8a6a52", worn.wolts[w.wolt])} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />
         <span className="flex-1 min-w-0">
           <span className={`block truncate font-mono text-sm ${w.paused ? "text-dim" : "text-ink"}`}>{w.wolt}</span>
           <small className="block text-xs text-dim">{w.paused ? "paused · hears nothing" : `${owner?.name || w.owner}'s`}{main === w.wolt ? " · main" : ""}</small>

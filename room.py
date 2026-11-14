@@ -87,6 +87,8 @@ create table if not exists page_changes(page text not null, n integer not null, 
 create table if not exists thread_who(thread text not null, wolt text not null, state text not null, primary key(thread, wolt));
 create table if not exists thread_seen(thread text primary key);
 create table if not exists working_in(wolt text not null, thread text not null, until real not null, primary key(wolt, thread));
+create table if not exists looks(wolt text primary key, look text not null);
+create table if not exists faces(email text primary key, face text not null);
 """
 CON = None
 
@@ -301,6 +303,23 @@ def set_main(wolt):
 # brings a paused one back. WHO_DEFAULT is the rule for an agent that is neither: "out" (it hears nothing from the thread
 # until it is brought in) or "in" (every agent hears every thread, as rooms did before, until someone pauses it there).
 WHO_DEFAULT = "in" if os.environ.get("SHELLPHONE_THREAD_DEFAULT") == "in" else "out"
+
+
+# Hats (the Hat Shop's): a wolt's look is a few short names the page chose ({"hat"} for now, room for "creature",
+# "glasses" and "scene"), set by its keeper or the host and seen by everyone. A person's face is "hat-<id>": the hat
+# they picked for themselves.
+LOOKS = {"creature": {"raccoon", "beaver", "otter"}, "glasses": {"shades", "aviators", "rose", "nerd"},
+         "scene": {"forest", "pond", "camp", "autumn", "winter"},
+         "hat": {"top-hat", "crown", "jewel-crown", "wizard-hat", "old-wizard-hat", "cowboy-hat", "teal-cowboy-hat", "red-beanie", "orange-beanie", "red-cap", "blue-cap", "straw-hat", "pirate-hat", "party-hat", "pink-party-hat", "chef-hat", "viking-helmet", "hard-hat", "beret", "elf-hat", "flower-crown", "pink-flower-crown", "propeller-hat", "fedora", "graduation-cap", "sprout"}}
+FACE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")  # a person's face: an id the page's set knows
+
+
+def faces_now():
+    return {r["email"]: r["face"] for r in q("select * from faces where email in (select email from people)")}
+
+
+def looks_now():
+    return {r["wolt"]: json.loads(r["look"]) for r in q("select * from looks where wolt in (select wolt from wolts)")}
 
 
 def may_switch(email, wolt):
@@ -1067,7 +1086,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "messages": messages(after)})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
@@ -1127,6 +1146,27 @@ def for_person(req, email):
         if state == "paused" and who == main_wolt():
             return reply(400, {"error": f"{who} is the room's main agent: it stays in every thread"})
         return reply(200, set_who(where["thread"], who, state))
+    if path == "/api/look":  # dress a wolt ({"wolt", "look": {"hat", ...}}): its keeper or the host
+        data = json.loads(req.read(20_000) or b"{}")
+        who, look = str(data.get("wolt") or ""), data.get("look")
+        if not any(l["wolt"] == who for l in wolts()):
+            return reply(404, {"error": f"there's no {who} in this room"})
+        if not may_switch(email, who):
+            return reply(403, {"error": "only the room's host, or the wolt's own keeper, can change its look"})
+        if not isinstance(look, dict) or not all(k in LOOKS and isinstance(v, str) and (v == "" or v in LOOKS[k]) for k, v in look.items()):
+            return reply(400, {"error": "a look is creature, hat, glasses and scene, each one the Hat Shop has (or empty)"})
+        look = {k: v for k, v in look.items() if v}
+        with tx() as c:
+            c.execute("insert or replace into looks values (?, ?)", (who, json.dumps(look))) if look else c.execute("delete from looks where wolt = ?", (who,))
+        return reply(200, {"wolt": who, "look": look})
+    if path == "/api/face":  # a person picks their own face ({"face": "hat-<id>"}, or "" for none): only for themselves
+        data = json.loads(req.read(20_000) or b"{}")
+        face = data.get("face")
+        if not isinstance(face, str) or (face and not FACE.fullmatch(face)):
+            return reply(400, {"error": "a face is a short name, like \"hat-crown\""})
+        with tx() as c:
+            c.execute("insert or replace into faces values (?, ?)", (email, face)) if face else c.execute("delete from faces where email = ?", (email,))
+        return reply(200, {"email": email, "face": face})
     if path == "/api/main":  # the host names the room's main agent ({"wolt": name}), or takes the role away ({"wolt": null})
         data = json.loads(req.read(20_000) or b"{}")
         who = data.get("wolt")

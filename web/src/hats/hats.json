@@ -1,0 +1,158 @@
+[
+{
+"id": "top-hat",
+"name": "top hat",
+"w": 16,
+"h": 16
+},
+{
+"id": "crown",
+"name": "crown",
+"w": 16,
+"h": 14
+},
+{
+"id": "jewel-crown",
+"name": "jewel crown",
+"w": 16,
+"h": 16
+},
+{
+"id": "wizard-hat",
+"name": "wizard hat",
+"w": 16,
+"h": 16
+},
+{
+"id": "old-wizard-hat",
+"name": "old wizard hat",
+"w": 16,
+"h": 16
+},
+{
+"id": "cowboy-hat",
+"name": "cowboy hat",
+"w": 16,
+"h": 15
+},
+{
+"id": "teal-cowboy-hat",
+"name": "teal cowboy hat",
+"w": 16,
+"h": 12
+},
+{
+"id": "red-beanie",
+"name": "red beanie",
+"w": 16,
+"h": 16
+},
+{
+"id": "orange-beanie",
+"name": "orange beanie",
+"w": 16,
+"h": 16
+},
+{
+"id": "red-cap",
+"name": "red cap",
+"w": 16,
+"h": 12
+},
+{
+"id": "blue-cap",
+"name": "blue cap",
+"w": 16,
+"h": 12
+},
+{
+"id": "straw-hat",
+"name": "straw hat",
+"w": 16,
+"h": 12
+},
+{
+"id": "pirate-hat",
+"name": "pirate hat",
+"w": 16,
+"h": 16
+},
+{
+"id": "party-hat",
+"name": "party hat",
+"w": 12,
+"h": 16
+},
+{
+"id": "pink-party-hat",
+"name": "pink party hat",
+"w": 12,
+"h": 16
+},
+{
+"id": "chef-hat",
+"name": "chef hat",
+"w": 16,
+"h": 14
+},
+{
+"id": "viking-helmet",
+"name": "viking helmet",
+"w": 16,
+"h": 16
+},
+{
+"id": "hard-hat",
+"name": "hard hat",
+"w": 16,
+"h": 16
+},
+{
+"id": "beret",
+"name": "beret",
+"w": 16,
+"h": 10
+},
+{
+"id": "elf-hat",
+"name": "elf hat",
+"w": 16,
+"h": 15
+},
+{
+"id": "flower-crown",
+"name": "flower crown",
+"w": 16,
+"h": 13
+},
+{
+"id": "pink-flower-crown",
+"name": "pink flower crown",
+"w": 16,
+"h": 13
+},
+{
+"id": "propeller-hat",
+"name": "propeller hat",
+"w": 16,
+"h": 16
+},
+{
+"id": "fedora",
+"name": "fedora",
+"w": 16,
+"h": 10
+},
+{
+"id": "graduation-cap",
+"name": "graduation cap",
+"w": 16,
+"h": 15
+},
+{
+"id": "sprout",
+"name": "sprout",
+"w": 16,
+"h": 16
+}
+]
