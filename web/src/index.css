@@ -18,6 +18,9 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 #root { height: var(--vh, 100dvh); }
 .pixel { image-rendering: pixelated; }
 
+@keyframes wave { 0%, 100% { opacity: .12; } 22%, 62% { opacity: 1; } }
+.wave-in, .wave-out { animation: wave var(--wave, 1.1s) cubic-bezier(.45,0,.55,1) infinite; }
+.wave-out { animation-delay: calc(var(--wave, 1.1s) * .16); }
 @keyframes cook { to { background-position: -300% 0; } }
 @keyframes chew { 50% { transform: scaleY(.9) translateY(1px); } }
 @keyframes bob { 50% { translate: 0 -2px; } }
@@ -38,4 +41,4 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 .gnaw-img { animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
 .cursor::after { content: "_"; color: var(--color-acc); animation: blink 1s steps(1) infinite; }
 .wave.quiet i { animation: quiet 1.4s ease-in-out infinite alternate; }
-@media (prefers-reduced-motion: reduce) { .gnaw-img, .gnaw-row, .lore { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .gnaw-img, .gnaw-row, .lore, .wave-in, .wave-out { animation: none; } }

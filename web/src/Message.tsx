@@ -3,11 +3,13 @@ import { relayRoom } from "./relay";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
+import { PageTile } from "./Page";
+import { ShareButton } from "./Share";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number) => void; retry?: (cid: string) => void };
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void };
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -93,21 +95,37 @@ function Files({ m, ctx }: { m: Msg; ctx: Ctx }) {
   return <>
     {pics.length === 1 && <File f={pics[0]} ctx={ctx} />}
     {pics.length > 1 && <div className="grid grid-cols-2 gap-1 w-[min(260px,68vw)] mb-1">
-      {pics.map((f, i) => <img key={f.url} src={f.url} alt={f.name} onClick={() => ctx.view(pics.map((p) => p.url), i)} className="block w-full aspect-[3/4] object-cover rounded-lg cursor-zoom-in" />)}
+      {pics.map((f, i) => <img key={f.url} src={f.url} alt={f.name} onClick={() => ctx.view(pics.map((p) => p.url), i, pics.map((p) => p.name))} className="block w-full aspect-[3/4] object-cover rounded-lg cursor-zoom-in" />)}
     </div>}
     {rest.map((f) => <File key={f.url} f={f} ctx={ctx} />)}
   </>;
 }
 
 function File({ f, ctx }: { f: FileInfo; ctx: Ctx }) {
-  if (IMAGE.test(f.type)) return <img src={f.url} alt={f.name} onClick={() => ctx.view([f.url])} className="block max-w-[min(260px,68vw)] max-h-[320px] rounded-lg cursor-zoom-in mb-1" />;
-  if (VIDEO.test(f.type)) return <video src={f.url} controls playsInline preload="metadata" className="block max-w-[min(260px,68vw)] rounded-lg mb-1" />;
-  return <a href={f.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-2.5 py-2 mb-1 border border-line rounded-[10px] bg-paper no-underline text-ink">
+  if (IMAGE.test(f.type)) return <img src={f.url} alt={f.name} onClick={() => ctx.view([f.url], 0, [f.name])} className="block max-w-[min(260px,68vw)] max-h-[320px] rounded-lg cursor-zoom-in mb-1" />;
+  if (VIDEO.test(f.type)) return <div className="relative w-fit mb-1">
+    <video src={f.url} controls playsInline preload="metadata" className="block max-w-[min(260px,68vw)] rounded-lg" />
+    <ShareButton url={f.url} name={f.name} className="absolute top-1.5 right-1.5 bg-[#000a] text-white border-0" />
+  </div>;
+  return <div className="flex items-center gap-1 mb-1"><a href={f.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 px-2.5 py-2 border border-line rounded-[10px] bg-paper no-underline text-ink">
     <span className="text-xl">📄</span><span className="min-w-0"><span className="block font-semibold truncate">{f.name}</span><span className="block font-mono text-[11px] text-dim">{f.type.toUpperCase()} · {Math.max(1, Math.round(f.size / 1024))} KB</span></span>
-  </a>;
+  </a><ShareButton url={f.url} name={f.name} className="flex-none bg-transparent border-0 text-dim" /></div>;
+}
+
+// Changes to a page, said by the room in one line ("maya made 3 changes to Launch plan"): not someone talking, so
+// small and centred. A tap opens the page.
+function Activity({ m, ctx }: { m: Msg; ctx: Ctx }) {
+  const a = m.activity!;
+  const who = a.by.map((b) => `${b.name}${b.count > 1 ? ` (${b.count})` : ""}`).join(", ");
+  return <div className="flex justify-center px-2.5 mt-2" id={m.id}>
+    <button type="button" data-tap onClick={() => ctx.openPage?.(a.page)}
+      className="max-w-[85%] truncate rounded-full border-0 bg-line/60 px-3 py-1 font-mono text-[11px] text-dim cursor-pointer">
+      ✎ {who} changed <b className="font-semibold text-ink">{a.title}</b> · {time(m.at)}</button>
+  </div>;
 }
 
 export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firstOfRun: boolean; footer?: ReactNode }) {
+  if (m.kind === "activity" && m.activity) return <Activity m={m} ctx={ctx} />;
   const human = m.kind === "human", mine = human && m.email === ctx.me;
   const owner = human ? m.email : m.owner, who = ctx.person(owner);
   const name = human ? who.name : `${m.wolt} · ${owner === ctx.me ? "yours" : who.name + "'s"}`;
@@ -117,12 +135,17 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
       <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
       <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
-        style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) } : undefined}>
-        {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5">[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
+        style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
+          : !human ? { background: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : undefined}>
+        {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5" style={!human ? { color: woltColor(m.wolt, ctx.wolts) } : undefined}>[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
         {m.files?.length ? relayRoom ? <div className="font-mono text-xs text-dim mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
         {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
         {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
         <Card msg={m} all={ctx.all} />
+        {m.page && <PageTile m={m} ctx={ctx} />}
+        {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
+          className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
+          style={{ color: woltColor(m.wolt, ctx.wolts), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}
         <div className="flex justify-end items-center gap-1 mt-0.5 font-mono text-[10px] text-dim">
           {time(m.at)}
           {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
@@ -133,6 +156,16 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
       </div>
     </div>
   );
+}
+
+// Each agent its own colour, so two agents of one person don't look alike: by its place in the room's list (the same on
+// every phone, and no two alike for the first eight), or from its name if it has left the room.
+const HUES = ["#2f6fa3", "#7a4fb0", "#2f7d6d", "#b0427a", "#8a6d1c", "#5b5bb5", "#3f8a3a", "#c4531e"];
+export function woltColor(name = "", wolts: Wolt[] = []) {
+  const i = wolts.findIndex((w) => w.wolt === name);
+  if (i >= 0) return HUES[i % HUES.length];
+  let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return HUES[h % HUES.length];
 }
 
 export function mix(hex: string, to: string, t: number) {  // blend a colour toward white, so text stays readable on it

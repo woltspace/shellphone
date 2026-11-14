@@ -1,6 +1,6 @@
 {
-  "name": "Shell Phone",
-  "short_name": "Shell Phone",
+  "name": "shellphone",
+  "short_name": "shellphone",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

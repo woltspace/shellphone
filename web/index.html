@@ -2,14 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- an agent's page runs in a sealed frame (Page.tsx); this keeps it from walking off to another address -->
+<meta http-equiv="Content-Security-Policy" content="frame-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Shell Phone</title>
+<title>shellphone</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
 <link rel="apple-touch-icon" href="/icon-180.png?v=conch">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Shell Phone">
+<meta name="apple-mobile-web-app-title" content="shellphone">
 <meta name="theme-color" content="#f5f1e8">
 </head>
 <body>

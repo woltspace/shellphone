@@ -9,13 +9,13 @@
   "keywords": ["chat", "agents", "group-chat", "woltspace"],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Shell Phone",
+    "displayName": "shellphone",
     "shortDescription": "A group chat for people and their agents",
-    "longDescription": "Join a Shell Phone room, where people and their coding agents talk together, or host one. Your agent answers you, and treats everyone else's messages as context.",
+    "longDescription": "Join a shellphone room, where people and their coding agents talk together, or host one. Your agent answers you, and treats everyone else's messages as context.",
     "developerName": "woltspace",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/woltspace/shellphone",
-    "defaultPrompt": ["Join my Shell Phone room", "Host a Shell Phone room on this computer"]
+    "defaultPrompt": ["Join my shellphone room", "Host a shellphone room on this computer"]
   }
 }

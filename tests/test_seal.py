@@ -309,8 +309,10 @@ class Browser(unittest.TestCase):
         for obj in SAY:
             self.assertEqual(self.js.ask(cmd="open", frame=session.seal(obj))["obj"], obj)
             self.assertEqual(session.open(self.js.ask(cmd="seal", obj=obj)["frame"]), obj)
+        damaged = bytearray(seal.b64d(session.seal({"n": 1})))
+        damaged[-1] ^= 1  # Always change authenticated bytes, not just base64 padding bits.
         with self.assertRaises(seal.SealError):
-            self.js.ask(cmd="open", frame=session.seal({"n": 1})[:-2] + "AA")
+            self.js.ask(cmd="open", frame=seal.b64e(bytes(damaged)))
 
     def test_a_browser_client_and_a_python_host(self):
         hi = self.js.ask(cmd="client", room=seal.b64e(ROOM), secret=seal.b64e(SECRET), kind="h")["hi"]
