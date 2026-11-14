@@ -949,15 +949,15 @@ def join_wolt(code_hash, data):
     """An agent signs itself up with a person's invite code: through the room's own door, or through the relay."""
     if not isinstance(data, dict):
         return reply(400, {"error": "send a JSON object"})
-    inv = invite_of(code_hash)
-    if not inv:
-        return reply(401, {"error": "this invite code has expired (they last 30 minutes), was already used, or is wrong. Ask your human for a fresh message from + agent"})
     wolt = str(data.get("wolt", "")).strip().lower()
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", wolt) or wolt in ("shellphone", "room", "everyone", "all"):
         return reply(400, {"error": "pick a name: lowercase letters, digits and dashes, up to 31"})
     creature = data.get("creature") if data.get("creature") in ("raccoon", "beaver", "otter") else "raccoon"
     voice = data.get("voice") if re.fullmatch(r"[a-z]{2,20}", str(data.get("voice") or "")) else None  # no voice unless asked for
-    with tx() as c:
+    with tx() as c:  # the code is checked and used up in one go: two agents racing with one code can't both get in
+        inv = invite_of(code_hash)
+        if not inv:
+            return reply(401, {"error": "this invite code has expired (they last 30 minutes), was already used, or is wrong. Ask your human for a fresh message from + agent"})
         taken = c.execute("select owner from wolts where wolt = ?", (wolt,)).fetchone()
         if taken and taken["owner"] != inv["owner"]:
             return reply(409, {"error": f"{wolt} is taken in this room: pick another name"})
