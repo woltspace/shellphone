@@ -17,6 +17,7 @@ export type Msg = {
 export type Tab = { slug: string; title: string; v: number };
 export type State = {
   version?: string; title: string; me: string; host?: string;  // host: the person who can pause or remove any agent
+  guest_agents?: boolean;  // through the relay: whether guests may bring their own agents (the host turns it off or on)
   members: { people: Person[]; wolts: Wolt[] };
   working: Record<string, unknown>; unreachable?: Record<string, number>; seen: Record<string, string[]>; tabs: Tab[];
   pages?: Record<string, { v: number; n: number }>;  // where each page stands: its version and its last change
