@@ -5,7 +5,7 @@ export type Recording = { blob: Blob; type: string; seconds: number };
 
 // Tapping send shows the note in the chat at once (onSend); the recording itself follows a moment later (onDone with
 // the same id), when the phone has finished handing it over.
-export function Listening({ sprite, audio, onSend, onDone }: { sprite: string; audio: AudioContext | null; onSend: (seconds: number) => string; onDone: (r: Recording | null, cid?: string) => void }) {
+export function Listening({ sprite, audio, onSend, onDone, onBlocked }: { sprite: string; audio: AudioContext | null; onSend: (seconds: number) => string; onDone: (r: Recording | null, cid?: string) => void; onBlocked?: () => void }) {
   const [secs, setSecs] = useState(0);
   const [quiet, setQuiet] = useState(false);
   const bars = useRef<HTMLDivElement>(null);
@@ -16,7 +16,7 @@ export function Listening({ sprite, audio, onSend, onDone }: { sprite: string; a
     (async () => {
       let stream: MediaStream;
       try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-      catch { onDone(null); return; }
+      catch { onBlocked?.(); onDone(null); return; }  // no mic: say so, instead of the sheet just closing
       if (gone) { stream.getTracks().forEach((t) => t.stop()); return; }
       const recorder = new MediaRecorder(stream), parts: Blob[] = [];
       const r: NonNullable<typeof rec.current> = (rec.current = { recorder, stream, parts, start: Date.now(), keep: true });

@@ -443,6 +443,7 @@ export function App() {
   const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
   useEffect(() => (relayRoom ? onRelayState(setLink) : undefined), []);
   const [listening, setListening] = useState<AudioContext | null | false>(false);
+  const [micBlocked, setMicBlocked] = useState(false);  // the phone said no to the mic: offer to ask again, or reload
   const [viewing, setViewing] = useState<{ urls: string[]; names?: string[]; at: number } | null>(null);
   const [paging, setPaging] = useState("");  // the page open full screen, by id
   // the desk: on a wide screen, your wolts' terminals beside the chat (Desk.tsx). Remembered on this computer.
@@ -664,6 +665,7 @@ export function App() {
   }
   function mic() {
     if (!navigator.mediaDevices || !window.MediaRecorder) return setError("This browser can't record here.");
+    setMicBlocked(false);
     setListening(null);
   }
   // what you type shows at once, then becomes the room's copy as soon as the room has it (no wait for the next poll)
@@ -763,7 +765,18 @@ export function App() {
       {naming && <NameFirst done={() => setNaming(false)} />}
       {relayRoom && (relayKeyMissing || (link !== "open" && !(naming && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
-      {listening !== false && <Listening sprite={woltFace(me?.wolt, me?.creature)} audio={listening} onSend={voiceStart} onDone={voice} />}
+      {listening !== false && <Listening sprite={woltFace(me?.wolt, me?.creature)} audio={listening} onSend={voiceStart} onDone={voice} onBlocked={() => setMicBlocked(true)} />}
+      {/* An app on the home screen can lose the mic and never ask again until it starts over. A tap asks again;
+          if the phone still says no, reloading starts the page over, which brings its question back without quitting the app. */}
+      {micBlocked && <div role="alert" className="absolute inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] max-w-[480px] mx-auto rounded-xl border-2 border-acc bg-panel p-3 shadow-[0_4px_14px_#18100a33]">
+        <div className="font-mono text-[13px] font-semibold text-acc">The mic isn't allowed right now</div>
+        <div className="text-[13px] text-dim mt-0.5">Ask again, or reload the app so your phone asks you. If it still says no, allow the microphone for this site in your phone's settings.</div>
+        <div className="flex gap-2 mt-2.5">
+          <button type="button" onClick={mic} className="flex-1 rounded-lg border-0 bg-acc text-white font-mono font-semibold text-[13px] py-2 cursor-pointer">Ask again</button>
+          <button type="button" onClick={() => location.reload()} className="flex-1 rounded-lg border border-acc bg-transparent text-acc font-mono font-semibold text-[13px] py-2 cursor-pointer">Reload app</button>
+          <button type="button" aria-label="Close" onClick={() => setMicBlocked(false)} className="w-9 rounded-lg border border-line bg-transparent text-dim cursor-pointer">✕</button>
+        </div>
+      </div>}
       {viewing && <Viewer urls={viewing.urls} names={viewing.names} at={viewing.at} close={() => setViewing(null)} />}
       {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>
