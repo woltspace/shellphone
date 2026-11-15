@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
+import { Fold, Group, groups, pieces, useFolding } from "./Fold";
 import { say, send, sendWithProgress, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
@@ -198,9 +199,10 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
   stick.current = (on = true) => { if (on) toBottom(false); };  // sending, or coming back after a while: the newest
   const onScroll = () => setFar(-scroller.current!.scrollTop > 600);
   let lastDay = "", lastWho = "";
+  const folding = useFolding();
   return <div className="flex-1 min-h-0 relative flex flex-col"><div ref={scroller} data-feed onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain flex flex-col-reverse"><div className="pt-1">
     {list.length === 0 && <p className="text-center text-dim font-mono text-xs mt-10 px-6">Nobody has said anything yet. Tag a wolt with @ to bring it in.</p>}
-    {list.map((m, i) => {
+    {(() => { const one = (m: Msg, i: number) => {
       const d = new Date(m.at * 1000), day = d.toLocaleDateString([], { day: "numeric", month: "long" });
       const who = m.kind === "human" ? m.email! : "wolt:" + m.wolt, newDay = day !== lastDay;
       const thread = replies?.get(m.id) || [];
@@ -217,7 +219,20 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
         {divider !== undefined && i === 0 && <div className="flex items-center gap-2.5 px-3.5 my-3 font-mono text-[11px] text-dim">
           <span>{divider} {divider === 1 ? "reply" : "replies"}</span><span className="flex-1 h-px bg-line" /></div>}
       </div>;
-    })}
+    }; let at = 0;
+    const draw = (part: Msg[]) => pieces(part, folding).map((p) => {
+      if ("one" in p) return one(p.one, at++);
+      const start = at; at += p.run.length; lastWho = "";
+      const inside = p.run.map((m, k) => one(m, start + k)); lastWho = "";
+      return <Fold key={"fold:" + p.run[0].id} run={p.run} ctx={ctx}>{inside}</Fold>;
+    });
+    if (!folding || !place) return draw(list);  // groups are for threads; the main chat keeps each message, with its thread, in view
+    const all = groups(list);
+    if (all.length === 1) return draw(list);
+    return all.map((g, k) => { lastWho = ""; const first = one(g[0], at++); lastWho = "";
+      const newest = k === all.length - 1 && g.length > 2;  // the newest group keeps its last message in view even when folded
+      const middle = draw(newest ? g.slice(1, -1) : g.slice(1)), tail = newest ? one(g[g.length - 1], at++) : undefined;
+      return <Group key={"group:" + g[0].id} list={g} ctx={ctx} last={k === all.length - 1} first={first} tail={tail}>{middle}</Group>; }); })()}
     <Gnaw ctx={ctx} working={working} away={away} place={place} />
   </div></div>
     {far && <button type="button" aria-label="Jump to the newest" onClick={() => toBottom()}

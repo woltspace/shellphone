@@ -1,6 +1,7 @@
 // The ☰ menu: this room and its settings. It slides in from the left, like Slack's.
 import { useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronRight, Inbox, Squirrel, UserPlus } from "lucide-react";
+import { Bell, BellOff, BellRing, Check, ChevronRight, Inbox, ListCollapse, Squirrel, UserPlus } from "lucide-react";
+import { setFolding, useFolding } from "./Fold";
 import { call, inviteLink, relayHost, relayRoom } from "./relay";
 import { Agents } from "./Agents";
 import { People } from "./HatShop";
@@ -42,6 +43,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         {relayHost && <GuestAgents row={row} on={guestAgents !== false} />}
         <button type="button" onClick={() => { close(); onThreads(); }} className={row}><Inbox size={20} className="text-acc" /><span className="flex-1">Inbox</span>
           {freshCount > 0 && <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{freshCount}</span>}</button>
+        <FoldSwitch row={row} />
         <People people={people} me={me} host={host} faces={faces} sec={sec} />
         <Agents wolts={wolts} people={people} me={me} host={host} sec={sec} main={main} looks={looks} />
       </div>
@@ -74,4 +76,14 @@ function GuestAgents({ row, on }: { row: string; on: boolean }) {
   return <button type="button" disabled={busy} onClick={flip} className={row}><Squirrel size={20} className={on ? "text-acc" : "text-dim"} />
     <span className="flex-1">Guests' agents<small className="block text-xs text-dim">{on ? "Guests may bring their own agents. Tap to turn off" : "Off: guests' agents can't hear or post. Tap to allow"}</small></span>
     <span className={`font-mono font-semibold text-xs rounded-lg px-2.5 py-1 ${on ? "text-white bg-acc" : "text-dim bg-panel border border-line"}`}>{on ? "on" : "off"}</span></button>;
+}
+
+// Agent runs fold by default; one tap here shows every message again (kept in this browser).
+function FoldSwitch({ row }: { row: string }) {
+  const on = useFolding();
+  return <button type="button" role="switch" aria-checked={on} onClick={() => setFolding(!on)} className={row}>
+    <ListCollapse size={20} className="text-acc" /><span className="flex-1">Fold agent chatter<small className="block text-xs text-dim">3+ agent messages in a row become one row</small></span>
+    <span className={`w-[42px] h-[25px] rounded-full relative flex-none transition-colors ${on ? "bg-go" : "bg-line"}`}>
+      <i className={`absolute top-[3px] w-[19px] h-[19px] rounded-full bg-white shadow transition-[left] ${on ? "left-[20px]" : "left-[3px]"}`} /></span>
+  </button>;
 }
