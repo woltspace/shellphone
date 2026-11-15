@@ -37,13 +37,11 @@ export function pieces(list: Msg[], folding: boolean): Piece[] {
 const firstLine = (m: Msg) => (m.text || (m.files?.length ? "[a file]" : m.card ? "[a card]" : "")).replace(/\*\*|`/g, "").split("\n").find((l) => l.trim()) || "";
 
 export function Fold({ run, ctx, children }: { run: Msg[]; ctx: Ctx; children: React.ReactNode[] }) {
-  const [open, setOpen] = useState(false), [one, setOne] = useState<Set<string>>(new Set());
-  const head = useRef<HTMLDivElement>(null), before = useRef<number | null>(null);
+  const [open, setOpen] = useState(false), [at, setAt] = useState(0);
+  const head = useRef<HTMLDivElement>(null), strip = useRef<HTMLDivElement>(null), before = useRef<number | null>(null);
   const counts = new Map<string, number>();
   for (const m of run) counts.set(m.wolt!, (counts.get(m.wolt!) || 0) + 1);
-  const hold = () => { before.current = head.current?.getBoundingClientRect().top ?? null; };
-  const toggle = () => { hold(); setOpen(!open); if (open) setOne(new Set()); };
-  const flip = (id: string) => { hold(); const next = new Set(one); if (next.has(id)) next.delete(id); else next.add(id); setOne(next); };
+  const toggle = () => { before.current = head.current?.getBoundingClientRect().top ?? null; setOpen(!open); setAt(0); };
   // the chat is anchored at the bottom, so opening a run would push its row up the screen: scroll it back under the finger
   useLayoutEffect(() => {
     if (before.current === null || !head.current) return;
@@ -51,13 +49,14 @@ export function Fold({ run, ctx, children }: { run: Msg[]; ctx: Ctx; children: R
     const moved = head.current.getBoundingClientRect().top - before.current;
     before.current = null;
     if (feed && moved) feed.scrollTop += moved;
-  }, [open, one]);
+  }, [open]);
+  const go = (i: number) => { const el = strip.current; if (el) el.scrollTo({ left: Math.max(0, Math.min(run.length - 1, i)) * el.clientWidth, behavior: "smooth" }); };
   const avatar = (name: string, cls: string) => {
     const w = ctx.wolts.find((x) => x.wolt === name);
     return w ? <img key={name} src={woltAvatar(w.creature, ctx.person(w.owner).color, worn.wolts[w.wolt])} alt="" className={`pixel rounded-full bg-panel border border-line ${cls}`} />
       : <span key={name} className={`rounded-full bg-line grid place-items-center font-mono text-[9px] border border-panel ${cls}`}>{name[0]?.toUpperCase()}</span>;
   };
-  // closed: one slim line. open: one line per message; tap a line for that whole message.
+  // closed: one slim line. open: the run as cards side by side, one whole message each; swipe through, tap the line to close.
   return <div className="mx-2.5 my-1" data-fold={run.length}>
     <div ref={head} className={open ? "sticky top-0 z-[5] bg-paper/95 backdrop-blur-sm" : ""}>
       <button type="button" onClick={toggle} aria-expanded={open}
@@ -68,14 +67,18 @@ export function Fold({ run, ctx, children }: { run: Msg[]; ctx: Ctx; children: R
         <span className="flex-none text-acc">{open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
       </button>
     </div>
-    {open && <div className="border-b border-dashed border-line pb-1">
-      {run.map((m, k) => one.has(m.id)
-        ? <div key={m.id}><button type="button" onClick={() => flip(m.id)} className="w-full flex items-center gap-1.5 px-2 pt-1.5 bg-transparent border-0 text-left cursor-pointer font-mono text-[11px] text-acc"><ChevronUp size={13} />{m.wolt}</button>{children[k]}</div>
-        : <button key={m.id} type="button" onClick={() => flip(m.id)}
-            className="w-full flex items-center gap-2 px-2 py-1.5 bg-transparent border-0 text-left cursor-pointer active:bg-line/40">
-            {avatar(m.wolt!, "w-4 h-4 flex-none")}
-            <span className="flex-1 min-w-0 truncate text-[13px]"><b className="font-mono font-semibold text-[12px] text-acc">{m.wolt}</b> <span className="text-dim">{firstLine(m)}</span></span>
-          </button>)}
+    {open && <div className="relative border-b border-dashed border-line">
+      <div className="flex items-center gap-2 px-2 py-1 font-mono text-[11px] text-dim">
+        {avatar(run[at].wolt!, "w-4 h-4")}<b className="text-acc">{run[at].wolt}</b><span className="flex-1" />
+        <span>{at + 1} / {run.length}</span><span className="sm:hidden">· swipe</span></div>
+      <div ref={strip} onScroll={(e) => { const el = e.currentTarget; setAt(Math.round(el.scrollLeft / Math.max(1, el.clientWidth))); }}
+        className="flex overflow-x-auto snap-x snap-mandatory overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ touchAction: "pan-x pan-y" }}>
+        {children.map((c, k) => <div key={run[k].id} className="w-full flex-none snap-start max-h-[60vh] overflow-y-auto overscroll-contain">{c}</div>)}
+      </div>
+      <div className="flex justify-center gap-1 py-1.5">{run.map((m, k) => <button key={m.id} type="button" aria-label={`Message ${k + 1}`} onClick={() => go(k)}
+        className={`w-1.5 h-1.5 p-0 rounded-full border-0 cursor-pointer ${k === at ? "bg-acc" : "bg-line"}`} />)}</div>
+      {at > 0 && <button type="button" aria-label="Previous" onClick={() => go(at - 1)} className="hidden sm:grid absolute left-0 top-1/2 w-8 h-8 place-items-center rounded-full bg-panel border border-line text-acc cursor-pointer">‹</button>}
+      {at < run.length - 1 && <button type="button" aria-label="Next" onClick={() => go(at + 1)} className="hidden sm:grid absolute right-0 top-1/2 w-8 h-8 place-items-center rounded-full bg-panel border border-line text-acc cursor-pointer">›</button>}
     </div>}
   </div>;
 }
