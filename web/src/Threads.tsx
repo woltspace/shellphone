@@ -2,7 +2,7 @@
 // Each thread gets a short title and its own color, so with many of them you can still tell them apart at a glance.
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight, MessagesSquare } from "lucide-react";
-import type { Ctx } from "./Message";
+import { mix, woltColor, type Ctx } from "./Message";
 import type { Msg, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
@@ -150,6 +150,8 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
   items.sort((a, b) => b.last.at - a.last.at);
   const unreadRows = items.filter((i) => i.n).length;
   const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
+  // the card is in the colour of whoever spoke last, as their bubble is in the chat
+  const ink = (m: Msg) => m.kind === "human" ? mix(ctx.person(m.email).color, "#ffffff", 0.82) : mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9);
   const count = (n: number) => <span className="flex-none min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{n}</span>;
   const busyAt = (key: string) => ctx.busy?.(key) || [];
   const row = ({ id, r, list, last, n }: typeof items[number]) => {
@@ -158,7 +160,7 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
     return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())} style={id ? threadWallpaper(id, true, true) : undefined}
       className={`flex w-full text-left bg-transparent border-0 border-b border-line px-3 py-2.5 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
       {/* the wallpaper shows around it; what you read sits on solid ground */}
-      <span className="flex-1 min-w-0 bg-[#fffdf8] rounded-xl border px-3 py-2 shadow-[0_1px_3px_#18100a14]" style={{ borderColor: color + "66" }}>
+      <span className="flex-1 min-w-0 rounded-xl border px-3 py-2 shadow-[0_1px_3px_#18100a14]" style={{ borderColor: color + "66", background: ink(last) }}>
         <span className="flex items-center gap-2 font-mono text-[13px] font-semibold">
           <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : lobby ? "# lobby" : "# main chat"}</span>
           {n > 0 && count(n)}
