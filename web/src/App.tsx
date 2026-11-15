@@ -12,7 +12,7 @@ import { WoltStrip, usePullDown } from "./WoltStrip";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
-import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWallpaper, ThreadHat, useChatsHome, unread, useSeen } from "./Threads";
+import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWallpaper, ThreadHat, nameChats, named, useChatsHome, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
@@ -244,8 +244,9 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 // Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
 // A thread pops up over the main chat, like the voice-note sheet: you're still in the room, just looking closer.
 // Drag the handle down, tap above it, or tap ✕ to drop back.
-function ThreadSheet({ startFull, chat, color, wallpaper, title, count, close, who, children }: { startFull?: boolean; chat?: boolean; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
+function ThreadSheet({ startFull, chat, name, onRename, color, wallpaper, title, count, close, who, children }: { startFull?: boolean; chat?: boolean; name?: string; onRename?: (name: string) => void; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
   const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null), [full, setFull] = useState(!!startFull);
+  const [editing, setEditing] = useState(false);  // renaming the chat: its title becomes a box
   const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
   const timer = useRef(0);
   useEffect(() => () => clearTimeout(timer.current), []);  // gone before the fade ended (another thread took its place): no late close
@@ -274,7 +275,12 @@ function ThreadSheet({ startFull, chat, color, wallpaper, title, count, close, w
         <div className={`flex items-center gap-2 ${chat ? "pl-1" : "pl-4"} pr-1.5 pb-1.5`}>
           {chat && <button type="button" aria-label="Back to the chats" onClick={bye} className="flex-none w-9 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>}
           <div className="min-w-0 flex-1">
-            <div className="font-mono font-semibold truncate" style={{ color }}>{title}</div>
+            {editing ? <input autoFocus defaultValue={name} maxLength={80} aria-label="Chat name"
+              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = name || ""; e.currentTarget.blur(); } }}
+              onBlur={(e) => { setEditing(false); const v = e.currentTarget.value.trim(); if (v !== (name || "")) onRename?.(v); }}
+              className="w-full font-mono font-semibold text-[15px] rounded-md border-2 border-acc bg-white px-1.5 py-0.5 outline-none" style={{ color }} />
+              : <div className={`font-mono font-semibold truncate ${onRename ? "cursor-text" : ""}`} style={{ color }} title={onRename ? "Tap to rename" : undefined}
+                onClick={(e) => { if (onRename) { e.stopPropagation(); setEditing(true); } }}>{title}{onRename && <span className="ml-1.5 text-[12px] text-dim font-normal">✎</span>}</div>}
             <div className="font-mono text-[11px] text-dim">{chat ? `chat · ${count + 1} ${count ? "messages" : "message"}` : `thread · ${count} ${count === 1 ? "reply" : "replies"}`}</div>
           </div>
           {who}
@@ -422,6 +428,7 @@ export function App() {
   useFit();
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after, link: line } = useRoom();
   wear(state.looks, state.faces);  // every face drawn below wears its hat
+  useMemo(() => nameChats(state.names), [JSON.stringify(state.names || {})]);  // only when the room's names change, so a rename shows before the room confirms it
   const firstState = useRef(state), loading = state === firstState.current;  // nothing from the room yet
   const [naming, setNaming] = useState(needsName);  // an invite link: who are you, first
   const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
@@ -680,6 +687,16 @@ export function App() {
       if (want !== was) report(await say("/api/thread-who", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread: real.id, wolt: w.wolt, state: want ? "in" : "paused" }) }));
     }
   }
+  // renaming a chat shows at once here; everyone else gets it with the room's next update. An empty name: back to its first one.
+  const [, renamed] = useState(0);
+  const guestMe = !!state.members.people.find((p) => p.email === state.me)?.guest;
+  async function renameChat(t: string, n: string) {
+    const was = named[t];
+    if (n) named[t] = n; else delete named[t];
+    renamed((x) => x + 1);
+    const err = await say("/api/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread: t, name: n }) });
+    if (err) { if (was) named[t] = was; else delete named[t]; renamed((x) => x + 1); report(err); }
+  }
   const me = state.members.wolts.find((w) => w.owner === state.me);
   const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? (chatsHome ? "$ message this chat" : "$ reply in thread") : chatsHome && !lobby ? "$ start a new chat…" : undefined} />;
   // on the desk: the wolts of the open thread (or every wolt that isn't paused, in the main chat)
@@ -722,7 +739,7 @@ export function App() {
       {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} onStart={startChat} onClose={() => setStarting(false)} />}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} all={main.filter((m) => m.kind === "human" || m.kind === "wolt")} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
-      {thread && <ThreadSheet key={thread} startFull={chatsHome} chat={chatsHome} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
+      {thread && <ThreadSheet key={thread} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />

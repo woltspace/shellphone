@@ -3,7 +3,7 @@
 // Start sends the first message and opens the chat; the room then hands it to the agents switched on.
 import { useState } from "react";
 import { X } from "lucide-react";
-import { woltColor, type Ctx } from "./Message";
+import { mix, woltColor, type Ctx } from "./Message";
 import type { Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
@@ -44,10 +44,15 @@ export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
           <b className="flex-1 font-mono text-[13px] text-dim tracking-wide">NEW CHAT</b>
           <button type="button" aria-label="Cancel" onClick={onClose} className="w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={18} /></button>
         </div>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} placeholder="Title (optional: its first words otherwise)"
-          className="w-full mt-1 rounded-xl border-2 border-line bg-white px-3 py-2 font-mono font-semibold text-[14px] outline-none focus:border-acc" />
-        <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="What's it about?"
-          className="w-full mt-2 rounded-xl border-2 border-line bg-white px-3 py-2.5 text-[15px] leading-snug resize-none outline-none focus:border-acc" />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} placeholder="Name it (optional)"
+          className="w-full mt-1 rounded-lg border border-line bg-white px-3 py-1.5 font-mono font-semibold text-[13px] outline-none focus:border-acc" />
+        {/* the first message, looking like one: your face and a bubble in your colour */}
+        <div className="flex items-end gap-2 mt-3">
+          <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="Message…"
+            className="flex-1 min-w-0 rounded-2xl rounded-br-sm border-2 px-3 py-2.5 text-[15px] leading-snug resize-none outline-none"
+            style={{ background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82), borderColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.5) }} />
+          <img src={personAvatar(ctx.person(ctx.me).name, ctx.person(ctx.me).color, worn.people[ctx.me])} alt="" className="pixel flex-none w-8 h-8" />
+        </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4">
         <div className={sec}>People</div>
@@ -63,7 +68,7 @@ export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
       </div>
       <div className="flex-none px-4 pt-2 pb-[max(14px,env(safe-area-inset-bottom))] border-t border-line">
         <button type="button" onClick={start} disabled={!text.trim()}
-          className="w-full rounded-xl border-0 bg-acc text-white font-mono font-bold text-[15px] py-3.5 cursor-pointer disabled:opacity-40">Start chat</button>
+          className="w-full rounded-xl border-0 bg-acc text-white font-mono font-bold text-[15px] py-3.5 cursor-pointer disabled:opacity-40">Send ➤ <span className="font-normal opacity-80">starts the chat</span></button>
       </div>
     </div>
   </div>;

@@ -37,9 +37,13 @@ export function threadWallpaper(id: string, wash = true, strong = false) {  // n
 export function ThreadHat({ id, className = "" }: { id: string; className?: string }) {
   return <img src={hatSrc(threadHat(id))} alt="" className={`pixel inline-block align-[-3px] object-contain ${className}`} />;
 }
+// chats renamed after they started, from the room's state (App fills it on every update, like the hats)
+export const named: Record<string, string> = {};
+export function nameChats(names: Record<string, string> = {}) { for (const k in named) delete named[k]; Object.assign(named, names); }
 // the first few words of the message it hangs off, without the @tags in front
 export function threadTitle(m?: Msg) {
   if (!m) return "thread";
+  if (named[m.id]) return named[m.id];  // renamed since
   if (m.title) return m.title;  // named when it was started
   const words = (m.text || "").replace(/\s+/g, " ").replace(/^(@[\w-]+[\s,:]*)+/, "").trim().split(" ").filter(Boolean);
   if (!words.length) return m.files?.length ? m.files[0].name : "Voice note";

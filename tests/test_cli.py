@@ -230,6 +230,11 @@ class FrontDoor(unittest.TestCase):
         reply = page({"text": "sure", "thread": start["id"], "title": "not for a reply"})
         self.assertNotIn("title", reply)  # only the message that starts a chat names it
         self.assertNotIn("title", page({"text": "no name given"}))
+        rename = lambda body: json.load(r.browser.open(urllib.request.Request(r.url + "/api/rename", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+        rename({"thread": reply["id"], "name": "Onboarding, step by step"})  # a reply names its whole chat
+        self.assertEqual(r.state()["names"], {start["id"]: "Onboarding, step by step"})
+        rename({"thread": start["id"], "name": " "})
+        self.assertEqual(r.state()["names"], {})  # back to the title it started with
 
     def test_a_thread_reaches_the_agents_in_it(self):
         r = self.room()
