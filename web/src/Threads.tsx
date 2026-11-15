@@ -22,13 +22,13 @@ const EMOJI = ["🌲", "🍄", "🌿", "🌾", "🌻", "🍁", "🌊", "🪨", "
 export const threadEmoji = (id: string) => EMOJI[[...id].reduce((h, c) => (h * 131 + c.charCodeAt(0)) >>> 0, 11) % EMOJI.length];
 // Behind a thread, like Instagram's emoji wallpaper: its one emoji scattered and tilted, faint, over a wash of its color.
 // The sheet stays see-through.
-export function threadWallpaper(id: string, wash = true) {  // no wash on a bubble: it keeps its own color
+export function threadWallpaper(id: string, wash = true, strong = false) {  // no wash on a bubble: it keeps its own color; strong on home's rows
   const mine = threadEmoji(id), color = threadColor(id);
   const spots: [number, number, number][] = [[24, 34, -18], [104, 22, 14], [64, 88, 8], [150, 78, -12], [22, 146, 20], [116, 150, -8]];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><g opacity=".16" font-size="30" text-anchor="middle" dominant-baseline="central">${
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><g opacity="${strong ? ".3" : ".16"}" font-size="${strong ? 26 : 30}" text-anchor="middle" dominant-baseline="central">${
     spots.map(([x, y, r]) => `<text x="${x}" y="${y}" transform="rotate(${r} ${x} ${y})">${mine}</text>`).join("")}</g></svg>`;
   const tile = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-  return wash ? { backgroundImage: `${tile}, linear-gradient(${color}12, ${color}12)`, backgroundSize: "180px 180px, auto" } : { backgroundImage: tile, backgroundSize: "180px 180px" };
+  return wash ? { backgroundImage: `${tile}, linear-gradient(${color}${strong ? "24" : "12"}, ${color}${strong ? "24" : "12"})`, backgroundSize: "180px 180px, auto" } : { backgroundImage: tile, backgroundSize: "180px 180px" };
 }
 // the first few words of the message it hangs off, without the @tags in front
 export function threadTitle(m?: Msg) {
@@ -155,7 +155,7 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
   const row = ({ id, r, list, last, n }: typeof items[number]) => {
     const color = id ? threadColor(id) : "#c4531e", who = faces(list, ctx, 6), here = id === current;
     const names = [...new Set([...list].reverse().map(name))];
-    return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())}
+    return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())} style={id ? threadWallpaper(id, true, true) : undefined}
       className={`flex w-full gap-3 text-left bg-transparent border-0 border-b border-line px-4 py-2.5 cursor-pointer active:bg-[#18100a0a] ${here ? "bg-[#c4531e0d]" : ""}`}>
       <span className="flex-none w-9 h-9 mt-0.5 rounded-full grid place-items-center text-[18px]" style={{ background: color + "22", boxShadow: `inset 0 0 0 2px ${color}` }}>{id ? threadEmoji(id) : "#"}</span>
       <span className="flex-1 min-w-0">
@@ -164,10 +164,14 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
           {n > 0 && count(n)}
           {busyAt(id).length ? <Busy wolts={busyAt(id)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(last.at)}</span>}
         </span>
-        <span className={`block mt-0.5 text-sm truncate ${n ? "text-ink" : "text-dim"}`}><b className="font-semibold text-ink">{name(last)}:</b> {preview(last)}</span>
+        <span className={`flex items-center gap-1.5 mt-1 text-sm ${n ? "text-ink" : "text-[#5a5048]"}`}>
+          <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-[22px] h-[22px] rounded-full ring-2 ring-paper bg-panel" />
+          <span className="min-w-0 truncate"><b className="font-semibold text-ink">{name(last)}:</b> {preview(last)}</span></span>
         <span className="mt-1.5 flex items-center gap-2 font-mono text-[11px] text-dim">
           <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-[18px] h-[18px] rounded-full ring-2 ring-paper bg-panel" />)}</span>
-          <span className="flex-1 min-w-0 truncate">{names.slice(0, 4).join(", ")}{names.length > 4 ? ` +${names.length - 4}` : ""}</span>
+          {/* who spoke, oldest to newest: H a person, A an agent. HAHAHA is you working with them, AAAAA agents among themselves */}
+          <span className="flex-1 min-w-0 truncate tracking-[.12em]" title={names.join(", ")}>{list.slice(-14).map((m, k) => m.kind === "human"
+            ? <b key={k} className="text-acc">H</b> : <span key={k} className="text-dim">A</span>)}</span>
           <span className="flex-none">{list.length} msgs</span>
         </span>
       </span>
