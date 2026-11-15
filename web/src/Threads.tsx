@@ -158,23 +158,24 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
     const color = id ? threadColor(id) : "#c4531e", who = faces(list, ctx, 6), here = id === current;
     const names = [...new Set([...list].reverse().map(name))];
     return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())} style={id ? threadWallpaper(id, true, true) : undefined}
-      className={`flex w-full text-left bg-transparent border-0 border-b border-line px-3 py-2.5 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
-      {/* the wallpaper shows around it; what you read sits on solid ground */}
-      <span className="flex-1 min-w-0 rounded-xl border px-3 py-2 shadow-[0_1px_3px_#18100a14]" style={{ borderColor: color + "66", background: ink(last) }}>
-        <span className="flex items-center gap-2 font-mono text-[13px] font-semibold">
+      className={`flex w-full text-left bg-transparent border-0 border-b border-line px-3 py-3 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
+      {/* the wallpaper shows around it; what you read sits on solid ground: the title in its own band, then the latest message
+          in the colour of whoever said it */}
+      <span className="flex-1 min-w-0 rounded-2xl border overflow-hidden shadow-[0_1px_4px_#18100a1a]" style={{ borderColor: color + "77" }}>
+        <span className="flex items-center gap-2 px-3.5 py-2 border-b font-mono text-[14px] font-bold bg-[#fffdf8]" style={{ borderColor: color + "55" }}>
           <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : lobby ? "# lobby" : "# main chat"}</span>
           {n > 0 && count(n)}
           {busyAt(id).length ? <Busy wolts={busyAt(id)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(last.at)}</span>}
         </span>
-        <span className={`flex items-center gap-1.5 mt-1 text-sm ${n ? "text-ink" : "text-[#5a5048]"}`}>
-          <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-[22px] h-[22px] rounded-full ring-2 ring-paper bg-panel" />
-          <span className="min-w-0 truncate"><b className="font-semibold text-ink">{name(last)}:</b> {preview(last)}</span></span>
-        <span className="mt-1.5 flex items-center gap-2 font-mono text-[11px] text-dim">
-          <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-[18px] h-[18px] rounded-full ring-2 ring-paper bg-panel" />)}</span>
-          {/* who spoke, oldest to newest: H a person, A an agent. HAHAHA is you working with them, AAAAA agents among themselves */}
-          <span className="flex-1 min-w-0 truncate tracking-[.12em]" title={names.join(", ")}>{list.slice(-14).map((m, k) => m.kind === "human"
-            ? <b key={k} className="text-acc">H</b> : <span key={k} className="text-dim">A</span>)}</span>
-          <span className="flex-none">{list.length} msgs</span>
+        <span className="block px-3.5 pt-2.5 pb-2.5" style={{ background: ink(last) }}>
+          <span className={`flex items-start gap-2 text-[15px] leading-snug ${n ? "text-ink" : "text-[#4a4038]"}`}>
+            <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-7 h-7 rounded-full ring-2 ring-paper bg-panel" />
+            <span className="min-w-0 line-clamp-2"><b className="font-semibold text-ink">{name(last)}:</b> {preview(last)}</span></span>
+          <span className="mt-2 flex items-center gap-2 font-mono text-[11px] text-dim">
+            <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-5 h-5 rounded-full ring-2 ring-paper bg-panel" />)}</span>
+            <span className="flex-1 min-w-0 truncate">{names.slice(0, 4).join(", ")}{names.length > 4 ? ` +${names.length - 4}` : ""}</span>
+            <span className="flex-none">{list.length} msgs</span>
+          </span>
         </span>
       </span>
     </button>;
