@@ -95,6 +95,54 @@ class GuestAgents(unittest.TestCase):
         self.assertEqual(sam.ask("POST", "/api/wolt", {"wolt": "samsagent", "state": "removed"})[0], 200)  # Sam's own: Sam may
         self.assertNotEqual(sh("post", "--config", cfg, input="gone?")[0], 0)
 
+    def test_an_agent_from_an_old_link_is_not_let_back_in_by_itself(self):
+        relay, base = start_relay("OPEN_HOSTING:1")
+        self.addCleanup(stop_relay, relay)
+        work = Path(tempfile.mkdtemp())
+        env = {**os.environ, "PYTHONUNBUFFERED": "1", "SHELLPHONE_RELAY": base}
+        log = open(work / "room.log", "w")
+        room_proc = subprocess.Popen([sys.executable, "-m", "shellphone.cli", "room", "--port", "0"], cwd=REPO, stdout=log, stderr=subprocess.STDOUT, env=env)
+        self.addCleanup(room_proc.wait, 10)
+        self.addCleanup(room_proc.terminate)
+        end = time.time() + 60
+        while "Press Ctrl-C" not in (work / "room.log").read_text() and time.time() < end:
+            time.sleep(0.2)
+        port = re.search(r"Open the chat:\s+http://127\.0\.0\.1:(\d+)", (work / "room.log").read_text()).group(1)
+
+        def sh(*args, input=None):
+            p = subprocess.run([sys.executable, "-m", "shellphone.cli", *args], cwd=REPO, capture_output=True, text=True, input=input, timeout=120)
+            return p.returncode, p.stdout + p.stderr
+
+        def linked():
+            code, out = sh("link", "--port", port)
+            self.assertEqual(code, 0, out)
+            room, hsec, htok = re.search(r"/r/([\w-]{22})#h\.([\w-]+)\.([\w-]+)", out).groups()
+            isec, itok = re.search(r"#i\.([\w-]+)\.([\w-]+)", out).groups()
+            return seal.b64d(room, 16), seal.b64d(hsec, 32), htok, seal.b64d(isec, 32), itok
+
+        room, hsec, htok, isec, itok = linked()
+        host = Page(base, room, "h", hsec, htok)
+        link = re.search(r"join '([^']+)'", host.ask("POST", "/api/agent-invite", {})[1]["text"]).group(1)
+        cfg = work / "far" / "shellphone"
+        code, out = sh("join", link, "--name", "faraway", "--dir", str(cfg))
+        self.assertEqual(code, 0, out)
+        key = json.loads((cfg / "lodge.json").read_text())["key"]
+        self.assertEqual(sh("post", "--config", str(cfg / "lodge.json"), input="hello from far away")[0], 0)
+        self.assertEqual(Page(base, room, "i", isec, key).ask("POST", "/lodge/working", {})[0], 200)
+
+        self.assertEqual(sh("unlink", "--port", port)[0], 0)
+        self.assertNotEqual(sh("post", "--config", str(cfg / "lodge.json"), input="still there?")[0], 0)  # the address it knows is gone
+        room2, hsec2, htok2, isec2, itok2 = linked()
+        self.assertNotEqual(room2, room)
+        # even holding the new link's invite secret, the key from the old link opens nothing
+        status, got = Page(base, room2, "i", isec2, key).ask("POST", "/lodge/working", {})
+        self.assertEqual(status, 401, got)
+        self.assertIn("unlinked since you joined", got["error"])
+        # its human brings it back with a fresh message
+        host2 = Page(base, room2, "h", hsec2, htok2)
+        texts = [m.get("text") for m in host2.ask("GET", "/api/state?after=0")[1]["messages"]]
+        self.assertIn("hello from far away", texts)  # what it said stays
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -49,6 +49,7 @@ class Link:
         self.open = False  # the gate: while it's shut, nothing that comes through the relay is answered
         self.state, self.first = None, threading.Event()
         self._stop, self._news, self._thread = threading.Event(), threading.Event(), None
+        self._media, self._lock = None, threading.Lock()  # what carries voice and files through this link, made when first asked for
 
     # -- what the host sees
 
@@ -87,18 +88,59 @@ class Link:
                 if inv and self._guests_agent(inv["owner"]) and not self.allow["guest_agents"]:
                     return 403, {"error": "the host has turned off agents from guests in this room"}
                 status, out, _, _ = r.join_wolt(r.key_hash(auth), body)
+                if status == 200:  # it came in through this link: its key counts through this link only
+                    with r.tx() as c:
+                        c.execute("update wolts set via = ? where wolt = ?", (self._via(), out["wolt"]))
                 return status, out
-            l = r.wolt_by_key(auth)
+            l, why = self.agent(auth)
             if not l:
-                return 401, {"error": "unknown agent key: join again with a fresh link from your human"}
+                return why
             if (method, path) not in AGENT_SHARED:
                 return 404, {"error": "not available through the relay yet"}
-            if self._guests_agent(l["owner"]) and not self.allow["guest_agents"]:
-                return 403, {"error": "the host has turned off agents from guests in this room"}
             status, out, _, _ = r.for_wolt(r.Request(method, target, self._read_body(body)), l)
         except (ValueError, json.JSONDecodeError) as exc:
             return 400, {"error": str(exc)}
         return (status, out) if isinstance(out, (dict, list)) else (415, {"error": "not available through the relay yet"})
+
+    def _via(self):
+        from . import seal
+        return seal.b64e(self.room_id)
+
+    def agent(self, auth):
+        """The agent this key belongs to, if it may come in through this link: (its row, None), or (None, the refusal).
+        A key handed out through an earlier link doesn't count: after an unlink, an agent on another computer is
+        let back in by its human, with a fresh message, never by itself."""
+        r = self.r
+        l = r.wolt_by_key(auth)
+        if not l:
+            return None, (401, {"error": "unknown agent key: join again with a fresh link from your human"})
+        via = r.q("select via from wolts where wolt = ?", l["wolt"])
+        if not via or via[0]["via"] != self._via():
+            return None, (401, {"error": "this room was unlinked since you joined: ask your human for a fresh link"})
+        if self._guests_agent(l["owner"]) and not self.allow["guest_agents"]:
+            return None, (403, {"error": "the host has turned off agents from guests in this room"})
+        return l, None
+
+    def person(self, kind, auth):
+        """The person this token belongs to, by the link they came in with: the host, a guest, or nobody. (The invite
+        link's own token is nobody yet: all it may do is ask for a place, see answer.)"""
+        if kind == "h":  # the host's link: only the host's own token counts
+            return self.host_email if hmac.compare_digest(self.token, auth) else None
+        return next((e for t, e in list(self.guests.items()) if hmac.compare_digest(t, auth)), None)
+
+    def media(self, kind, operation, metadata, auth):
+        """Voice and files through the link, in pieces (shellphone/media.py). The same gate as answer; the one who
+        carries them lives as long as this link, and is closed the moment it is unlinked."""
+        if not self.open:
+            return 503, {"error": "this room isn't linked any more"}
+        with self._lock:
+            if self._media is None and self.open:
+                try:
+                    from . import media
+                except ImportError:
+                    return 404, {"error": "not available through the relay yet"}
+                self._media = media.Manager(self)
+        return self._media.handle(kind, operation, metadata, auth)
 
     def answer(self, kind, method, target, body, auth):
         """The one way in for everything that comes through the relay: who is asking, then the room's own answer."""
@@ -107,8 +149,8 @@ class Link:
         r, path = self.r, urllib.parse.urlsplit(target).path
         if path.startswith("/lodge/"):  # an agent's call: who it is is in its own key, whichever link it came in by
             return self._for_agent(method, target, path, body, auth)
-        if kind == "h":  # the host's link: only the host's own token counts
-            email = self.host_email if hmac.compare_digest(self.token, auth) else None
+        if kind == "h":
+            email = self.person(kind, auth)
             if email and (method, path) == ("GET", "/api/invite"):
                 from . import seal
                 return 200, {"key": f"i.{seal.b64e(self.invite_secret)}.{self.invite_token}"}
@@ -125,7 +167,7 @@ class Link:
             self.guests[mine] = email
             return 200, {"token": mine}
         else:  # a guest's own token
-            email = next((e for t, e in list(self.guests.items()) if hmac.compare_digest(t, auth)), None)
+            email = self.person(kind, auth)
         if not email:
             return 403, {"error": "not on this room's list"}
         if (method, path) == ("POST", "/api/agent-invite"):  # a message for one of this person's agents, on any computer
@@ -207,6 +249,10 @@ class Link:
         relay does; then the connection goes, and with it what was handed out: both secrets, and every guest's token."""
         self.open = False
         self._stop.set()
+        with self._lock:
+            carrier, self._media = self._media, None
+        if carrier is not None:
+            carrier.close()  # transfers under way end here, before anything else is tidied up
         if self._thread is not None and self._thread is not threading.current_thread():
             self._thread.join(5)
         self.guests.clear()

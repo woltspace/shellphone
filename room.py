@@ -107,6 +107,8 @@ def con():
             CON.execute("alter table people add column guest integer not null default 0")
         if "paused" not in [c[1] for c in CON.execute("pragma table_info(wolts)")]:  # rooms from before agents could be paused
             CON.execute("alter table wolts add column paused integer not null default 0")
+        if "via" not in [c[1] for c in CON.execute("pragma table_info(wolts)")]:  # which link an agent on another computer joined through (shellphone/link.py)
+            CON.execute("alter table wolts add column via text")
         os.chmod(DB, 0o600)
     return CON
 
