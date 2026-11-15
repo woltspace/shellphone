@@ -57,23 +57,23 @@ export function Fold({ run, ctx, children }: { run: Msg[]; ctx: Ctx; children: R
       : <span key={name} className={`rounded-full bg-line grid place-items-center font-mono text-[9px] border border-panel ${cls}`}>{name[0]?.toUpperCase()}</span>;
   };
   // closed: one slim line. open: the run as cards side by side, one whole message each; swipe through, tap the line to close.
-  return <div className="mx-2.5 my-1" data-fold={run.length}>
-    <div ref={head} className={open ? "sticky top-0 z-[5] bg-paper/95 backdrop-blur-sm" : ""}>
+  return <div className={open ? "ml-11 mr-6 my-2 rounded-2xl border-2 border-line bg-panel/70 shadow-[0_1px_6px_#18100a14]" : "mx-2.5 my-1"} data-fold={run.length}>
+    <div ref={head} className={open ? "sticky top-0 z-[5] bg-panel/95 backdrop-blur-sm rounded-t-2xl" : ""}>
       <button type="button" onClick={toggle} aria-expanded={open}
-        className="w-full h-9 flex items-center gap-2 px-2 bg-transparent border-0 border-y border-dashed border-line text-left cursor-pointer">
+        className={`w-full h-9 flex items-center gap-2 px-2 bg-transparent border-0 text-left cursor-pointer ${open ? "border-b border-line" : "border-y border-dashed border-line"}`}>
         <span className="flex-none flex -space-x-1.5">{[...counts.keys()].slice(0, 4).map((n) => avatar(n, "w-5 h-5"))}</span>
         <span className="flex-1 min-w-0 truncate font-mono text-[12px] text-dim">
           <b className="text-ink font-semibold">{run.length} agent messages</b>{[...counts].map(([n, c]) => ` · ${n} ${c}`).join("")}</span>
         <span className="flex-none text-acc">{open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
       </button>
     </div>
-    {open && <div className="relative border-b border-dashed border-line">
+    {open && <div className="relative">
       <div className="flex items-center gap-2 px-2 py-1 font-mono text-[11px] text-dim">
         {avatar(run[at].wolt!, "w-4 h-4")}<b className="text-acc">{run[at].wolt}</b><span className="flex-1" />
         <span>{at + 1} / {run.length}</span><span className="sm:hidden">· swipe</span></div>
       <div ref={strip} onScroll={(e) => { const el = e.currentTarget; setAt(Math.round(el.scrollLeft / Math.max(1, el.clientWidth))); }}
         className="flex overflow-x-auto snap-x snap-mandatory overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ touchAction: "pan-x pan-y" }}>
-        {children.map((c, k) => <div key={run[k].id} className="w-full flex-none snap-start max-h-[60vh] overflow-y-auto overscroll-contain">{c}</div>)}
+        {children.map((c, k) => <div key={run[k].id} className="w-full flex-none snap-start max-h-[42vh] overflow-y-auto overscroll-contain pb-1 [&>*>*>div]:px-1.5 [&>*>*>div]:mt-0 [&_img.w-7]:hidden [&_[data-bubble]]:max-w-full [&_[data-bubble]]:flex-1">{c}</div>)}
       </div>
       <div className="flex justify-center gap-1 py-1.5">{run.map((m, k) => <button key={m.id} type="button" aria-label={`Message ${k + 1}`} onClick={() => go(k)}
         className={`w-1.5 h-1.5 p-0 rounded-full border-0 cursor-pointer ${k === at ? "bg-acc" : "bg-line"}`} />)}</div>
