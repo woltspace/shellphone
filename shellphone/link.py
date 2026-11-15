@@ -49,7 +49,10 @@ class Link:
         self.open = False  # the gate: while it's shut, nothing that comes through the relay is answered
         self.state, self.first = None, threading.Event()
         self._stop, self._news, self._thread = threading.Event(), threading.Event(), None
-        self._media, self._lock = None, threading.Lock()  # what carries voice and files through this link, made when first asked for
+        self._media = None  # what carries voice and files through this link, made when first asked for
+        # Held while the gate shuts, and by whoever must be sure it is still open while they finish something that
+        # stays (a transfer's last step: look at .open again and save, under this lock). Never while bytes move.
+        self.lock = threading.RLock()
 
     # -- what the host sees
 
@@ -131,16 +134,17 @@ class Link:
     def media(self, kind, operation, metadata, auth):
         """Voice and files through the link, in pieces (shellphone/media.py). The same gate as answer; the one who
         carries them lives as long as this link, and is closed the moment it is unlinked."""
-        if not self.open:
-            return 503, {"error": "this room isn't linked any more"}
-        with self._lock:
-            if self._media is None and self.open:
+        with self.lock:
+            if not self.open:
+                return 503, {"error": "this room isn't linked any more"}
+            if self._media is None:
                 try:
                     from . import media
                 except ImportError:
                     return 404, {"error": "not available through the relay yet"}
                 self._media = media.Manager(self)
-        return self._media.handle(kind, operation, metadata, auth)
+            carrier = self._media  # ours for this call, whatever stop() does meanwhile: it closes it, and it answers as closed
+        return carrier.handle(kind, operation, metadata, auth)
 
     def answer(self, kind, method, target, body, auth):
         """The one way in for everything that comes through the relay: who is asking, then the room's own answer."""
@@ -247,9 +251,9 @@ class Link:
     def stop(self):
         """End the link for good. The gate shuts first, so from this line on nobody outside is answered, whatever the
         relay does; then the connection goes, and with it what was handed out: both secrets, and every guest's token."""
-        self.open = False
-        self._stop.set()
-        with self._lock:
+        with self.lock:  # whoever is finishing something under this lock finishes first; nothing starts after
+            self.open = False
+            self._stop.set()
             carrier, self._media = self._media, None
         if carrier is not None:
             carrier.close()  # transfers under way end here, before anything else is tidied up
