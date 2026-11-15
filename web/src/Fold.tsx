@@ -82,3 +82,64 @@ export function Fold({ run, ctx, children }: { run: Msg[]; ctx: Ctx; children: R
     </div>}
   </div>;
 }
+
+// A long chat reads as stretches of back and forth: one person with the agents (HAHAHA), or agents among themselves (AAAA).
+// Each stretch is a group: closed, one line titled by the message that started it; open, a rail down its left side folds it
+// again with a tap. A new group starts after a pause, when another person speaks, or at someone's next message once the group
+// has run long. The newest group stays open.
+export const GROUP_PAUSE = 300, GROUP_LONG = 10, GROUP_FROM = 12;
+export function groups(list: Msg[]): Msg[][] {
+  if (list.length < GROUP_FROM) return [list];
+  const out: Msg[][] = [];
+  let cur: Msg[] = [], human = "";
+  for (const m of list) {
+    const h = m.kind === "human", prev = cur[cur.length - 1];
+    if (prev && (m.at - prev.at > GROUP_PAUSE || (h && human && m.email !== human) || (h && cur.length >= GROUP_LONG))) { out.push(cur); cur = []; }
+    cur.push(m);
+    if (h) human = m.email!;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+export function Group({ list, ctx, last, children }: { list: Msg[]; ctx: Ctx; last: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(last);
+  const head = useRef<HTMLDivElement>(null), before = useRef<number | null>(null);
+  const toggle = () => { before.current = head.current?.getBoundingClientRect().top ?? null; setOpen(!open); };
+  useLayoutEffect(() => {  // keep the group's line where it was under the finger, as Fold does
+    if (before.current === null || !head.current) return;
+    const feed = head.current.closest("[data-feed]") as HTMLElement | null;
+    const moved = head.current.getBoundingClientRect().top - before.current;
+    before.current = null;
+    if (feed && moved) feed.scrollTop += moved;
+  }, [open]);
+  const name = (m: Msg) => m.kind === "human" ? ctx.person(m.email).name : m.wolt!;
+  const counts = new Map<string, { n: number; m: Msg }>();
+  for (const m of list) { const k = name(m); counts.set(k, { n: (counts.get(k)?.n || 0) + 1, m }); }
+  const opener = list.find((m) => m.kind === "human") || list[0];
+  const pattern = list.map((m) => m.kind === "human" ? "H" : "A").join("");
+  const face = (m: Msg) => {
+    const w = m.kind === "wolt" ? ctx.wolts.find((x) => x.wolt === m.wolt) : undefined, p = ctx.person(m.kind === "human" ? m.email : w?.owner);
+    return w ? <img key={name(m)} src={woltAvatar(w.creature, p.color, worn.wolts[w.wolt])} alt="" className="pixel w-5 h-5 rounded-full bg-panel border border-line" />
+      : <span key={name(m)} className="w-5 h-5 rounded-full grid place-items-center text-white font-mono font-bold text-[9px] border border-panel" style={{ background: p.color }}>{name(m)[0]?.toUpperCase()}</span>;
+  };
+  return <div className="my-1.5" data-group={list.length}>
+    <div ref={head} className={`mx-2.5 ${open ? "sticky top-0 z-[6]" : ""}`}>
+      <button type="button" onClick={toggle} aria-expanded={open}
+        className={`w-full flex items-center gap-2 px-2.5 py-1.5 bg-panel text-left cursor-pointer border border-line ${open ? "rounded-t-xl rounded-br-xl shadow-[0_1px_6px_#18100a14]" : "border-dashed rounded-xl"}`}>
+        <span className="flex-none flex -space-x-1.5">{[...counts.values()].slice(0, 5).map((c) => face(c.m))}</span>
+        <span className="flex-1 min-w-0">
+          <b className="block truncate text-[13.5px] font-semibold">{firstLine(opener)}</b>
+          <span className="block truncate font-mono text-[11px] text-dim">{list.length} messages{[...counts].map(([k, c]) => ` · ${k} ${c.n}`).join("")} · <span className="text-acc tracking-wide">{pattern.length > 16 ? pattern.slice(0, 16) + "…" : pattern}</span></span>
+        </span>
+        <span className="flex-none text-acc">{open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
+      </button>
+    </div>
+    {open && <div className="flex">
+      <button type="button" aria-label="Fold this group" title="Fold" onClick={toggle}
+        className="group flex-none w-6 ml-2.5 flex justify-center py-1 bg-transparent border-0 cursor-pointer">
+        <i className="w-1 rounded-full bg-acc/50 group-hover:bg-acc group-active:bg-acc group-hover:w-1.5 transition-all" /></button>
+      <div className="flex-1 min-w-0 -ml-2.5">{children}</div>
+    </div>}
+  </div>;
+}

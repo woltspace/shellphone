@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
-import { Fold, pieces, useFolding } from "./Fold";
+import { Fold, Group, groups, pieces, useFolding } from "./Fold";
 import { say, send, sendWithProgress, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
@@ -220,12 +220,16 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
           <span>{divider} {divider === 1 ? "reply" : "replies"}</span><span className="flex-1 h-px bg-line" /></div>}
       </div>;
     }; let at = 0;
-    return pieces(list, folding).map((p) => {
+    const draw = (part: Msg[]) => pieces(part, folding).map((p) => {
       if ("one" in p) return one(p.one, at++);
       const start = at; at += p.run.length; lastWho = "";
       const inside = p.run.map((m, k) => one(m, start + k)); lastWho = "";
       return <Fold key={"fold:" + p.run[0].id} run={p.run} ctx={ctx}>{inside}</Fold>;
-    }); })()}
+    });
+    if (!folding || !place) return draw(list);  // groups are for threads; the main chat keeps each message, with its thread, in view
+    const all = groups(list);
+    if (all.length === 1) return draw(list);
+    return all.map((g, k) => { lastWho = ""; return <Group key={"group:" + g[0].id} list={g} ctx={ctx} last={k === all.length - 1}>{draw(g)}</Group>; }); })()}
     <Gnaw ctx={ctx} working={working} away={away} place={place} />
   </div></div>
     {far && <button type="button" aria-label="Jump to the newest" onClick={() => toBottom()}
