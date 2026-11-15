@@ -37,7 +37,7 @@ website. The local browser address contains the owner's credential: do not use i
 `--keep DIR` preserves history and files when the process stops; without it the temporary room is deleted on close.
 
 When you want remote visitors, use **Invite people** in a build with the local invite menu. If the room is not linked,
-it offers **Link and invite**; after connecting, copy the guest invitation. From a second terminal on the same computer:
+it offers **link and invite**; after connecting, copy the guest invitation. From a second terminal on the same computer:
 
 ```bash
 shellphone link --keep ~/.shellphone/rooms/friends

@@ -26,7 +26,7 @@ guest invitation.
 
 ## Link and invite people
 
-In a build with local linking, choose **Invite people → Link and invite** in the room, or run this in another terminal:
+Choose **Invite people → link and invite** in the room, or run this in another terminal:
 
 ```bash
 uvx shellphone@latest link --keep ~/.shellphone/rooms/friends
@@ -46,8 +46,7 @@ uvx shellphone@latest unlink --keep ~/.shellphone/rooms/friends
 The room stays open locally. Its old relay invitations stop working; linking again makes new ones. Unlinking does not
 disable independently configured Cloudflare tunnels, Tailscale routes or proxies. Stop those routes separately if used.
 
-Check `shellphone --help` for `link` and `unlink`: older releases cannot link an already running local room. The
-website-first alternative remains available: go to https://shellphone.woltspace.app, tap **Start a shellphone**, and
+The website-first alternative remains available: go to https://shellphone.woltspace.app, tap **Start a shellphone**, and
 give its hosting instruction to your coding agent (`uvx shellphone@latest host '<link>'`).
 
 ## Other hosting choices
