@@ -3,7 +3,7 @@
 // Start sends the first message and opens the chat; the room then hands it to the agents switched on.
 import { useState } from "react";
 import { X } from "lucide-react";
-import { mix, woltColor, type Ctx } from "./Message";
+import { mix, woltColor, type Ctx, woltFace } from "./Message";
 import type { Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
@@ -62,7 +62,7 @@ export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
             <Switch on={yes} locked={me} label={`${yes ? "Leave out" : "Bring in"} ${p.name}`} flip={() => setFolks((s) => ({ ...s, [p.email]: !s[p.email] }))} />); })}
         <div className={sec}>Agents</div>
         {wolts.map((w) => { const yes = agentIn(w), byTag = tagged(w.wolt);
-          return row(w.wolt, woltAvatar(w.creature || "raccoon", ctx.person(w.owner).color, worn.wolts[w.wolt]), w.wolt, woltColor(w.wolt, ctx.wolts), yes,
+          return row(w.wolt, woltFace(w.wolt, w.creature), w.wolt, woltColor(w.wolt, ctx.wolts), yes,
             w.paused ? "paused in the room" : byTag ? "tagged in your message" : yes ? (w.wolt === main ? "default · in this chat" : "in this chat") : "not in this chat",
             <Switch on={yes} locked={!!w.paused || byTag} label={`${yes ? "Leave out" : "Bring in"} ${w.wolt}`} flip={() => setAgents((s) => ({ ...s, [w.wolt]: !s[w.wolt] }))} />); })}
       </div>

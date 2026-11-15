@@ -8,7 +8,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { Maximize2, Minimize2 } from "lucide-react";
 import type { Wolt } from "./room";
-import { woltColor, type Ctx } from "./Message";
+import { woltColor, type Ctx, woltFace } from "./Message";
 import { woltAvatar } from "./sprites";
 import { worn } from "./hats";
 
@@ -45,7 +45,7 @@ function Tile({ w, ctx, sessions, big, flash, busy, toggle }: { w: Wolt; ctx: Ct
 
   return <div className={`flex flex-col min-h-0 min-w-0 rounded-[10px] overflow-hidden border-2 transition-shadow ${flash ? "shadow-[0_0_0_4px_#fff8]" : ""}`} style={{ borderColor: color }}>
     <div className="flex-none flex items-center gap-2 px-2.5 py-1.5 text-white font-mono text-xs font-semibold cursor-pointer" style={{ background: color }} onClick={toggle}>
-      <img src={woltAvatar(w.creature || "raccoon", ctx.person(w.owner).color, worn.wolts[w.wolt])} alt="" className={`pixel w-5 h-5 ${busy ? "gnaw-img" : ""}`} />
+      <img src={woltFace(w.wolt, w.creature)} alt="" className={`pixel w-5 h-5 ${busy ? "gnaw-img" : ""}`} />
       <span>{w.wolt}</span>
       <span className="font-normal opacity-80">{w.paused ? "paused" : busy ? "working…" : "idle"}</span>
       <span className="flex-1" />

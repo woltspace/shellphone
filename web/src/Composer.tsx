@@ -1,6 +1,7 @@
 // Shell's composer: a big round mic while the box is empty, the send arrow once you type or attach. A paperclip for files, or paste them:
 // they wait above the box until you send, like iMessage.
 // Typing @ suggests the room's wolts; typing / at the start offers a few ready-made asks.
+import { woltFace } from "./Message";
 import { useEffect, useRef, useState } from "react";
 import { File as FileIcon, Mic, Paperclip, Pause, SendHorizontal, X } from "lucide-react";
 import { relayRoom } from "./relay";
@@ -86,7 +87,7 @@ export function Composer({ draft, wolts, people = [], working = {}, host, me, on
         </button>)}
         {tagOpts.length > 0 && <div className={sec}>Agents · {tagOpts.length}</div>}
         {tagOpts.map((w) => { const o = owner(w.owner); return <button key={w.wolt} type="button" className={`${who} ${w.paused ? "opacity-50" : ""}`} onMouseDown={keep} onClick={() => set(text.replace(/@[\w-]*$/, "@" + w.wolt + " "))}>
-          <img src={woltAvatar(w.creature || "raccoon", o?.color || "#8a7a68", worn.wolts[w.wolt])} alt="" className="pixel w-[30px] h-[30px] flex-none" />
+          <img src={woltFace(w.wolt, w.creature)} alt="" className="pixel w-[30px] h-[30px] flex-none" />
           <span className="flex-1 min-w-0"><span className="block font-mono font-semibold text-sm truncate">{w.wolt}</span>
             <span className="block text-xs text-dim truncate">{o ? `${o.email === me ? "your" : o.name + "'s"} ${w.creature || "raccoon"}` : w.creature}</span></span>
           {w.paused ? <span className="flex-none inline-flex items-center gap-1 text-[11px] font-mono text-dim border border-line rounded-lg px-1.5"><Pause size={10} />paused</span>

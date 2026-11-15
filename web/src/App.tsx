@@ -3,7 +3,7 @@ import { becomeGuest, needsName, relayKeyMissing, relayRoom, onRelayState, type 
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
-import { Message, type Ctx } from "./Message";
+import { Message, type Ctx, woltFace, roomWolts } from "./Message";
 import { say, send, sendWithProgress, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
@@ -53,7 +53,7 @@ function Gnaw({ ctx, working, away = {}, place }: { ctx: Ctx; working: Record<st
   return <div className="flex items-center gap-1.5 h-[38px] px-3 pb-2 overflow-hidden">
     {on.map((w) => { const lines = LORE[w.creature] || LORE.beaver;
       return <div key={w.wolt} className="gnaw-row flex-[0_1_auto] min-w-0 flex items-center gap-1.5 pl-[3px] pr-[9px] py-[3px] bg-[#fffdf6ee] border border-line rounded-lg font-mono font-semibold text-xs whitespace-nowrap">
-        <img src={woltAvatar(w.creature, ctx.person(w.owner).color, worn.wolts[w.wolt])} alt="" className="gnaw-img pixel flex-none w-6 h-6" />
+        <img src={woltFace(w.wolt, w.creature)} alt="" className="gnaw-img pixel flex-none w-6 h-6" />
         {away[w.wolt] ? <span className="overflow-hidden text-ellipsis text-dim">can't reach {w.wolt} · messages wait</span>
           : <span key={tick} className="lore new overflow-hidden text-ellipsis">{w.wolt}: {lines[(tick + w.wolt.length) % lines.length]}</span>}
       </div>; })}
@@ -428,6 +428,7 @@ export function App() {
   useFit();
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after, link: line } = useRoom();
   wear(state.looks, state.faces);  // every face drawn below wears its hat
+  roomWolts.splice(0, roomWolts.length, ...state.members.wolts);  // and each wolt's face is in its own colour
   useMemo(() => nameChats(state.names), [JSON.stringify(state.names || {})]);  // only when the room's names change, so a rename shows before the room confirms it
   const firstState = useRef(state), loading = state === firstState.current;  // nothing from the room yet
   const [naming, setNaming] = useState(needsName);  // an invite link: who are you, first
@@ -754,7 +755,7 @@ export function App() {
       {naming && <NameFirst done={() => setNaming(false)} />}
       {relayRoom && (relayKeyMissing || (link !== "open" && !(naming && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
-      {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color, worn.wolts[me?.wolt || ""])} audio={listening} onSend={voiceStart} onDone={voice} />}
+      {listening !== false && <Listening sprite={woltFace(me?.wolt, me?.creature)} audio={listening} onSend={voiceStart} onDone={voice} />}
       {viewing && <Viewer urls={viewing.urls} names={viewing.names} at={viewing.at} close={() => setViewing(null)} />}
       {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>

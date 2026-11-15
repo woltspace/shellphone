@@ -1,5 +1,6 @@
 // Every wolt in the room at a glance, pulled down from the top of the chat: who is gnawing on something, who is idle,
 // who is paused or out of reach, and which one is the room's main agent. Pull down again, or tap it, to put it away.
+import { woltFace } from "./Message";
 import { useRef } from "react";
 import type { State, Wolt } from "./room";
 import { woltAvatar } from "./sprites";
@@ -24,7 +25,7 @@ export function WoltStrip({ state, person, open, onClose }: { state: State; pers
       {wolts.map((w) => { const m = mood(w, state);
         return <div key={w.wolt} className={`flex-none w-[92px] flex flex-col items-center gap-1 pt-2 pb-1.5 px-1 rounded-xl border ${m.busy ? "gnaw-row border-line bg-[#fffdf6]" : "border-transparent"} ${m.awake ? "" : "opacity-55"}`}>
           <span className="relative">
-            <img src={woltAvatar(w.creature, person(w.owner).color, worn.wolts[w.wolt])} alt="" className={`pixel w-11 h-11 ${m.busy ? "gnaw-img" : ""}`} />
+            <img src={woltFace(w.wolt, w.creature)} alt="" className={`pixel w-11 h-11 ${m.busy ? "gnaw-img" : ""}`} />
             <i className={`absolute -right-0.5 bottom-0 w-3 h-3 rounded-full border-2 border-paper ${m.busy ? "bg-acc" : m.awake ? "bg-go" : "bg-[#c9bfae]"}`} />
           </span>
           <span className="max-w-full truncate font-mono font-semibold text-[12.5px]">{w.wolt}{state.main === w.wolt && <span className="ml-0.5 text-acc" title="main agent">★</span>}</span>

@@ -1,6 +1,7 @@
 // The agents in this room, in the ☰ menu: each one is on or paused, and can be removed. Paused, it is off: the room hands
 // it nothing, a tag included, and it can't post, so it costs nothing. The switches show where you may use them: on every
 // agent for the room's host, on your own agents otherwise. Everyone sees the list.
+import { woltFace } from "./Message";
 import { useState } from "react";
 import { ChevronDown, Pause, Play, X } from "lucide-react";
 import { say, type Person, type Wolt } from "./room";
@@ -33,7 +34,7 @@ export function Agents({ wolts, people, me, host, sec, main, looks = {} }: { wol
     <div className={sec}>Agents</div>
     {wolts.map((w) => {
       const owner = people.find((p) => p.email === w.owner);
-      const face = <img src={woltAvatar(w.creature || "raccoon", owner?.color || "#8a6a52", worn.wolts[w.wolt])} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />;
+      const face = <img src={woltFace(w.wolt, w.creature)} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />;
       return <div key={w.wolt}><div className="flex items-center gap-2.5 px-4 py-2">
         {may(w) ? <button type="button" onClick={() => setDressing(dressing === w.wolt ? "" : w.wolt)} aria-expanded={dressing === w.wolt} aria-label={`${w.wolt}'s hat`} title={`${w.wolt}'s hat`}
           className="flex-none p-0 border-0 bg-transparent cursor-pointer">{face}</button> : face}

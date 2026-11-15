@@ -130,7 +130,7 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
   const human = m.kind === "human", mine = human && m.email === ctx.me;
   const owner = human ? m.email : m.owner, who = ctx.person(owner);
   const name = human ? who.name : `${m.wolt} · ${owner === ctx.me ? "yours" : who.name + "'s"}`;
-  const avatar = human ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", who.color, worn.wolts[m.wolt!]);
+  const avatar = human ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltFace(m.wolt, m.creature);
   const readers = mine ? ctx.seen[m.id] || [] : [];
   const solid: CSSProperties = mine ? { backgroundColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
     : !human ? { backgroundColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : {};
@@ -153,7 +153,7 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
         <div className="flex justify-end items-center gap-1 mt-0.5 font-mono text-[10px] text-dim">
           {time(m.at)}
           {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
-            {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltAvatar(w?.creature || "raccoon", ctx.person(w?.owner).color, worn.wolts[r])} />; })}
+            {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltFace(r, w?.creature)} />; })}
           </span>}
         </div>
         </div>
@@ -166,6 +166,10 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
 // Each agent its own colour, so two agents of one person don't look alike: by its place in the room's list (the same on
 // every phone, and no two alike for the first eight), or from its name if it has left the room.
 const HUES = ["#2f6fa3", "#7a4fb0", "#2f7d6d", "#b0427a", "#8a6d1c", "#5b5bb5", "#3f8a3a", "#c4531e"];
+// the room's wolts, as of the last update (App fills it, like the hats), so a wolt's face is drawn in its own colour anywhere
+export const roomWolts: Wolt[] = [];
+export const woltFace = (name = "", creature?: string) => woltAvatar(creature || roomWolts.find((w) => w.wolt === name)?.creature || "raccoon", woltColor(name, roomWolts), worn.wolts[name]);
+
 export function woltColor(name = "", wolts: Wolt[] = []) {
   const i = wolts.findIndex((w) => w.wolt === name);
   if (i >= 0) return HUES[i % HUES.length];

@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { say, type Msg, type Wolt } from "./room";
-import { woltColor, type Ctx } from "./Message";
+import { woltColor, type Ctx, woltFace } from "./Message";
 import { woltAvatar } from "./sprites";
 import { worn } from "./hats";
 
@@ -55,7 +55,7 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
     if (real && Object.entries(sent).some(([w, m]) => room![w] === m)) setSent((s) => Object.fromEntries(Object.entries(s).filter(([w, m]) => room![w] !== m)));
   }, [room]);
 
-  const face = (w: Wolt) => woltAvatar(w.creature || "raccoon", ctx.person(w.owner).color, worn.wolts[w.wolt]);
+  const face = (w: Wolt) => woltFace(w.wolt, w.creature);
   const on = (w: Wolt) => marks[w.wolt] === "in" && !w.paused;
   const shown = ctx.wolts.filter((w) => marks[w.wolt] !== "out");
   const first = shown.slice(0, 3), more = shown.length - first.length;
