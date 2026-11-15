@@ -172,11 +172,11 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
             <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-7 h-7 rounded-full ring-2 ring-paper bg-panel" />
             {/* the latest message as a speech bubble in its speaker's colour, apart from the card */}
             <span className="min-w-0 rounded-xl rounded-bl-sm border border-line px-2.5 py-1.5" style={{ background: ink(last) }}><span className="line-clamp-2"><b className="font-semibold text-ink">{name(last)}:</b> {preview(last)}</span></span></span>
-          <span className="mt-2 flex items-center gap-2 font-mono text-[11px] text-dim">
+        </span>
+        <span className="flex items-center gap-2 px-3.5 py-1.5 border-t bg-white font-mono text-[11px] text-dim" style={{ borderColor: color + "44" }}>
             <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-5 h-5 rounded-full ring-2 ring-paper bg-panel" />)}</span>
             <span className="flex-1 min-w-0 truncate">{names.slice(0, 4).join(", ")}{names.length > 4 ? ` +${names.length - 4}` : ""}</span>
             <span className="flex-none">{list.length} msgs</span>
-          </span>
         </span>
       </span>
     </button>;
