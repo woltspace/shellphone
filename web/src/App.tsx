@@ -666,7 +666,7 @@ export function App() {
   }
 
   // a chat started from the new-chat sheet: the first message, then who's in, once the room has given it its id
-  async function startChat(t: string, agents: Record<string, boolean>) {
+  async function startChat(t: string, agents: Record<string, boolean>, _people: Record<string, boolean>) {  // people: not kept by the room yet
     setStarting(false);
     const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t };
     setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true }]);
@@ -705,7 +705,7 @@ export function App() {
         </button>}
       </header>
       <WoltStrip state={state} person={person} open={strip} onClose={() => setStrip(false)} />
-      {chatsHome && !lobby ? <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+      {chatsHome && !lobby ? <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
         {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
           onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
@@ -715,8 +715,9 @@ export function App() {
         <Feed list={lobbyList} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
       </>}
       {!thread && (chatsHome && !lobby
-        ? <div className="flex-none px-3 pt-2 pb-[calc(10px+env(safe-area-inset-bottom))] border-t border-line bg-paper">
-          <button type="button" onClick={() => setStarting(true)} className="w-full rounded-2xl border-0 bg-acc text-white font-mono font-bold text-[15px] py-3.5 cursor-pointer active:opacity-80">＋ New chat</button></div>
+        ? <button type="button" aria-label="New chat" onClick={() => setStarting(true)}
+          className="absolute right-4 bottom-[calc(18px+env(safe-area-inset-bottom))] z-[1400] flex items-center gap-1.5 h-14 pl-4 pr-5 rounded-full border-0 bg-acc text-white font-mono font-bold text-[15px] shadow-[0_4px_14px_#18100a40] cursor-pointer active:scale-95 transition-transform">
+          <span className="text-2xl leading-none">＋</span>New chat</button>
         : composer)}
       {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} onStart={startChat} onClose={() => setStarting(false)} />}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} all={main.filter((m) => m.kind === "human" || m.kind === "wolt")} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
