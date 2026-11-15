@@ -12,6 +12,9 @@ export const LORE: Record<string, string[]> = {
   raccoon: ["Gnawing on it…", "Rummaging through the bins…", "Washing it in the creek…", "Sniffing out the bug…", "Stashing the shiny bits…", "Peeking under the lid…"],
 };
 
+// one word each, for small spots: "gnawing…", "rummaging…"
+export const verbs = (creature?: string) => (LORE[creature || ""] || LORE.beaver).map((l) => l.split(" ")[0].toLowerCase().replace(/…$/, "") + "…");
+
 const svgUri = (svg: string) => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
 function spriteRects(creature: string) {
   const { map, colors } = SPRITES[creature] || SPRITES.raccoon;

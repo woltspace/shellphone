@@ -6,7 +6,7 @@ import { crown, setWolt } from "./Agents";
 import { HatGrid, putFace, putLook } from "./HatShop";
 import { mix, woltColor, woltFace } from "./Message";
 import type { Msg, State } from "./room";
-import { LORE, personAvatar } from "./sprites";
+import { personAvatar, verbs } from "./sprites";
 import { worn } from "./hats";
 import { mood, type Who } from "./WoltStrip";
 import { ago, threadTitle, ThreadHat } from "./Threads";
@@ -65,7 +65,7 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
                 : p!.email === state.me ? "you" : p!.guest ? "guest" : "human"}
             </div>
             <div className="mt-1 font-mono text-[12px]">
-              {m ? (m.busy ? <span key={tick} className="lore new font-semibold">{(LORE[w!.creature] || LORE.beaver)[(tick + w!.wolt.length) % (LORE[w!.creature] || LORE.beaver).length]}</span> : <span className={m.awake ? "text-go" : "text-dim"}>● {m.word}</span>)
+              {m ? (m.busy ? <span key={tick} className="lore new font-semibold">{verbs(w!.creature)[(tick + w!.wolt.length) % verbs(w!.creature).length]}</span> : <span className={m.awake ? "text-go" : "text-dim"}>● {m.word}</span>)
                 : <span className="text-dim">{last ? `last said something ${ago(last.at)}` : "hasn't said anything yet"}</span>}
               {m && last && <span className="text-dim"> · last spoke {ago(last.at)}</span>}
             </div>
