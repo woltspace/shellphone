@@ -489,9 +489,18 @@ export function App() {
   // (once per time the list appears, as soon as it's tall enough to scroll that far)
   const skyTucked = useRef(false);
   // the sky up there is a peek, not a place: let go (or let a fling come to rest) and home springs back over it
-  const touching = useRef(false), settleSky = useRef(0);
-  const tuckSky = () => { clearTimeout(settleSky.current); settleSky.current = window.setTimeout(() => {
-    const l = chatList.current; if (l && !touching.current && l.scrollTop < UPPER) l.scrollTo({ top: UPPER, behavior: "smooth" }); }, 90); };
+  const touching = useRef(false), springing = useRef(0);
+  const tuckSky = () => {  // straight away, with a quick ease-out of our own (the browser's smooth scroll lingers)
+    const l = chatList.current; if (!l || touching.current || springing.current || l.scrollTop >= UPPER) return;
+    l.style.overflowY = "hidden";  // stops a fling's momentum where it is
+    const from = l.scrollTop, t0 = performance.now(), ms = 260;
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      l.scrollTop = from + (UPPER - from) * e;
+      if (k < 1) springing.current = requestAnimationFrame(step); else { springing.current = 0; l.style.overflowY = ""; }
+    };
+    springing.current = requestAnimationFrame(step);
+  };
   useLayoutEffect(() => {
     const l = chatList.current;
     if (!l) { skyTucked.current = false; return; }
@@ -750,7 +759,7 @@ export function App() {
         </button>}
       </header>
       {!(chatsHome && !lobby) && <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />}
-      {chatsHome && !lobby ? <div ref={chatList} onTouchStart={() => { touching.current = true; clearTimeout(settleSky.current); }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
+      {chatsHome && !lobby ? <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
         <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
         {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
