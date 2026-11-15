@@ -27,6 +27,7 @@ export function pieces(list: Msg[], folding: boolean): Piece[] {
   for (let i = 0; i < list.length;) {
     let j = i;
     while (j < list.length && list[j].kind === "wolt" && !list[j].pending) j++;
+    if (j === list.length && j - i > FOLD_AT) j--;  // the newest message always stays in view, outside the fold
     if (j - i >= FOLD_AT) { out.push({ run: list.slice(i, j) }); i = j; continue; }
     for (const one of list.slice(i, Math.max(j, i + 1))) out.push({ one });
     i = Math.max(j, i + 1);
@@ -57,8 +58,8 @@ export function Fold({ run, ctx, children }: { run: Msg[]; ctx: Ctx; children: R
       : <span key={name} className={`rounded-full bg-line grid place-items-center font-mono text-[9px] border border-panel ${cls}`}>{name[0]?.toUpperCase()}</span>;
   };
   // closed: one slim line. open: the run as cards side by side, one whole message each; swipe through, tap the line to close.
-  return <div className={open ? "ml-11 mr-6 my-2 rounded-2xl border-2 border-line bg-panel/70 shadow-[0_1px_6px_#18100a14]" : "mx-2.5 my-1"} data-fold={run.length}>
-    <div ref={head} className={open ? "sticky top-0 z-[5] bg-panel/95 backdrop-blur-sm rounded-t-2xl" : ""}>
+  return <div style={{ overflowAnchor: "none" }} className={open ? "ml-11 mr-6 my-2 rounded-2xl border-2 border-line bg-panel/70 shadow-[0_1px_6px_#18100a14]" : "mx-2.5 my-1"} data-fold={run.length}>
+    <div ref={head} className={open ? "bg-panel/95 rounded-t-2xl" : ""}>
       <button type="button" onClick={toggle} aria-expanded={open}
         className={`w-full h-9 flex items-center gap-2 px-2 bg-transparent border-0 text-left cursor-pointer ${open ? "border-b border-line" : "border-y border-dashed border-line"}`}>
         <span className="flex-none flex -space-x-1.5">{[...counts.keys()].slice(0, 4).map((n) => avatar(n, "w-5 h-5"))}</span>
@@ -102,44 +103,49 @@ export function groups(list: Msg[]): Msg[][] {
   return out;
 }
 
-export function Group({ list, ctx, last, children }: { list: Msg[]; ctx: Ctx; last: boolean; children: React.ReactNode }) {
-  const [open, setOpen] = useState(last);
-  const head = useRef<HTMLDivElement>(null), before = useRef<number | null>(null);
-  const toggle = () => { before.current = head.current?.getBoundingClientRect().top ?? null; setOpen(!open); };
-  useLayoutEffect(() => {  // keep the group's line where it was under the finger, as Fold does
-    if (before.current === null || !head.current) return;
-    const feed = head.current.closest("[data-feed]") as HTMLElement | null;
-    const moved = head.current.getBoundingClientRect().top - before.current;
-    before.current = null;
+export function Group({ list, ctx, last, first, tail, children }: { list: Msg[]; ctx: Ctx; last: boolean; first: React.ReactNode; tail?: React.ReactNode; children: React.ReactNode }) {
+  const [open, setOpen] = useState(last);  // the newest group starts open; folded, it still shows its last message (tail)
+  const line = useRef<HTMLDivElement>(null), before = useRef<{ top: number; rail: boolean } | null>(null);
+  const toggle = (rail = false) => { before.current = { top: line.current?.getBoundingClientRect().top ?? 0, rail }; setOpen(!open); };
+  // the rest of the group opens below its line, and the line stays where it was under the finger (the chat is anchored at the
+  // bottom, so without this everything above would slide). Folding from the rail, far down a long group, brings the line back
+  // into view instead.
+  useLayoutEffect(() => {
+    const b = before.current; before.current = null;
+    if (!b || !line.current) return;
+    if (b.rail) { line.current.scrollIntoView({ block: "nearest" }); return; }
+    const feed = line.current.closest("[data-feed]") as HTMLElement | null;
+    const moved = line.current.getBoundingClientRect().top - b.top;
     if (feed && moved) feed.scrollTop += moved;
   }, [open]);
   const name = (m: Msg) => m.kind === "human" ? ctx.person(m.email).name : m.wolt!;
-  const counts = new Map<string, { n: number; m: Msg }>();
-  for (const m of list) { const k = name(m); counts.set(k, { n: (counts.get(k)?.n || 0) + 1, m }); }
-  const opener = list.find((m) => m.kind === "human") || list[0];
+  const rest = list.slice(1), counts = new Map<string, { n: number; m: Msg }>();
+  for (const m of rest) { const k = name(m); counts.set(k, { n: (counts.get(k)?.n || 0) + 1, m }); }
   const pattern = list.map((m) => m.kind === "human" ? "H" : "A").join("");
   const face = (m: Msg) => {
     const w = m.kind === "wolt" ? ctx.wolts.find((x) => x.wolt === m.wolt) : undefined, p = ctx.person(m.kind === "human" ? m.email : w?.owner);
     return w ? <img key={name(m)} src={woltAvatar(w.creature, p.color, worn.wolts[w.wolt])} alt="" className="pixel w-5 h-5 rounded-full bg-panel border border-line" />
       : <span key={name(m)} className="w-5 h-5 rounded-full grid place-items-center text-white font-mono font-bold text-[9px] border border-panel" style={{ background: p.color }}>{name(m)[0]?.toUpperCase()}</span>;
   };
-  return <div className="my-1.5" data-group={list.length}>
-    <div ref={head} className={`mx-2.5 ${open ? "sticky top-0 z-[6]" : ""}`}>
-      <button type="button" onClick={toggle} aria-expanded={open}
-        className={`w-full flex items-center gap-2 px-2.5 py-1.5 bg-panel text-left cursor-pointer border border-line ${open ? "rounded-t-xl rounded-br-xl shadow-[0_1px_6px_#18100a14]" : "border-dashed rounded-xl"}`}>
+  // closed: the group's first message, a few lines of it, then one slim line for the rest. open: the rest below that line,
+  // with a rail down the left that folds it again.
+  return <div className="my-1" data-group={list.length} style={{ overflowAnchor: "none" }}>
+    <div className={open ? "" : "relative max-h-[8.5rem] overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]"}>{first}</div>
+    {rest.length > 0 && <div ref={line} className="mx-2.5 mt-0.5">
+      <button type="button" onClick={() => toggle()} aria-expanded={open}
+        className="w-full h-8 flex items-center gap-2 px-2 bg-transparent text-left cursor-pointer border-0 border-y border-dashed border-line">
         <span className="flex-none flex -space-x-1.5">{[...counts.values()].slice(0, 5).map((c) => face(c.m))}</span>
-        <span className="flex-1 min-w-0">
-          <b className="block truncate text-[13.5px] font-semibold">{firstLine(opener)}</b>
-          <span className="block truncate font-mono text-[11px] text-dim">{list.length} messages{[...counts].map(([k, c]) => ` · ${k} ${c.n}`).join("")} · <span className="text-acc tracking-wide">{pattern.length > 16 ? pattern.slice(0, 16) + "…" : pattern}</span></span>
-        </span>
+        <span className="flex-1 min-w-0 truncate font-mono text-[11.5px] text-dim">
+          <b className="text-ink font-semibold">{open ? `${rest.length} more` : `+${rest.length} more`}</b>{[...counts].map(([k, c]) => ` · ${k} ${c.n}`).join("")} · <span className="text-acc tracking-wide">{pattern.length > 14 ? pattern.slice(0, 14) + "…" : pattern}</span></span>
         <span className="flex-none text-acc">{open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
       </button>
-    </div>
-    {open && <div className="flex">
-      <button type="button" aria-label="Fold this group" title="Fold" onClick={toggle}
-        className="group flex-none w-6 ml-2.5 flex justify-center py-1 bg-transparent border-0 cursor-pointer">
-        <i className="w-1 rounded-full bg-acc/50 group-hover:bg-acc group-active:bg-acc group-hover:w-1.5 transition-all" /></button>
-      <div className="flex-1 min-w-0 -ml-2.5">{children}</div>
     </div>}
+    {open && rest.length > 0 && <div className="flex">
+      <button type="button" aria-label="Fold this group" title="Fold" onClick={() => toggle(true)}
+        className="group relative z-20 flex-none w-8 ml-6 flex justify-center py-1 bg-transparent border-0 cursor-pointer">
+        <i className="w-1 rounded-full bg-acc/50 group-hover:bg-acc group-active:bg-acc transition-colors" /></button>
+      <div className="flex-1 min-w-0 -ml-6">{children}{tail}</div>
+    </div>}
+    {!open && tail}
   </div>;
 }

@@ -229,7 +229,10 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
     if (!folding || !place) return draw(list);  // groups are for threads; the main chat keeps each message, with its thread, in view
     const all = groups(list);
     if (all.length === 1) return draw(list);
-    return all.map((g, k) => { lastWho = ""; return <Group key={"group:" + g[0].id} list={g} ctx={ctx} last={k === all.length - 1}>{draw(g)}</Group>; }); })()}
+    return all.map((g, k) => { lastWho = ""; const first = one(g[0], at++); lastWho = "";
+      const newest = k === all.length - 1 && g.length > 2;  // the newest group keeps its last message in view even when folded
+      const middle = draw(newest ? g.slice(1, -1) : g.slice(1)), tail = newest ? one(g[g.length - 1], at++) : undefined;
+      return <Group key={"group:" + g[0].id} list={g} ctx={ctx} last={k === all.length - 1} first={first} tail={tail}>{middle}</Group>; }); })()}
     <Gnaw ctx={ctx} working={working} away={away} place={place} />
   </div></div>
     {far && <button type="button" aria-label="Jump to the newest" onClick={() => toBottom()}
