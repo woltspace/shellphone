@@ -22,24 +22,27 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
   const [hats, setHats] = useState(false), [asking, setAsking] = useState(false), [busy, setBusy] = useState(false), [note, setNote] = useState("");
   // a sheet of one fixed height: what's inside scrolls, and a swipe down slides it away from under your finger
   const panel = useRef<HTMLDivElement>(null), body = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ y: number; t: number; dy: number; on: boolean; inBody: boolean } | null>(null);
+  const drag = useRef<{ y: number; t: number; dy: number; on: boolean; inBody: boolean; up: boolean } | null>(null);
   const bye = () => { const p = panel.current; if (p) { p.style.transition = "transform .2s cubic-bezier(.2,.8,.2,1)"; p.style.transform = "translateY(100%)"; } setTimeout(onClose, 180); };
   const swipe = {
-    onTouchStart: (e: React.TouchEvent) => { drag.current = { y: e.touches[0].clientY, t: performance.now(), dy: 0, on: false, inBody: !!body.current?.contains(e.target as Node) }; },
+    onTouchStart: (e: React.TouchEvent) => { drag.current = { y: e.touches[0].clientY, t: performance.now(), dy: 0, on: false, up: false, inBody: !!body.current?.contains(e.target as Node) }; },
     onTouchMove: (e: React.TouchEvent) => {
       const d = drag.current, p = panel.current; if (!d || !p) return;
       d.dy = e.touches[0].clientY - d.y;
       if (!d.on) {
         if (Math.abs(d.dy) < 6) return;
-        if (d.dy < 0 || (d.inBody && (body.current?.scrollTop || 0) > 0)) { drag.current = null; return; }  // scrolling the card, not closing it
-        d.on = true; d.y = e.touches[0].clientY; d.dy = 0;
+        const b = body.current, canScroll = !!b && b.scrollHeight > b.clientHeight;
+        if (d.inBody && ((d.dy > 0 && (b?.scrollTop || 0) > 0) || (d.dy < 0 && canScroll))) { drag.current = null; return; }  // scrolling the card, not moving it
+        d.on = true; d.up = d.dy < 0; d.y = e.touches[0].clientY; d.dy = 0;
       }
-      p.style.transition = "none"; p.style.transform = `translateY(${Math.max(0, d.dy)}px)`;
+      p.style.transition = "none";
+      if (d.up && d.dy <= 0) { p.style.transform = ""; p.style.height = `calc(46dvh + ${Math.round(-d.dy * 0.3)}px)`; }  // up: it stretches a little, like a rubber band
+      else { p.style.height = ""; p.style.transform = `translateY(${Math.max(0, d.dy)}px)`; }
     },
     onTouchEnd: () => {
       const d = drag.current, p = panel.current; drag.current = null; if (!d?.on || !p) return;
-      if (d.dy > 90 || d.dy / Math.max(1, performance.now() - d.t) > 0.5) bye();
-      else { p.style.transition = "transform .3s cubic-bezier(.25,1.4,.45,1)"; p.style.transform = ""; }
+      if (!d.up && (d.dy > 90 || d.dy / Math.max(1, performance.now() - d.t) > 0.5)) bye();
+      else { p.style.transition = "transform .3s cubic-bezier(.25,1.4,.45,1), height .3s cubic-bezier(.25,1.4,.45,1)"; p.style.transform = ""; p.style.height = ""; }  // back to its own height
     },
   };
   const [tick, setTick] = useState(0);  // a busy wolt's line of lore changes every few seconds, like in the chats
