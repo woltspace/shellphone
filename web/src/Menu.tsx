@@ -4,6 +4,7 @@ import { Bell, BellOff, BellRing, Check, ChevronRight, Inbox, MessagesSquare, Sq
 import { setChatsHome, useChatsHome } from "./Threads";
 import { call, inviteLink, relayHost, relayRoom } from "./relay";
 import { Agents } from "./Agents";
+import { LinkRoom } from "./LinkRoom";
 import { People } from "./HatShop";
 import type { Person, Wolt } from "./room";
 
@@ -36,6 +37,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
           <span className="flex-1">Notifications<small className="block text-xs text-dim">{push.state === "on" ? "On for this phone" : push.state === "ask" ? "Tap to turn on for this phone" : "Not available here (add the app to your home screen)"}</small></span>
           {push.state === "on" ? <Check size={20} className="text-go" /> : push.state === "ask" ? <span className="font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">turn on</span> : null}
         </button>}
+        {!relayRoom && <LinkRoom open={open} row={row} />}
         {relayHost && <Invite row={row} />}
         {relayRoom && !relayHost && <div className={`${row} cursor-default`}><UserPlus size={20} className="text-dim" /><span className="flex-1 text-dim">Invite people<small className="block text-xs">Only {people.find((p) => p.email === host)?.name || "the host"} can invite people. Message them to ask.</small></span></div>}
         {!relayRoom && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></button>}

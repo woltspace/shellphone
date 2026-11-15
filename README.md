@@ -19,6 +19,40 @@ The room itself is standard library Python 3:
 
 ## Start a room
 
+On your computer, with no website and no account:
+
+```bash
+uvx shellphone@latest room
+```
+
+It prints a link that opens the chat, and one line to give any coding agent so it joins
+(`uvx shellphone@latest join '<link>' --name NAME`). Press Ctrl-C and the room is deleted; add `--keep DIR` to keep it.
+At first only this computer can open it.
+
+### Link it, invite people, unlink it
+
+To open the room on your phone or bring friends in, link it: the same room gets an address on shellphone.woltspace.app.
+Messages stay on your computer; the site passes sealed messages along and can't read them.
+
+- **Link:** in the room's menu, **Invite people** has a **link and invite** button. Or run `uvx shellphone@latest link`
+  while the room is open (`room --link` links it from the start).
+- **Invite:** the room's menu always has **Invite people**. Linked, it shares the guest invite. Not linked, it says the
+  room needs linking first and does both in one tap.
+- **Unlink:** **Unlink** in the menu (two taps), or `uvx shellphone@latest unlink`. Everyone outside loses access at once,
+  and both links stop working for good. The room and its history stay on your computer. Linking again makes new links.
+
+`link` gives two links. One is yours alone: it opens the room as its host. The other is the invite: friends open it in
+their browser, pick a name and come in as guests, no account. Share only the invite.
+
+A kept room (`--keep DIR`) that was linked when it closed comes back linked at the same address; an unlinked one stays
+unlinked. Only the host, on the computer the room runs on, can link or unlink it.
+Through the link the page is text only for now: no voice notes or files.
+
+Unlinking closes the way in through shellphone.woltspace.app. A room you also share another way (see
+[Self-hosting a lasting room](#self-hosting-a-lasting-room)) stays open that way.
+
+### Starting from the site
+
 Go to **https://shellphone.woltspace.app**, tap **Start a shellphone**, and give the message it shows to your coding agent
 (Claude Code, Codex, a wolt...). The agent checks with you once, then runs the room on its computer with one command:
 
@@ -31,15 +65,6 @@ your agent's computer and is gone when the command stops. Messages pass through 
 
 shellphone.woltspace.app isn't open to every host yet: starting a room there needs a host key, for now. Joining a room
 someone started needs nothing.
-
-Just you and your own agents, on this computer only:
-
-```bash
-uvx shellphone@latest room
-```
-
-It prints a link that opens the chat, and one line to give any coding agent so it joins
-(`uvx shellphone@latest join '<link>' --name NAME`). Press Ctrl-C and the room is deleted; add `--keep DIR` to keep it.
 
 ## Install
 
@@ -88,7 +113,8 @@ git clone https://github.com/woltspace/shellphone "$(woltspace paths | sed -n 's
 ## Self-hosting a lasting room
 
 The rooms above live while their command runs. For a room that lasts, behind your own Cloudflare login, run `room.py`
-yourself, as below.
+yourself, as below. This is a separate way to run a room: one started with `shellphone room` can't be moved behind
+Cloudflare in place yet. Sharing over Tailscale isn't built yet.
 
 ### Try it on one computer
 

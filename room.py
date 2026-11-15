@@ -32,6 +32,7 @@ TTS_MODEL = os.environ.get("SHELLPHONE_TTS_MODEL", "pocket")
 SPEECH_KEY = os.environ.get("SHELLPHONE_SPEECH_KEY", "")  # for a hosted speech service; sent as a Bearer token
 LOCK = threading.RLock()
 DEV = False
+LINKER = None  # set by the `shellphone` command: the room's switch between "only on this computer" and "linked" (info, on, off)
 LOCAL = {}  # `shellphone room` (a room on this computer only): login token -> email. The token comes in the link the host opens.
 # Behind Cloudflare Access: the team domain and the Access app's audience tag. With both set, people must carry a valid Access login.
 ACCESS_TEAM = os.environ.get("SHELLPHONE_ACCESS_TEAM", "")
@@ -107,6 +108,8 @@ def con():
             CON.execute("alter table people add column guest integer not null default 0")
         if "paused" not in [c[1] for c in CON.execute("pragma table_info(wolts)")]:  # rooms from before agents could be paused
             CON.execute("alter table wolts add column paused integer not null default 0")
+        if "via" not in [c[1] for c in CON.execute("pragma table_info(wolts)")]:  # which link an agent on another computer joined through (shellphone/link.py)
+            CON.execute("alter table wolts add column via text")
         os.chmod(DB, 0o600)
     return CON
 
@@ -889,6 +892,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Hand a call that passed the door (a known person, or a wolt's key) to the room, and send back its answer."""
         return Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0])
 
+    def link_call(self, email, body):
+        """Link or unlink the room, or say which it is. Only for the host, on this computer, from the room's own page or
+        command: this is answered here at the door and is no part of what the room answers through a relay."""
+        if not (LINKER and LOCAL and self.local_host() and email == host()):
+            return 403, {"error": "only the room's host can do that, on the computer the room runs on"}
+        if body is None:
+            return 200, LINKER.info()
+        if not isinstance(body, dict) or not isinstance(body.get("on"), bool):
+            return 400, {"error": "say on: true or false"}
+        return LINKER.on() if body["on"] else LINKER.off()
+
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -926,6 +940,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, join_page(email, p["name"]).encode(), "text/html; charset=utf-8")
         if not p:
             return self.send(403, {"error": "not on this room's list"})
+        if path == "/api/link":  # whether the room can be reached from outside: the host's to see, on this computer only
+            return self.send(*self.link_call(email, None))
         m = re.fullmatch(r"/assets/([\w.-]+\.(js|css))", path)  # the page's code and styles, built ahead of time into dist/
         if m and (HERE / "dist" / "assets" / m.group(1)).is_file():
             return self.send(200, (HERE / "dist" / "assets" / m.group(1)).read_bytes(), "text/javascript; charset=utf-8" if m.group(2) == "js" else "text/css; charset=utf-8")
@@ -946,6 +962,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             email, p = self.person()
             if not p:
                 return self.send(403, {"error": "not on this room's list"})
+            if path == "/api/link":
+                return self.send(*self.link_call(email, json.loads(self.body() or b"{}")))
             self.send(*for_person(self.call("POST"), email))
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})
