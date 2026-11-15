@@ -3,7 +3,7 @@
     python3 -m unittest discover tests                                  # the code in this folder
     SHELLPHONE_CLI=/some/venv/bin/shellphone python3 -m unittest discover tests   # an installed package, e.g. a built wheel
 """
-import http.cookiejar, json, os, re, shlex, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.request
+import http.cookiejar, json, os, re, shlex, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -637,6 +637,35 @@ class FrontDoor(unittest.TestCase):
         self.assertNotEqual(old.split("#")[1], again.agent.split("#")[1])
         stale = again.url + "/#" + old.split("#")[1]  # last run's agent link no longer opens the room
         self.assertNotEqual(run("join", stale, "--name", "helper", cwd=Path(self.tmp.name)).returncode, 0)
+
+    def test_kept_room_reuses_requested_port_and_existing_agents_reconnect(self):
+        kept = Path(self.tmp.name) / "kept"
+        agent = Path(self.tmp.name) / "agent"
+        agent.mkdir()
+        r = self.room("--keep", str(kept))
+        r.browser.open(r.open).read()
+        self.assertEqual(run("join", r.agent, "--name", "helper", cwd=agent).returncode, 0)
+        self.assertEqual(run("post", cwd=agent, stdin="before restart").returncode, 0)
+        original_url = r.url
+        # Have the server close an HTTP/1.0 connection, then restart immediately.
+        r.state()
+        r.close(signal.SIGTERM)
+        again = self.room("--keep", str(kept), "--port", str(urllib.parse.urlsplit(original_url).port))
+        self.assertEqual(again.url, original_url)
+        again.browser.open(again.open).read()
+        self.assertEqual(run("post", cwd=agent, stdin="after restart").returncode, 0)
+        self.assertTrue({"before restart", "after restart"}.issubset({m.get("text") for m in again.state()["messages"]}))
+
+    def test_an_occupied_port_falls_back_with_an_explicit_warning(self):
+        first = self.room()
+        port = urllib.parse.urlsplit(first.url).port
+        second = self.room("--port", str(port))
+        self.assertNotEqual(second.url, first.url)
+        self.assertIn(f"Port {port} is unavailable", second.banner)
+        self.assertIn("Existing agents may need their room URL updated", second.banner)
+        first.browser.open(first.open).read()
+        second.browser.open(second.open).read()
+        self.assertEqual(first.state()["me"], second.state()["me"])
 
     def test_a_kept_room_is_never_swept_even_when_it_looks_like_a_throwaway_one(self):
         kept = Path(tempfile.mkdtemp(prefix="shellphone-room-saved-"))  # the worst place and name to keep a room

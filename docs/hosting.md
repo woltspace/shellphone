@@ -5,10 +5,81 @@ A room is one small server (`room.py`) on one computer. To share it, two kinds o
 - **People**, from a browser or the home-screen app. The room has to know who each one is.
 - **Agents**, from their own computers. They talk to the room's `/lodge/` address with their own room key.
 
-This page explains what the room expects from you, then how we set it up with Cloudflare. It's one way to do it,
-not the only one.
+Start locally, then choose how other people reach that room. You do not need the shellphone website or a relay to
+use a room on the computer running it. Installing the package and optional speech services have their own requirements.
+
+## Choose how to reach the room
+
+| Way in | What it provides | Current scope |
+|---|---|---|
+| Local room | Chat and local agents on the computer running the room | Standalone; no deployed site needed |
+| shellphone relay | An invite others open in a browser; the room keeps its history on your computer | Link/unlink workflow below; text through the link for now, voice and file transport not yet enabled |
+| Cloudflare Tunnel + Access | Your hostname, authenticated people and agent access through Cloudflare | Supported separate hosting setup; guide below |
+| Tailscale Serve | Private access within a Tailscale network | Planned; no shellphone setup or identity integration yet |
+
+All these ways of reaching a room depend on its host computer and room process staying available. Agents may go offline
+while the room stays up. Keeping the room's data is different from keeping its address reachable.
+
+## Start locally, then link
+
+The following commands require a build whose `shellphone --help` lists `link` and `unlink`. If your installed release
+does not list them, it cannot attach a relay to an already running room. Use local mode, the website's `host` flow, or
+the separate Cloudflare setup below; do not assume a command from development documentation exists in that release.
+
+Start a room and leave this process running:
+
+```bash
+shellphone room --name 'You' --keep ~/.shellphone/rooms/friends
+```
+
+Open the local chat address it prints. Give each local agent the printed join instruction. Neither step needs the
+website. The local browser address contains the owner's credential: do not use it as an invitation for other people.
+`--keep DIR` preserves history and files when the process stops; without it the temporary room is deleted on close.
+
+When you want remote visitors, use **Invite people** in a build with the local invite menu. If the room is not linked,
+it offers **link and invite**; after connecting, copy the guest invitation. From a second terminal on the same computer:
+
+```bash
+shellphone link --keep ~/.shellphone/rooms/friends
+```
+
+This links the existing room; it does not start another room or move its history to the relay. Share the guest invite,
+never the host link. A guest joins as a person; to bring an agent, that person makes a separate agent invitation in the
+room. The agent keeps its own room key. The website-first `shellphone host '<link>'` workflow remains another way in.
+
+To stop access through that relay while continuing locally:
+
+```bash
+shellphone unlink --keep ~/.shellphone/rooms/friends
+```
+
+The room process, local history, files and local agents remain. Remote connections through the link are closed. Explicit
+unlink stays in effect across restart, and linking again creates fresh invitations: an old link does not become valid
+again. A kept room that remains linked retains its address on restart. None of this can erase copies visitors already
+downloaded. If several rooms are open, identify one with `--keep DIR` or `--port N`.
+
+### What unlink does and does not stop
+
+Unlink disables the shellphone relay route. It does not disable a Cloudflare tunnel, Tailscale configuration, reverse
+proxy or other independently configured route. State such as **Not linked through this relay** describes that route;
+it is not proof that no other route reaches the room. Stop each configured sharing route to stop all remote access,
+then verify from a remote device while checking that local chat still works. Do not stop a shared tunnel serving other
+applications just to remove this room's route.
+
+The local owner credential and the link/unlink control are for the owner on the room's computer. Do not expose that
+credential or use a proxy to turn a remote visitor into the local owner. A localhost Host header alone is not an
+authentication boundary: proxies can rewrite it.
+
+## Use Cloudflare as a separate hosting setup
+
+The existing Cloudflare workflow below remains supported. A room started with `shellphone room` cannot yet switch to
+Cloudflare authentication in place. Its local login takes precedence; pointing a tunnel at its port does not integrate
+Cloudflare identities. Start a room with the documented Cloudflare setup when you want that access method. Automatic
+migration of a running local room to that setup is not implemented.
 
 ## What the room needs
+
+For direct hosting behind Cloudflare or another authenticated proxy:
 
 1. **One address that reaches the room**, over HTTPS (phones need HTTPS for the microphone and notifications).
 2. **Someone at the door who checks people's logins** and tells the room the email of whoever is visiting. The room
@@ -73,16 +144,40 @@ address instead. The more specific application wins, and its AUD tag replaces th
 ## Other setups
 
 Any front door that does the same two jobs works: check people's logins and pass on their email, and let agents reach
-`/lodge/`. For example a reverse proxy with single sign-on in front of the room, or a private network where everyone
-is already trusted. The room only reads the email header and the agents' keys. Signed-login checks exist only for
-Cloudflare today; that's the part another service would need its own version of.
+`/lodge/`. A proxy must remove any identity header supplied by the visitor and set it from the authenticated identity;
+the room must not also be reachable through a route that bypasses that check. Network membership alone does not tell
+the room which person is visiting. Signed-login checks exist only for Cloudflare today; another service needs its own
+trusted identity integration and room membership checks. Keep remote-person authentication separate from local owner
+credentials and link controls.
+
+### Tailscale later
+
+[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) can expose a local web service privately within a
+tailnet. [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel) exposes a service to the public Internet;
+it is a different choice and is not what private Tailscale sharing means.
+
+shellphone does not yet have a supported Tailscale setup command or identity adapter. A future guide must cover people
+and agent access, HTTPS, room membership, invitations and disabling the room's route while preserving local use.
+Do not present Serve or Funnel as a tested drop-in replacement for the authentication in the Cloudflare guide.
+
+## Check the setup
+
+- With the deployed website and relay unavailable, local chat and local agent access should still work.
+- Through the chosen remote route, verify an invited person and their agent can join, and an unauthorized visitor
+  cannot read history or media or operate the room's local owner controls.
+- Verify each feature using that route. Direct-room voice and files do not imply relay media support; the relay path
+  currently has no voice/file transport. A newer client must check host capabilities before attempting it.
+- After unlinking, verify existing relay clients lose access and the old invite cannot reconnect. If another route
+  remains configured, check and disable it separately before describing the room as local-only.
 
 ## Voice
 
 The room turns people's voice notes into words, and reads out an agent's message when the agent sends it as a voice note. It does both
 by calling a speech server with the OpenAI audio API (`/audio/transcriptions` and `/audio/speech`). By default that's
 a server on the same computer at `http://127.0.0.1:4077/v1`, whose default models need a Mac with Apple silicon.
-Without a speech server, text still works: voice notes arrive without words, and agents answer in text only.
+Text works without a speech server. In the current room handler, a failed transcription can reject a person's voice
+note rather than post it without words. Check speech availability before relying on voice; this is separate from
+whether the room is reachable locally, through Cloudflare, or through a relay with media support.
 
 Any service with the same API works, on this computer or hosted. Set these where the room starts (on a lodge, in the
 room's `.access.env`, which stays out of git), then restart the room:
