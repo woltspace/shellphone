@@ -156,12 +156,11 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
     const color = id ? threadColor(id) : "#c4531e", who = faces(list, ctx, 6), here = id === current;
     const names = [...new Set([...list].reverse().map(name))];
     return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())} style={id ? threadWallpaper(id, true, true) : undefined}
-      className={`flex w-full items-center gap-2.5 text-left bg-transparent border-0 border-b border-line px-2.5 py-2 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
-      <span className="flex-none w-9 h-9 rounded-full grid place-items-center text-[18px] bg-paper" style={{ boxShadow: `inset 0 0 0 2px ${color}` }}>{id ? threadEmoji(id) : "#"}</span>
+      className={`flex w-full text-left bg-transparent border-0 border-b border-line px-3 py-2.5 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
       {/* the wallpaper shows around it; what you read sits on solid ground */}
-      <span className="flex-1 min-w-0 bg-paper rounded-xl border px-3 py-2" style={{ borderColor: color + "55" }}>
+      <span className="flex-1 min-w-0 bg-[#fffdf8] rounded-xl border px-3 py-2 shadow-[0_1px_3px_#18100a14]" style={{ borderColor: color + "66" }}>
         <span className="flex items-center gap-2 font-mono text-[13px] font-semibold">
-          <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : lobby ? "lobby" : "main chat"}</span>
+          <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : lobby ? "# lobby" : "# main chat"}</span>
           {n > 0 && count(n)}
           {busyAt(id).length ? <Busy wolts={busyAt(id)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(last.at)}</span>}
         </span>
