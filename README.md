@@ -45,8 +45,8 @@ Messages stay on your computer; the site passes sealed messages along and can't 
 their browser, pick a name and come in as guests, no account. Share only the invite.
 
 A kept room (`--keep DIR`) that was linked when it closed comes back linked at the same address; an unlinked one stays
-unlinked. Only the host, on the computer the room runs on, can link or unlink it. Through the link the page is text only
-for now: no voice notes or files.
+unlinked. Only the host, on the computer the room runs on, can link or unlink it.
+Through the link the page is text only for now: no voice notes or files.
 
 Unlinking closes the way in through shellphone.woltspace.app. A room you also share another way (see
 [Self-hosting a lasting room](#self-hosting-a-lasting-room)) stays open that way.
