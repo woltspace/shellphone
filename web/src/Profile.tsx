@@ -1,12 +1,12 @@
 // Someone's card, opened from the strip: who they are, what they're up to right now, and the chats they're in.
 // For a wolt: who keeps it and where it's gnawing. For a person: their wolts. Tap a chat to go there.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Crown, Pause, Play, Shirt, X } from "lucide-react";
 import { crown, setWolt } from "./Agents";
 import { HatGrid, putFace, putLook } from "./HatShop";
 import { mix, woltColor, woltFace } from "./Message";
 import type { Msg, State } from "./room";
-import { personAvatar } from "./sprites";
+import { LORE, personAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mood, type Who } from "./WoltStrip";
 import { ago, threadTitle, ThreadHat } from "./Threads";
@@ -20,6 +20,8 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
   const w = isWolt ? state.members.wolts.find((x) => x.wolt === key) : undefined;
   const p = !isWolt ? state.members.people.find((x) => x.email === key) : undefined;
   const [hats, setHats] = useState(false), [asking, setAsking] = useState(false), [busy, setBusy] = useState(false), [note, setNote] = useState("");
+  const [tick, setTick] = useState(0);  // a busy wolt's line of lore changes every few seconds, like in the chats
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 2400); return () => clearInterval(t); }, []);
   if (!w && !p) return null;
   const color = w ? woltColor(w.wolt, state.members.wolts) : person(p!.email).color;
   const face = w ? woltFace(w.wolt, w.creature) : personAvatar(p!.name, color, worn.people[p!.email]);
@@ -50,8 +52,12 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
       <div className="flex-none px-4 pt-2 pb-3" style={{ background: `linear-gradient(${mix(color, "#ffffff", 0.78)}, transparent)` }}>
         <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />
         <div className="flex items-center gap-3">
-          <span className={`flex-none ${m?.busy ? "" : "idle-bob"}`}>
-            <img src={face} alt="" className={`pixel block w-[72px] h-[72px] ${m?.busy ? "gnaw-img" : ""}`} /></span>
+          {/* tap the face for hats, when the hat is yours to change */}
+          <button type="button" disabled={!mayHat} onClick={() => setHats(!hats)} aria-expanded={mayHat ? hats : undefined} aria-label={mayHat ? `${name}'s hat` : undefined}
+            className={`relative flex-none p-0 border-0 bg-transparent ${mayHat ? "cursor-pointer active:scale-95 transition-transform" : "cursor-default"} ${m?.busy ? "" : "idle-bob"}`}>
+            <img src={face} alt="" className={`pixel block w-[72px] h-[72px] ${m?.busy ? "gnaw-img" : ""}`} />
+            {mayHat && <span className={`absolute -bottom-0.5 -right-0.5 w-6 h-6 grid place-items-center rounded-full border-2 border-paper ${hats ? "bg-acc text-white" : "bg-white text-acc"} shadow`}><Shirt size={12} /></span>}
+          </button>
           <div className="min-w-0 flex-1">
             <div className="font-mono font-bold text-lg truncate" style={{ color }}>{name}{w && state.main === w.wolt && <span className="ml-1 text-acc text-base" title="main agent">★</span>}</div>
             <div className="font-mono text-[12px] text-dim truncate">
@@ -59,7 +65,7 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
                 : p!.email === state.me ? "you" : p!.guest ? "guest" : "human"}
             </div>
             <div className="mt-1 font-mono text-[12px]">
-              {m ? (m.busy ? <span className="lore font-semibold">gnawing…</span> : <span className={m.awake ? "text-go" : "text-dim"}>● {m.word}</span>)
+              {m ? (m.busy ? <span key={tick} className="lore new font-semibold">{(LORE[w!.creature] || LORE.beaver)[(tick + w!.wolt.length) % (LORE[w!.creature] || LORE.beaver).length]}</span> : <span className={m.awake ? "text-go" : "text-dim"}>● {m.word}</span>)
                 : <span className="text-dim">{last ? `last said something ${ago(last.at)}` : "hasn't said anything yet"}</span>}
               {m && last && <span className="text-dim"> · last spoke {ago(last.at)}</span>}
             </div>
@@ -68,8 +74,7 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-[max(16px,env(safe-area-inset-bottom))]">
-        {(mayHat || mayWolt) && <div className="flex flex-wrap gap-2 pt-1">
-          {mayHat && <button type="button" onClick={() => setHats(!hats)} aria-expanded={hats} className={`${chip} ${hats ? "border-acc bg-[#f6e2d6] text-acc" : "border-line bg-white text-ink"}`}><Shirt size={15} />{w ? "Hat" : "Your hat"}</button>}
+        {mayWolt && <div className="flex flex-wrap gap-2 pt-1">
           {mayWolt && <button type="button" disabled={busy} onClick={() => act(() => setWolt(w!.wolt, w!.paused ? "on" : "paused"))}
             className={`${chip} border-line bg-white ${w!.paused ? "text-acc" : "text-ink"}`}>{w!.paused ? <><Play size={15} />Bring back</> : <><Pause size={15} />Pause</>}</button>}
           {mayWolt && state.me === state.host && state.main !== undefined && <button type="button" disabled={busy} onClick={() => act(() => crown(state.main === w!.wolt ? null : w!.wolt))}

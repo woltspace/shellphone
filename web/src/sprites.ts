@@ -54,7 +54,7 @@ export function woltSprite(creature: string, hat = "") {
 // The lodge's landscape, pixel by pixel (the lodge home page's generator): snowy mountains, pine hills, a strip of grass,
 // earth and the river. Drawn once, a little wider than any phone, and reused.
 let scene = "";
-export const SCENE = { px: 4, rows: 48, grass: 34 };  // the grass starts at row 34
+export const SCENE = { px: 5, rows: 48, grass: 34 };  // the grass starts at row 34
 export function lodgeScene() {
   if (scene) return scene;
   const S = SCENE.px, W = 180, H = SCENE.rows, BANK = SCENE.grass, RIVER = 40;

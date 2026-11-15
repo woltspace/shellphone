@@ -1,9 +1,9 @@
 // Everyone in the room at a glance, pulled down from the top of the chats: the people, and every wolt: who is gnawing on something, who is idle,
 // who is paused or out of reach, and which one is the room's main agent. Pull down again, or tap it, to put it away.
 import { woltColor } from "./Message";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { State, Wolt } from "./room";
-import { lodgeScene, personAvatar, SCENE, woltSprite } from "./sprites";
+import { LORE, lodgeScene, personAvatar, SCENE, woltSprite } from "./sprites";
 import { worn } from "./hats";
 
 type Person = (email: string) => { name: string; color: string };
@@ -22,18 +22,27 @@ export function WoltStrip({ state, person, open, onClose, onPick, el }: { state:
   const wolts = [...state.members.wolts].sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)
     || Number(mood(b, state).busy) - Number(mood(a, state).busy));
   const people = state.members.people;
+  // a busy wolt chews through its lines of lore, a new one every few seconds, like it does in the chats
+  const [tick, setTick] = useState(0);
+  const anyBusy = wolts.some((w) => mood(w, state).busy);
+  useEffect(() => { if (!open || !anyBusy) return; const t = setInterval(() => setTick((x) => x + 1), 2400); return () => clearInterval(t); }, [open, anyBusy]);
+  // when everyone doesn't fit, the row opens scrolled to its middle, so it still sits centered on the screen
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => { const r = row.current; if (open && r) r.scrollLeft = (r.scrollWidth - r.clientWidth) / 2; }, [open, people.length, wolts.length]);
+  const chew = (name: string, creature?: string) => { const lines = LORE[creature || ""] || LORE.beaver; return lines[(tick + name.length) % lines.length]; };
   // everyone in their own circle: people first, then the wolts, each one alive in its own way; tap one to see what it's up to
-  const tile = (key: string, face: string, name: string, color: string, m: { awake: boolean; busy: boolean; word: string }, star: boolean, i: number) =>
+  const tile = (key: string, face: string, name: string, color: string, m: { awake: boolean; busy: boolean; word: string }, star: boolean, i: number, lore?: string) =>
     <button type="button" key={key} onClick={(e) => { e.stopPropagation(); onPick?.(key); }} aria-label={`${name}: ${m.word}`}
-      className={`flex-none w-[80px] flex flex-col items-center gap-0.5 p-0 border-0 bg-transparent cursor-pointer active:scale-95 transition-transform ${m.awake ? "" : "opacity-60"}`}>
+      className={`flex-none ${m.busy ? "w-[150px]" : "w-[100px]"} flex flex-col items-center gap-0.5 p-0 border-0 bg-transparent cursor-pointer active:scale-95 transition-transform ${m.awake ? "" : "opacity-60"}`}>
       <span className="relative">
         <span className={`block ${m.busy ? "" : m.awake ? "idle-bob" : ""}`} style={{ animationDelay: `${(i % 5) * -0.6}s` }}>
-          <img src={face} alt="" className={`pixel block w-14 h-14 object-contain object-bottom ${m.busy ? "gnaw-img" : ""}`} /></span>
-        <i className={`absolute right-1 bottom-0.5 w-3 h-3 rounded-full border-2 border-[#4A8838] ${m.busy ? "bg-acc" : m.awake ? "bg-go" : "bg-[#c9bfae]"}`} />
+          <span className="flex items-end justify-center w-[84px] h-[84px]"><img src={face} alt="" className={`pixel block object-contain object-bottom ${key.startsWith("p:") ? "w-16 h-16" : "w-[84px] h-[84px]"} ${m.busy ? "gnaw-img" : ""}`} /></span></span>
+        <i className={`absolute right-2 bottom-1 w-3.5 h-3.5 rounded-full border-2 border-[#4A8838] ${m.busy ? "bg-acc" : m.awake ? "bg-go" : "bg-[#c9bfae]"}`} />
         {!m.awake && m.word === "napping" && <span className="absolute -top-1 -right-1 font-mono text-[11px] text-dim snooze">z</span>}
       </span>
-      <span className="mt-1 max-w-full truncate font-mono font-semibold text-[12px] px-1.5 rounded-md bg-[#fffdf6e6] shadow-[0_1px_0_#0003]" style={{ color }}>{name}{star && <span className="ml-0.5 text-acc" title="main agent">★</span>}</span>
-      <span className={`max-w-full truncate font-mono font-semibold text-[10.5px] px-1 rounded bg-[#1a3a18aa] ${m.busy ? "text-[#ffd27a]" : "text-[#e8f1dc]"}`}>{m.busy ? "gnawing…" : m.word}</span>
+      <span className="mt-1.5 max-w-full truncate font-mono font-semibold text-[13px] px-1.5 rounded-md bg-[#fffdf6e6] shadow-[0_1px_0_#0003]" style={{ color }}>{name}{star && <span className="ml-0.5 text-acc" title="main agent">★</span>}</span>
+      {m.busy ? <span className="gnaw-row max-w-full truncate px-1.5 rounded-md bg-[#fffdf6ee] border border-line font-mono font-semibold text-[10.5px]"><span key={tick} className="lore new">{chew(name, lore)}</span></span>
+        : <span className="max-w-full truncate font-mono font-semibold text-[10.5px] px-1 rounded bg-[#1a3a18aa] text-[#e8f1dc]">{m.word}</span>}
     </button>;
   // its height is the pull's: the hook below moves it with your finger and lets it spring open or shut
   return <div ref={el} aria-hidden={!open} onClick={onClose}
@@ -41,12 +50,14 @@ export function WoltStrip({ state, person, open, onClose, onPick, el }: { state:
     {/* the lodge's landscape, drifting a little slower than everyone standing in it */}
     <div aria-hidden className="absolute inset-x-0 bottom-0 pointer-events-none [image-rendering:pixelated]"
       style={{ height: STRIP, background: `url("${lodgeScene()}") center bottom / auto ${STRIP}px repeat-x`, transform: "translateY(calc((1 - var(--p)) * -40px))" }} />
-    <div className="relative flex items-start gap-1 px-3 overflow-x-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ height: STRIP, paddingTop: STAND, transform: "translateY(calc((1 - var(--p)) * -24px)) scale(calc(.8 + var(--p) * .2))", opacity: "var(--p)", transformOrigin: "50% 100%" }}>
+    <div ref={row} className="relative overflow-x-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ height: STRIP, paddingTop: STAND, transform: "translateY(calc((1 - var(--p)) * -24px)) scale(calc(.8 + var(--p) * .2))", opacity: "var(--p)", transformOrigin: "50% 100%" }}>
+      <div className="flex items-start justify-center gap-1 w-max min-w-full px-3">{/* centered when everyone fits, scrolls when they don't */}
       {people.map((p, i) => tile("p:" + p.email, personAvatar(p.name, person(p.email).color, worn.people[p.email]), p.name, person(p.email).color,
         { awake: true, busy: false, word: p.email === state.me ? "you" : "human" }, false, i))}
       {people.length > 0 && wolts.length > 0 && <i className="flex-none w-2" />}
-      {wolts.map((w, i) => tile("w:" + w.wolt, woltSprite(w.creature, worn.wolts[w.wolt]), w.wolt, woltColor(w.wolt, state.members.wolts), mood(w, state), state.main === w.wolt, i + people.length))}
+      {wolts.map((w, i) => tile("w:" + w.wolt, woltSprite(w.creature, worn.wolts[w.wolt]), w.wolt, woltColor(w.wolt, state.members.wolts), mood(w, state), state.main === w.wolt, i + people.length, w.creature))}
       {wolts.length === 0 && people.length === 0 && <div className="py-6 w-full text-center text-sm text-dim">Nobody here yet</div>}
+      </div>
     </div>
   </div>;
 }
@@ -54,7 +65,7 @@ export function WoltStrip({ state, person, open, onClose, onPick, el }: { state:
 // Pull down on an element (the header, or the chats when they're at their top): the strip follows your finger,
 // stretches a little past open, and springs open or shut when you let go, by how far and how fast you pulled.
 export const STRIP = SCENE.rows * SCENE.px;  // the whole landscape, sky to river
-const STAND = SCENE.grass * SCENE.px + 6 - 56;  // where everyone's top goes, so their feet land just inside the grass
+const STAND = SCENE.grass * SCENE.px + 8 - 84;  // where everyone's top goes, so their feet land just inside the grass
 const SPRING = "height .5s cubic-bezier(.25,1.45,.45,1)";
 export function usePullDown(open: boolean, setOpen: (on: boolean) => void, el: React.RefObject<HTMLDivElement | null>, atTop: () => boolean = () => true) {
   const drag = useRef<{ x: number; y: number; top: boolean; base: number; h: number; on: boolean; v: number; t: number; ly: number } | null>(null);
