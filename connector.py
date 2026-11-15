@@ -21,7 +21,7 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.13.1"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.14"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
 PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
