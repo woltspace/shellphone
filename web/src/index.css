@@ -41,9 +41,14 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 .gnaw-img { animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
 .idle-bob { animation: bob 2.8s ease-in-out infinite; }
 .snooze { animation: pulse-soft 2s ease-in-out infinite; }
+@keyframes drift { from { transform: translateX(-60px); } to { transform: translateX(var(--far)); } }
+.cloud { animation: drift linear infinite; }
+/* still most of the time, then a quick little wiggle */
+@keyframes jiggle { 0%, 88%, 100% { transform: rotate(0) scale(1); } 90% { transform: rotate(-8deg) scale(1.04, .94); } 92% { transform: rotate(7deg) scale(.97, 1.05); } 94% { transform: rotate(-5deg); } 96% { transform: rotate(3deg); } }
+.mushroom { animation: jiggle 6.5s ease-in-out infinite; transform-origin: 50% 100%; }
 .cursor::after { content: "_"; color: var(--color-acc); animation: blink 1s steps(1) infinite; }
 .wave.quiet i { animation: quiet 1.4s ease-in-out infinite alternate; }
-@media (prefers-reduced-motion: reduce) { .gnaw-img, .gnaw-row, .idle-bob, .snooze, .lore, .wave-in, .wave-out { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .gnaw-img, .gnaw-row, .idle-bob, .snooze, .cloud, .mushroom, .lore, .wave-in, .wave-out { animation: none; } }
 
 /* how far the everyone strip is open, 0 to 1: registered so it springs along with the strip instead of jumping */
 @property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
