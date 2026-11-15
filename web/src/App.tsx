@@ -243,7 +243,7 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 // Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
 // A thread pops up over the main chat, like the voice-note sheet: you're still in the room, just looking closer.
 // Drag the handle down, tap above it, or tap ✕ to drop back.
-function ThreadSheet({ startFull, color, wallpaper, title, count, close, who, children }: { startFull?: boolean; color: string; wallpaper?: React.CSSProperties; title: string; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
+function ThreadSheet({ startFull, chat, color, wallpaper, title, count, close, who, children }: { startFull?: boolean; chat?: boolean; color: string; wallpaper?: React.CSSProperties; title: string; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
   const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null), [full, setFull] = useState(!!startFull);
   const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
   const timer = useRef(0);
@@ -266,17 +266,18 @@ function ThreadSheet({ startFull, color, wallpaper, title, count, close, who, ch
       bye();
     }} style={{ ...wallpaper, transform: leaving ? "translateY(100%)" : drag ? `translateY(${Math.max(full ? 0 : -96, drag.dy)}px)` : undefined, opacity: leaving ? 0 : undefined,
       transition: drag ? "none" : "top .25s cubic-bezier(.2,.8,.2,1), transform .22s cubic-bezier(.4,0,1,1), opacity .22s ease-in" }}
-      className={`absolute inset-x-0 bottom-0 ${full ? "top-[env(safe-area-inset-top)]" : "top-[calc(env(safe-area-inset-top)+96px)]"} max-w-[640px] mx-auto bg-[#f5f1e88c] backdrop-blur-sm rounded-t-[18px] flex flex-col overflow-hidden shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]`}>
+      className={`absolute inset-x-0 bottom-0 ${full ? "top-[env(safe-area-inset-top)]" : "top-[calc(env(safe-area-inset-top)+96px)]"} max-w-[640px] mx-auto ${chat ? "bg-paper" : "bg-[#f5f1e88c] backdrop-blur-sm"} rounded-t-[18px] flex flex-col overflow-hidden shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]`}>
       <div className="flex-none touch-none bg-[#fffdf680] border-b border-line" style={{ boxShadow: `inset 0 3px 0 ${color}` }}
         {...grip}>
         <div className="w-10 h-[5px] rounded-full bg-line mx-auto mt-2" />
-        <div className="flex items-center gap-2 pl-4 pr-1.5 pb-1.5">
+        <div className={`flex items-center gap-2 ${chat ? "pl-1" : "pl-4"} pr-1.5 pb-1.5`}>
+          {chat && <button type="button" aria-label="Back to the chats" onClick={bye} className="flex-none w-9 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>}
           <div className="min-w-0 flex-1">
             <div className="font-mono font-semibold truncate" style={{ color }}>{title}</div>
-            <div className="font-mono text-[11px] text-dim">thread · {count} {count === 1 ? "reply" : "replies"}</div>
+            <div className="font-mono text-[11px] text-dim">{chat ? `chat · ${count + 1} ${count ? "messages" : "message"}` : `thread · ${count} ${count === 1 ? "reply" : "replies"}`}</div>
           </div>
           {who}
-          <button type="button" aria-label="Close the thread" onClick={bye} className="flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={20} /></button>
+          {!chat && <button type="button" aria-label="Close the thread" onClick={bye} className="flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={20} /></button>}
         </div>
       </div>
       {children}
@@ -700,10 +701,13 @@ export function App() {
       {!thread && composer}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} all={main.filter((m) => m.kind === "human" || m.kind === "wolt")} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
-      {thread && <ThreadSheet key={thread} startFull={chatsHome} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={`${threadEmoji(thread)} ${threadTitle(root)}`} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
+      {thread && <ThreadSheet key={thread} startFull={chatsHome} chat={chatsHome} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={`${threadEmoji(thread)} ${threadTitle(root)}`} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
-        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} place={thread} />
+        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />
+        {/* a chat just started: who will pick it up, and how to bring someone else in */}
+        {chatsHome && root && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
+          New chat started{state.main ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
         {composer}
       </ThreadSheet>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
