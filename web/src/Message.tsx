@@ -132,12 +132,15 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
   const name = human ? who.name : `${m.wolt} · ${owner === ctx.me ? "yours" : who.name + "'s"}`;
   const avatar = human ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", who.color, worn.wolts[m.wolt!]);
   const readers = mine ? ctx.seen[m.id] || [] : [];
+  const solid: CSSProperties = mine ? { backgroundColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
+    : !human ? { backgroundColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : {};
   return (
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
       <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
-      <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
-        style={{ ...(mine ? { backgroundColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
-          : !human ? { backgroundColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : {}), ...wallpaper }}>
+      {/* a message with a thread sits in a frame of the thread's wallpaper; the message itself stays on its own solid color */}
+      <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border ${wallpaper ? "px-2.5 pt-2.5 pb-1.5 bg-paper" : `px-2.5 py-1.5 ${solid.backgroundColor ? "" : "bg-panel"}`} border-line`}
+        style={wallpaper ? { ...wallpaper } : solid}>
+        <div className={wallpaper ? `rounded-lg border px-2.5 py-1.5 ${solid.backgroundColor ? "" : "bg-panel"} border-line` : ""} style={wallpaper ? solid : undefined}>
         {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5" style={!human ? { color: woltColor(m.wolt, ctx.wolts) } : undefined}>[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
         {m.files?.length ? relayRoom ? <div className="font-mono text-xs text-dim mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
         {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
@@ -152,6 +155,7 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
           {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
             {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltAvatar(w?.creature || "raccoon", ctx.person(w?.owner).color, worn.wolts[r])} />; })}
           </span>}
+        </div>
         </div>
         {footer}
       </div>

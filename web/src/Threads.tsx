@@ -80,7 +80,6 @@ export function ThreadFooter({ id, list, fresh, ctx, onOpen, busy }: { id: strin
     return m.kind === "human" ? personAvatar(p.name, p.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", p.color, worn.wolts[m.wolt!]); };
   return <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={`Open the thread, ${list.length} ${list.length === 1 ? "reply" : "replies"}`}
     className={`flex w-[calc(100%+20px)] -mx-2.5 -mb-1.5 mt-1.5 items-center gap-2 border-0 border-t border-line rounded-b-xl px-2.5 py-1.5 cursor-pointer text-left active:opacity-60 ${fresh ? "bg-[#c4531e14]" : "bg-[#18100a06]"}`}>
-    <span className="flex-none w-6 h-6 rounded-full grid place-items-center text-[13px]" style={{ background: threadColor(id) + "22", boxShadow: `inset 0 0 0 1.5px ${threadColor(id)}` }}>{threadEmoji(id)}</span>
     <span className="flex flex-none">{faces.map((m, i) => <img key={m.id} src={face(m)} alt="" className={`pixel w-5 h-5 rounded-full border-2 border-panel bg-panel ${i ? "-ml-1.5" : ""}`} />)}</span>
     <b className="text-[13.5px]" style={{ color: threadColor(id) }}>{list.length} {list.length === 1 ? "reply" : "replies"}</b>
     {fresh && <i className="flex-none w-[7px] h-[7px] rounded-full bg-acc" aria-label="new replies" />}
