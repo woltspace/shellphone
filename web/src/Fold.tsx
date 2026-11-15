@@ -142,9 +142,9 @@ export function Group({ list, ctx, last, first, tail, children }: { list: Msg[];
     </div>}
     {open && rest.length > 0 && <div className="flex">
       <button type="button" aria-label="Fold this group" title="Fold" onClick={() => toggle(true)}
-        className="group relative z-20 flex-none w-8 ml-6 flex justify-center py-1 bg-transparent border-0 cursor-pointer">
+        className="group relative z-20 flex-none w-9 ml-8 flex justify-center py-1 bg-transparent border-0 cursor-pointer">
         <i className="w-1 rounded-full bg-acc/50 group-hover:bg-acc group-active:bg-acc transition-colors" /></button>
-      <div className="flex-1 min-w-0 -ml-6">{children}{tail}</div>
+      <div className="flex-1 min-w-0 -ml-4">{children}{tail}</div>
     </div>}
     {!open && tail}
   </div>;
