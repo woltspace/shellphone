@@ -12,7 +12,7 @@ const sec = "px-4 pt-4 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08e
 export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts, people, push, freshCount, onThreads, onAgent, main, looks, faces, guestAgents }: {
   open: boolean; panel: React.RefObject<HTMLElement | null>; scrim: React.RefObject<HTMLDivElement | null>; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string; host?: string; wolts: Wolt[]; people: Person[];
   push: { state: "ask" | "on" | "off"; turnOn: () => void }; freshCount: number; onThreads: () => void; onAgent: () => void; main?: string | null;
-  looks?: Record<string, Record<string, string>>; faces?: Record<string, string>; guestAgents?: boolean;
+  looks?: Record<string, Record<string, string>>; faces?: Record<string, string>; guestAgents?: boolean;  // undefined: a host from before 0.0.7, which can't take agents through the relay
 }) {
   // while a finger drags it, App moves these two directly; otherwise the classes below decide
   return <>
@@ -38,8 +38,8 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         {relayHost && <Invite row={row} />}
         {relayRoom && !relayHost && <div className={`${row} cursor-default`}><UserPlus size={20} className="text-dim" /><span className="flex-1 text-dim">Invite people<small className="block text-xs">Only {people.find((p) => p.email === host)?.name || "the host"} can invite people. Message them to ask.</small></span></div>}
         {!relayRoom && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></button>}
-        {relayRoom && (relayHost || guestAgents !== false) && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Bring your agent<small className="block text-xs text-dim">Experimental: your own agent, from your computer</small></span><ChevronRight size={20} className="text-acc" /></button>}
-        {relayHost && <GuestAgents row={row} on={guestAgents !== false} />}
+        {relayRoom && guestAgents !== undefined && (relayHost || guestAgents) && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Bring your agent<small className="block text-xs text-dim">Experimental: your own agent, from your computer</small></span><ChevronRight size={20} className="text-acc" /></button>}
+        {relayHost && guestAgents !== undefined && <GuestAgents row={row} on={guestAgents} />}
         <button type="button" onClick={() => { close(); onThreads(); }} className={row}><Inbox size={20} className="text-acc" /><span className="flex-1">Inbox</span>
           {freshCount > 0 && <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{freshCount}</span>}</button>
         <People people={people} me={me} host={host} faces={faces} sec={sec} />
