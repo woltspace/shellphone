@@ -473,8 +473,8 @@ export function App() {
   const [listOpen, setListOpen] = useState(false);  // the inbox sheet; home is always the main chat
   const [menu, setMenu] = useState(false);
   const [strip, setStrip] = useState(false);  // every wolt, gnawing or not: pulled down from the top of the chat
-  const pull = usePullDown(strip, setStrip);
-  const chatList = useRef<HTMLDivElement>(null), pullChats = usePullDown(strip, setStrip, () => (chatList.current?.scrollTop ?? 0) <= 0);  // the chats, pulled down at their top, show everyone too
+  const stripEl = useRef<HTMLDivElement>(null), pull = usePullDown(strip, setStrip, stripEl);
+  const chatList = useRef<HTMLDivElement>(null), pullChats = usePullDown(strip, setStrip, stripEl, () => (chatList.current?.scrollTop ?? 0) <= 0);  // the chats, pulled down at their top, show everyone too
   const [who, setWho] = useState<Who>("");  // someone's card, opened from the strip
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
@@ -735,8 +735,8 @@ export function App() {
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>}
       </header>
-      <WoltStrip state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />
-      {chatsHome && !lobby ? <div ref={chatList} {...pullChats} className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
+      <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />
+      {chatsHome && !lobby ? <div ref={chatList} {...pullChats} className="flex-1 min-h-0 overflow-y-auto overscroll-y-none pb-24">
         {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
           onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
