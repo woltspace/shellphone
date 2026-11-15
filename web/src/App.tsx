@@ -488,6 +488,10 @@ export function App() {
   // the sky above the scene stays hidden until you pull down for it: the chats open scrolled just past it
   // (once per time the list appears, as soon as it's tall enough to scroll that far)
   const skyTucked = useRef(false);
+  // the sky up there is a peek, not a place: let go (or let a fling come to rest) and home springs back over it
+  const touching = useRef(false), settleSky = useRef(0);
+  const tuckSky = () => { clearTimeout(settleSky.current); settleSky.current = window.setTimeout(() => {
+    const l = chatList.current; if (l && !touching.current && l.scrollTop < UPPER) l.scrollTo({ top: UPPER, behavior: "smooth" }); }, 90); };
   useLayoutEffect(() => {
     const l = chatList.current;
     if (!l) { skyTucked.current = false; return; }
@@ -746,7 +750,8 @@ export function App() {
         </button>}
       </header>
       {!(chatsHome && !lobby) && <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />}
-      {chatsHome && !lobby ? <div ref={chatList} className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
+      {chatsHome && !lobby ? <div ref={chatList} onTouchStart={() => { touching.current = true; clearTimeout(settleSky.current); }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
         <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
         {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
           onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
