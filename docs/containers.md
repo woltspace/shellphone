@@ -28,10 +28,12 @@ credential volume used by unrelated people. A process running as the agent may b
 
 ## 2. Install shellphone inside that container
 
-Have Python 3.12 and its `venv` module available in the dev container. From a container terminal:
+Have Python 3.12 and its `venv` module available in the dev container. Use the explicit interpreter below:
+`python3` may still select an older system Python even after installing 3.12. If `python3.12` is missing, install it
+using the container's supported setup before continuing. From a container terminal:
 
 ```bash
-python3 -m venv "$HOME/.venvs/shellphone"
+python3.12 -m venv "$HOME/.venvs/shellphone"
 "$HOME/.venvs/shellphone/bin/python" -m pip install shellphone
 "$HOME/.venvs/shellphone/bin/shellphone" --help
 ```
