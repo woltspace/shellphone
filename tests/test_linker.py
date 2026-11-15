@@ -1,6 +1,6 @@
 """What a kept room writes down about its link, and that an unlinked room's link is never written again.
     python3 -m unittest tests.test_linker"""
-import json, os, sys, tempfile, threading, time, unittest
+import importlib.util, json, os, sys, tempfile, threading, time, unittest
 from pathlib import Path
 from unittest import mock
 
@@ -20,6 +20,9 @@ class Fake:
         self.open = False
 
 
+# Saving a link encodes its parts with the sealing code, which needs the cryptography package: where the tests run
+# without it (as when a release is built), these are skipped like the other sealing tests, not failed.
+@unittest.skipUnless(importlib.util.find_spec("cryptography"), "saving a link needs the cryptography package: uv run --with cryptography python -m unittest discover tests")
 class KeptLink(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
