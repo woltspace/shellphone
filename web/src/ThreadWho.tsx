@@ -7,6 +7,7 @@ import { X } from "lucide-react";
 import { say, type Msg, type Wolt } from "./room";
 import { woltColor, type Ctx } from "./Message";
 import { woltAvatar } from "./sprites";
+import { worn } from "./hats";
 
 type Mark = "in" | "paused" | "out";
 const KEY = "mock-thread-who";
@@ -29,7 +30,7 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
   room?: Record<string, "in" | "paused">;  // the room's switches for this thread; undefined: the room has none (mock)
   fallback?: "in" | "out";                 // the room's rule for an agent with no switch here (none given: not in yet)
   host?: string;
-  main?: string | null;  // the room's main agent: always in, its switch locked
+  main?: string | null;  // the room's main agent: in every thread unless switched off there
 }) {
   const real = room !== undefined;
   const [mock, setMock] = useState(load), [open, setOpen] = useState(false);
@@ -54,7 +55,7 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
     if (real && Object.entries(sent).some(([w, m]) => room![w] === m)) setSent((s) => Object.fromEntries(Object.entries(s).filter(([w, m]) => room![w] !== m)));
   }, [room]);
 
-  const face = (w: Wolt) => woltAvatar(w.creature || "raccoon", ctx.person(w.owner).color);
+  const face = (w: Wolt) => woltAvatar(w.creature || "raccoon", ctx.person(w.owner).color, worn.wolts[w.wolt]);
   const on = (w: Wolt) => marks[w.wolt] === "in" && !w.paused;
   const shown = ctx.wolts.filter((w) => marks[w.wolt] !== "out");
   const first = shown.slice(0, 3), more = shown.length - first.length;
@@ -80,12 +81,12 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
           <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={18} /></button>
         </div>
         {ctx.wolts.map((w) => {
-          const m = marks[w.wolt], yes = on(w), locked = !!w.paused || !may(w) || busy === w.wolt || w.wolt === main;
+          const m = marks[w.wolt], yes = on(w), locked = !!w.paused || !may(w) || busy === w.wolt;
           return <div key={w.wolt} className="flex items-center gap-2.5 py-2 border-t border-line">
             <img src={face(w)} alt="" className={`pixel w-[30px] h-[30px] rounded-full ${yes ? "" : "grayscale opacity-50"}`} />
             <span className="flex-1 min-w-0">
               <span className={`block truncate font-mono text-sm ${yes ? "" : "text-dim"}`} style={yes ? { color: woltColor(w.wolt, ctx.wolts) } : undefined}>{w.wolt}</span>
-              <small className="block text-xs text-dim">{(w.owner === ctx.me ? "yours" : `${ctx.person(w.owner).name}'s`) + " · "}{w.paused ? "paused in the room" : w.wolt === main ? "main · always in every thread" : yes ? "in this thread" : m === "paused" ? "paused here · still active elsewhere" : "not in this thread"}</small>
+              <small className="block text-xs text-dim">{(w.owner === ctx.me ? "yours" : `${ctx.person(w.owner).name}'s`) + " · "}{w.paused ? "paused in the room" : yes ? (w.wolt === main ? "main · in every thread unless you switch it off" : "in this thread") : m === "paused" ? "paused here · still active elsewhere" : "not in this thread"}</small>
             </span>
             <button type="button" role="switch" aria-checked={yes} disabled={locked} aria-label={`${yes ? "Pause" : "Bring in"} ${w.wolt} here`}
               onClick={() => flip(w.wolt, yes ? "paused" : "in")}

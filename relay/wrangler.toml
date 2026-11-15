@@ -13,9 +13,9 @@ routes = [{ pattern = "shellphone.woltspace.app", custom_domain = true }]
 
 [vars]
 RELAY_OFF = ""        # set to "1" to turn the whole relay off: every request and socket is refused
-OPEN_HOSTING = ""     # leave empty: only hosts that know HOST_KEY can open rooms. "1" lets anyone host: a decision, not a default
+OPEN_HOSTING = "1"    # "1" lets anyone host, within the caps below. Empty: only hosts that know HOST_KEY can open rooms
 MAX_ROOMS = "20"           # rooms open at the same time, at the most. A host beyond that is told to try later
-MAX_ROOMS_PER_DAY = "200"  # new rooms in one day (UTC), at the most
+MAX_ROOMS_PER_DAY = "1000" # new rooms in one day (UTC), at the most
 BEAT_SECONDS = ""          # how often an open room reports to the desk (empty: every 30 minutes). Tests shorten it
 QUIET_SECONDS = ""         # how long a host or page that pings may stay silent before it counts as gone (empty: 60). Tests shorten it
 

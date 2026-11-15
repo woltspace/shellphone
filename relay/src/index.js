@@ -50,6 +50,7 @@ export default {
     const page = (file) => env.ASSETS.fetch(new Request(new URL(file, url), { method: "GET", headers: request.headers }));
     if (url.pathname === "/live") {
       // For everyone, and so only one number: how many rooms are up right now. Nothing about which, whose or where.
+      // Plus whether anyone may start a room here (OPEN_HOSTING), so the start page can drop its host-key box.
       // Kept for half a minute in Cloudflare's cache, which spares the desk most of the asking but not all of it:
       // the cache is one per data centre, and requests that miss it at the same moment each ask. So the desk's
       // side of this only reads: asked a thousand times, it writes nothing.
@@ -57,7 +58,7 @@ export default {
       const kept = new Request(url.origin + "/live"), cache = caches.default;
       let answer = await cache.match(kept);
       if (!answer) {
-        answer = new Response(JSON.stringify({ rooms: await desk(env).live() }), { headers: { "content-type": "application/json", "cache-control": `public, max-age=${LIVE_FOR}` } });
+        answer = new Response(JSON.stringify({ rooms: await desk(env).live(), open: env.OPEN_HOSTING === "1" }), { headers: { "content-type": "application/json", "cache-control": `public, max-age=${LIVE_FOR}` } });
         ctx.waitUntil(cache.put(kept, answer.clone()));
       }
       return answer;

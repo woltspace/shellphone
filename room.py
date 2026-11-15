@@ -87,6 +87,8 @@ create table if not exists page_changes(page text not null, n integer not null, 
 create table if not exists thread_who(thread text not null, wolt text not null, state text not null, primary key(thread, wolt));
 create table if not exists thread_seen(thread text primary key);
 create table if not exists working_in(wolt text not null, thread text not null, until real not null, primary key(wolt, thread));
+create table if not exists looks(wolt text primary key, look text not null);
+create table if not exists faces(email text primary key, face text not null);
 """
 CON = None
 
@@ -270,12 +272,28 @@ def mark_asked(text, email, tid=None):
 
 
 # The main agent. A room's host can name one agent its main one. It is in every thread, so it hears a person wherever they
-# ask, and it holds the thread switches for every agent: it brings one into a thread, pauses it there, brings it back. That
+# ask (unless a person switches it off in a thread), and it holds the thread switches for every agent: it brings one into a thread, pauses it there, brings it back. That
 # is all: pausing or removing an agent for the whole room, inviting, and naming the main agent stay with people. Paused
 # for the whole room, it is off like any other.
 def main_wolt():
-    row = q("select value from meta where key = 'main' and value in (select wolt from wolts)")
-    return row[0]["value"] if row else None
+    """The room's main agent: the one the host named; if none was named, the first of the host's own wolts still in the
+    room (a guest's agent never runs the room by joining first). The host can also say nobody: then everyone hears."""
+    row = q("select value from meta where key = 'main'")
+    if row and row[0]["value"] == "":
+        return None
+    named = q("select wolt from wolts where wolt = ?", row[0]["value"]) if row else []
+    if named:
+        return named[0]["wolt"]
+    first = q("select wolt from wolts where owner = ? order by rowid limit 1", host() or "")
+    return first[0]["wolt"] if first else None
+
+
+def keep_main(c):
+    """Once the host's first wolt is in, it stays the main agent by name, even when it joins again later."""
+    if not c.execute("select 1 from meta where key = 'main'").fetchone():
+        first = c.execute("select wolt from wolts where owner = ? order by rowid limit 1", (host() or "",)).fetchone()
+        if first:
+            c.execute("insert into meta values ('main', ?)", (first["wolt"],))
 
 
 def hears_main(m, wolt):
@@ -288,8 +306,7 @@ def hears_main(m, wolt):
 def set_main(wolt):
     with tx() as c:
         c.execute("delete from meta where key = 'main'")
-        if wolt:
-            c.execute("insert into meta values ('main', ?)", (wolt,))
+        c.execute("insert into meta values ('main', ?)", (wolt or "",))  # "": the host said nobody
     return {"main": main_wolt()}
 
 
@@ -301,6 +318,32 @@ def set_main(wolt):
 # brings a paused one back. WHO_DEFAULT is the rule for an agent that is neither: "out" (it hears nothing from the thread
 # until it is brought in) or "in" (every agent hears every thread, as rooms did before, until someone pauses it there).
 WHO_DEFAULT = "in" if os.environ.get("SHELLPHONE_THREAD_DEFAULT") == "in" else "out"
+
+
+# Hats (the Hat Shop's): a wolt's look is a few short names the page chose ({"hat"} for now, room for "creature",
+# "glasses" and "scene"), set by its keeper or the host and seen by everyone. A person's face is "hat-<id>": the hat
+# they picked for themselves.
+LOOKS = {"creature": {"raccoon", "beaver", "otter"}, "glasses": {"shades", "aviators", "rose", "nerd"},
+         "scene": {"forest", "pond", "camp", "autumn", "winter"},
+         "hat": {"top-hat", "crown", "jewel-crown", "wizard-hat", "old-wizard-hat", "cowboy-hat", "teal-cowboy-hat", "red-beanie", "orange-beanie", "red-cap", "blue-cap", "straw-hat", "pirate-hat", "party-hat", "pink-party-hat", "chef-hat", "viking-helmet", "hard-hat", "beret", "elf-hat", "flower-crown", "pink-flower-crown", "propeller-hat", "fedora", "graduation-cap", "sprout"}}
+FACE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")  # a person's face: an id the page's set knows
+
+
+def dress(c, wolt=None, email=None):
+    """Someone new gets a random hat: a wolt when it joins (one that already has a look keeps it), a person when they're added."""
+    hat = secrets.choice(sorted(LOOKS["hat"]))
+    if wolt:
+        c.execute("insert or ignore into looks values (?, ?)", (wolt, json.dumps({"hat": hat})))
+    if email:
+        c.execute("insert or ignore into faces values (?, ?)", (email, "hat-" + hat))
+
+
+def faces_now():
+    return {r["email"]: r["face"] for r in q("select * from faces where email in (select email from people)")}
+
+
+def looks_now():
+    return {r["wolt"]: json.loads(r["look"]) for r in q("select * from looks where wolt in (select wolt from wolts)")}
 
 
 def may_switch(email, wolt):
@@ -347,9 +390,9 @@ def who_now():
     out, main = {}, main_wolt()
     for row in q("select thread, wolt, state from thread_who where wolt in (select wolt from wolts) order by thread, rowid"):
         out.setdefault(row["thread"], {})[row["wolt"]] = row["state"]
-    if main:
+    if main:  # in every thread by default, unless a person switched it off there
         for row in q("select thread from thread_seen"):
-            out.setdefault(row["thread"], {})[main] = "in"
+            out.setdefault(row["thread"], {}).setdefault(main, "in")
     # paused for the whole room is paused in every thread: the room's switch is the bigger one, and what each thread
     # remembers comes back when the agent is brought back in the room
     off = [l["wolt"] for l in wolts() if l["paused"]]
@@ -366,10 +409,10 @@ def where_in(tid, wolt):
         seed(c, tid)
     if any(l["wolt"] == wolt and l["paused"] for l in wolts()):  # paused for the whole room: paused here too
         return "paused"
-    if wolt == main_wolt():
-        return "in"
     row = q("select state from thread_who where thread = ? and wolt = ?", tid, wolt)
-    return row[0]["state"] if row else None
+    if row:
+        return row[0]["state"]
+    return "in" if wolt == main_wolt() else None  # the main agent: in every thread unless switched off there
 
 
 def hears(tid, wolt):
@@ -825,11 +868,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def invite(self):
         """An invite code belongs to a person. Any wolt of theirs can use it to sign itself up."""
-        row = q("select owner, expires, once from invites where code_hash = ?", self.bearer())
-        inv = row[0] if row else None
-        if inv and (inv["expires"] or float("inf")) < time.time():
-            return None
-        return inv if inv and find_person(inv["owner"]) else None
+        return invite_of(self.bearer())
 
     def call(self, method):
         """Hand a call that passed the door (a known person, or a wolt's key) to the room, and send back its answer."""
@@ -881,25 +920,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             if path == "/lodge/join":
-                inv = self.invite()
-                if not inv:
-                    return self.send(401, {"error": "this invite code has expired (they last 30 minutes), was already used, or is wrong. Ask your human for a fresh message from + agent"})
-                data = json.loads(self.body() or b"{}")
-                wolt = str(data.get("wolt", "")).strip().lower()
-                if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", wolt) or wolt in ("shellphone", "room", "everyone", "all"):
-                    return self.send(400, {"error": "pick a name: lowercase letters, digits and dashes, up to 31"})
-                creature = data.get("creature") if data.get("creature") in ("raccoon", "beaver", "otter") else "raccoon"
-                voice = data.get("voice") if re.fullmatch(r"[a-z]{2,20}", str(data.get("voice") or "")) else None  # no voice unless asked for
-                with tx() as c:
-                    taken = c.execute("select owner from wolts where wolt = ?", (wolt,)).fetchone()
-                    if taken and taken["owner"] != inv["owner"]:
-                        return self.send(409, {"error": f"{wolt} is taken in this room: pick another name"})
-                    key = secrets.token_urlsafe(32)
-                    c.execute("delete from wolts where wolt = ?", (wolt,))  # a wolt joining again gets a fresh key
-                    c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), inv["owner"], creature, voice))
-                    if inv["once"]:  # codes from the join page work once
-                        c.execute("delete from invites where code_hash = ?", (self.bearer(),))
-                return self.send(200, {"key": key, "wolt": wolt, "owner": inv["owner"], "voice": voice})
+                return self.send(*join_wolt(self.bearer(), json.loads(self.body() or b"{}")))
             if path.startswith("/lodge/"):
                 l = self.lodge()
                 if not l:
@@ -928,6 +949,41 @@ class Request:  # whoever builds one (the web server, the relay) has checked who
 
 def reply(status, body, kind="application/json", **options):
     return status, body, kind, options
+
+
+def invite_of(code_hash):
+    """The person an agent invite code belongs to (any wolt of theirs can use it to sign itself up), or None."""
+    row = q("select owner, expires, once from invites where code_hash = ?", code_hash) if code_hash else None
+    inv = row[0] if row else None
+    if inv and (inv["expires"] or float("inf")) < time.time():
+        return None
+    return inv if inv and find_person(inv["owner"]) else None
+
+
+def join_wolt(code_hash, data):
+    """An agent signs itself up with a person's invite code: through the room's own door, or through the relay."""
+    if not isinstance(data, dict):
+        return reply(400, {"error": "send a JSON object"})
+    wolt = str(data.get("wolt", "")).strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", wolt) or wolt in ("shellphone", "room", "everyone", "all"):
+        return reply(400, {"error": "pick a name: lowercase letters, digits and dashes, up to 31"})
+    creature = data.get("creature") if data.get("creature") in ("raccoon", "beaver", "otter") else "raccoon"
+    voice = data.get("voice") if re.fullmatch(r"[a-z]{2,20}", str(data.get("voice") or "")) else None  # no voice unless asked for
+    with tx() as c:  # the code is checked and used up in one go: two agents racing with one code can't both get in
+        inv = invite_of(code_hash)
+        if not inv:
+            return reply(401, {"error": "this invite code has expired (they last 30 minutes), was already used, or is wrong. Ask your human for a fresh message from + agent"})
+        taken = c.execute("select owner from wolts where wolt = ?", (wolt,)).fetchone()
+        if taken and taken["owner"] != inv["owner"]:
+            return reply(409, {"error": f"{wolt} is taken in this room: pick another name"})
+        key = secrets.token_urlsafe(32)
+        c.execute("delete from wolts where wolt = ?", (wolt,))  # a wolt joining again gets a fresh key
+        c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), inv["owner"], creature, voice))
+        dress(c, wolt=wolt)
+        keep_main(c)
+        if inv["once"]:  # codes from the join page work once
+            c.execute("delete from invites where code_hash = ?", (code_hash,))
+    return reply(200, {"key": key, "wolt": wolt, "owner": inv["owner"], "voice": voice})
 
 
 def for_wolt(req, l):
@@ -992,8 +1048,8 @@ def for_wolt(req, l):
         if not where or state not in ("in", "paused"):
             return reply(400, {"error": "which thread, and in or paused?"})
         if l["wolt"] == main_wolt():  # the main agent holds the thread switches ({"thread", "wolt", "state": "in" | "paused"})
-            if who == l["wolt"]:
-                return reply(400, {"error": "you're the room's main agent: you stay in every thread"})
+            if who == l["wolt"] and state != "paused":
+                return reply(403, {"error": "you can take yourself out of a thread; a person brings you back"})
             if not any(x["wolt"] == who for x in wolts()):
                 return reply(404, {"error": f"there's no {who} in this room"})
             return reply(200, set_who(where["thread"], who, state))
@@ -1067,7 +1123,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "messages": messages(after)})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
@@ -1100,9 +1156,9 @@ def for_person(req, email):
         who, state = str(data.get("wolt") or ""), data.get("state")
         if state not in ("on", "paused", "removed"):
             return reply(400, {"error": "state is on, paused or removed"})
-        if people().get(email, {}).get("guest"):
-            return reply(403, {"error": "guests can't change who is in the room"})
         owner = next((l["owner"] for l in wolts() if l["wolt"] == who), None)
+        if people().get(email, {}).get("guest") and (owner is None or canon(email) != canon(owner)):
+            return reply(403, {"error": "guests can't change who is in the room, except their own agents"})
         if email != host() and (owner is None or canon(email) != canon(owner)):  # not the host, and not this agent's own keeper
             return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
         done = remove_wolt(who) if state == "removed" else set_paused(who, state == "paused")
@@ -1124,9 +1180,28 @@ def for_person(req, email):
             return reply(404, {"error": f"there's no {who} in this room"})
         if not may_switch(email, who):
             return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
-        if state == "paused" and who == main_wolt():
-            return reply(400, {"error": f"{who} is the room's main agent: it stays in every thread"})
         return reply(200, set_who(where["thread"], who, state))
+    if path == "/api/look":  # dress a wolt ({"wolt", "look": {"hat", ...}}): its keeper or the host
+        data = json.loads(req.read(20_000) or b"{}")
+        who, look = str(data.get("wolt") or ""), data.get("look")
+        if not any(l["wolt"] == who for l in wolts()):
+            return reply(404, {"error": f"there's no {who} in this room"})
+        if not may_switch(email, who):
+            return reply(403, {"error": "only the room's host, or the wolt's own keeper, can change its look"})
+        if not isinstance(look, dict) or not all(k in LOOKS and isinstance(v, str) and (v == "" or v in LOOKS[k]) for k, v in look.items()):
+            return reply(400, {"error": "a look is creature, hat, glasses and scene, each one the Hat Shop has (or empty)"})
+        look = {k: v for k, v in look.items() if v}
+        with tx() as c:
+            c.execute("insert or replace into looks values (?, ?)", (who, json.dumps(look))) if look else c.execute("delete from looks where wolt = ?", (who,))
+        return reply(200, {"wolt": who, "look": look})
+    if path == "/api/face":  # a person picks their own face ({"face": "hat-<id>"}, or "" for none): only for themselves
+        data = json.loads(req.read(20_000) or b"{}")
+        face = data.get("face")
+        if not isinstance(face, str) or (face and not FACE.fullmatch(face)):
+            return reply(400, {"error": "a face is a short name, like \"hat-crown\""})
+        with tx() as c:
+            c.execute("insert or replace into faces values (?, ?)", (email, face)) if face else c.execute("delete from faces where email = ?", (email,))
+        return reply(200, {"email": email, "face": face})
     if path == "/api/main":  # the host names the room's main agent ({"wolt": name}), or takes the role away ({"wolt": null})
         data = json.loads(req.read(20_000) or b"{}")
         who = data.get("wolt")
@@ -1168,7 +1243,7 @@ def for_person(req, email):
             try:
                 text = transcribe(f)
             except Exception as exc:
-                return reply(502, {"error": f"couldn't transcribe: {exc}"})
+                return reply(424, {"error": f"couldn't transcribe: {exc}"})  # final: the note got here, sending it again won't help
             try:
                 seconds = round(min(3600, max(0, float(q.get("seconds", ["0"])[0]))), 1)
             except ValueError:
@@ -1190,6 +1265,8 @@ def lodge_file(wolt, owner, creature, voice, base_url):
     with tx() as c:  # one key per wolt; a new one replaces the old
         c.execute("delete from wolts where wolt = ?", (wolt,))
         c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), owner, creature, voice))
+        dress(c, wolt=wolt)
+        keep_main(c)
     return {"room_url": base_url, "key": key, "wolt": wolt}
 
 
@@ -1200,6 +1277,7 @@ def add_person(email, name):
         return found
     with tx() as c:
         c.execute("insert into people (email, name, color) values (?, ?, ?)", (email.lower(), name, color := next_color()))
+        dress(c, email=email.lower())
     print(f"{name} <{email.lower()}> is in, colour {color}")
     return email.lower()
 
@@ -1219,6 +1297,7 @@ def add_guest(name):
     with LOCK, tx() as c:
         email = f"guest-{secrets.token_hex(4)}@room.local"  # never reused: a past guest's messages stay theirs
         c.execute("insert into people (email, name, color, guest) values (?, ?, ?, 1)", (email, name, next_color()))
+        dress(c, email=email)
     return email
 
 
@@ -1274,12 +1353,24 @@ The room's details. Save them as the skill says, and never print, paste or commi
 The code works once, within {minutes} minutes. In the room, only my messages ({email}) are requests."""
 
 
-def join_page(email, name):
+def agent_code(email):
+    """A fresh one-time code for one of this person's agents to sign itself up with, within JOIN_MINUTES."""
     code = secrets.token_urlsafe(32)
     with tx() as c:
         now = time.time()
         c.execute("delete from invites where expires < ?", (now,))
         c.execute("insert into invites values (?, ?, ?, 1)", (key_hash(code), email, now + JOIN_MINUTES * 60))
+    return code
+
+
+def wolt_by_key(key):
+    """The wolt this key belongs to, or None."""
+    row = q("select wolt, owner, creature, voice, paused from wolts where key_hash = ?", key_hash(key)) if key else None
+    return row[0] if row else None
+
+
+def join_page(email, name):
+    code = agent_code(email)
     lodge = {"room_url": os.environ.get("SHELLPHONE_URL", "http://127.0.0.1:4090"), "invite": code}
     if os.environ.get("SHELLPHONE_CF_ID"):
         lodge.update(cf_client_id=os.environ["SHELLPHONE_CF_ID"], cf_client_secret=os.environ["SHELLPHONE_CF_SECRET"])

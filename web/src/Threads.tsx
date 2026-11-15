@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, MessagesSquare } from "lucide-react";
 import type { Ctx } from "./Message";
 import type { Msg, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
+import { worn } from "./hats";
 
 export function ago(at: number) {
   const s = Math.max(0, Date.now() / 1000 - at);
@@ -31,7 +32,7 @@ function faces(list: Msg[], ctx: Ctx) {
     const key = m.kind === "human" ? m.email! : "wolt:" + m.wolt;
     if (out.some((f) => f.key === key)) continue;
     const who = ctx.person(m.kind === "human" ? m.email : m.owner);
-    out.push({ key, src: m.kind === "human" ? personAvatar(who.name, who.color) : woltAvatar(m.creature || "raccoon", who.color) });
+    out.push({ key, src: m.kind === "human" ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", who.color, worn.wolts[m.wolt!]) });
   }
   return out.slice(0, 3);
 }
@@ -55,7 +56,7 @@ export const unread = (list: Msg[], seen: number | undefined, me: string) => lis
 export function Busy({ wolts, ctx }: { wolts?: Wolt[]; ctx: Ctx }) {
   if (!wolts?.length) return null;
   return <span className="flex flex-none items-center gap-1 font-mono text-[11px] text-acc" aria-label={`${wolts.map((w) => w.wolt).join(", ")} working here`}>
-    {wolts.slice(0, 3).map((w) => <img key={w.wolt} src={woltAvatar(w.creature || "raccoon", ctx.person(w.owner).color)} alt="" className="gnaw-img pixel w-5 h-5" />)}
+    {wolts.slice(0, 3).map((w) => <img key={w.wolt} src={woltAvatar(w.creature || "raccoon", ctx.person(w.owner).color, worn.wolts[w.wolt])} alt="" className="gnaw-img pixel w-5 h-5" />)}
     working…</span>;
 }
 
@@ -63,7 +64,7 @@ export function ThreadFooter({ list, fresh, ctx, onOpen, busy }: { list: Msg[]; 
   const faces: Msg[] = [];
   for (const m of [...list].reverse()) if (faces.length < 3 && !faces.some((f) => (f.wolt || f.email) === (m.wolt || m.email))) faces.push(m);
   const face = (m: Msg) => { const p = ctx.person(m.kind === "human" ? m.email : m.owner);
-    return m.kind === "human" ? personAvatar(p.name, p.color) : woltAvatar(m.creature || "raccoon", p.color); };
+    return m.kind === "human" ? personAvatar(p.name, p.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", p.color, worn.wolts[m.wolt!]); };
   return <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={`Open the thread, ${list.length} ${list.length === 1 ? "reply" : "replies"}`}
     className={`flex w-[calc(100%+20px)] -mx-2.5 -mb-1.5 mt-1.5 items-center gap-2 border-0 border-t border-line rounded-b-xl px-2.5 py-1.5 cursor-pointer text-left active:opacity-60 ${fresh ? "bg-[#c4531e14]" : "bg-[#18100a06]"}`}>
     <span className="flex flex-none">{faces.map((m, i) => <img key={m.id} src={face(m)} alt="" className={`pixel w-5 h-5 rounded-full border-2 border-panel bg-panel ${i ? "-ml-1.5" : ""}`} />)}</span>

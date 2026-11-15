@@ -5,6 +5,8 @@ import { useState } from "react";
 import { ChevronDown, Pause, Play, X } from "lucide-react";
 import { say, type Person, type Wolt } from "./room";
 import { woltAvatar } from "./sprites";
+import { worn } from "./hats";
+import { HatGrid, putLook } from "./HatShop";
 
 const set = (wolt: string, state: "on" | "paused" | "removed") =>
   say("/api/wolt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt, state }) });
@@ -13,7 +15,8 @@ const set = (wolt: string, state: "on" | "paused" | "removed") =>
 const crown = (wolt: string | null) =>
   say("/api/main", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt }) });
 
-export function Agents({ wolts, people, me, host, sec, main }: { wolts: Wolt[]; people: Person[]; me: string; host?: string; sec: string; main?: string | null }) {
+export function Agents({ wolts, people, me, host, sec, main, looks = {} }: { wolts: Wolt[]; people: Person[]; me: string; host?: string; sec: string; main?: string | null; looks?: Record<string, Record<string, string>> }) {
+  const [dressing, setDressing] = useState("");  // the agent whose hats are open under it (tap its face)
   const [busy, setBusy] = useState("");      // the agent a change is on its way for
   const [asking, setAsking] = useState("");  // the agent whose removal waits for a second tap
   const [note, setNote] = useState("");
@@ -30,8 +33,10 @@ export function Agents({ wolts, people, me, host, sec, main }: { wolts: Wolt[]; 
     <div className={sec}>Agents</div>
     {wolts.map((w) => {
       const owner = people.find((p) => p.email === w.owner);
-      return <div key={w.wolt} className="flex items-center gap-2.5 px-4 py-2">
-        <img src={woltAvatar(w.creature || "raccoon", owner?.color || "#8a6a52")} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />
+      const face = <img src={woltAvatar(w.creature || "raccoon", owner?.color || "#8a6a52", worn.wolts[w.wolt])} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />;
+      return <div key={w.wolt}><div className="flex items-center gap-2.5 px-4 py-2">
+        {may(w) ? <button type="button" onClick={() => setDressing(dressing === w.wolt ? "" : w.wolt)} aria-expanded={dressing === w.wolt} aria-label={`${w.wolt}'s hat`} title={`${w.wolt}'s hat`}
+          className="flex-none p-0 border-0 bg-transparent cursor-pointer">{face}</button> : face}
         <span className="flex-1 min-w-0">
           <span className={`block truncate font-mono text-sm ${w.paused ? "text-dim" : "text-ink"}`}>{w.wolt}</span>
           <small className="block text-xs text-dim">{w.paused ? "paused · hears nothing" : `${owner?.name || w.owner}'s`}{main === w.wolt ? " · main" : ""}</small>
@@ -47,6 +52,8 @@ export function Agents({ wolts, people, me, host, sec, main }: { wolts: Wolt[]; 
             </button>
             <button type="button" aria-label={`Remove ${w.wolt}`} onClick={() => setAsking(w.wolt)} className={`${plain} px-2 text-dim`}><X size={14} /></button>
           </>)}
+      </div>
+      {may(w) && dressing === w.wolt && <HatGrid hat={looks[w.wolt]?.hat || ""} put={(hat) => putLook(w.wolt, looks[w.wolt], hat)} />}
       </div>;
     })}
     {me === host && main !== undefined && <label className="relative flex items-center gap-2.5 px-4 py-2 cursor-pointer">

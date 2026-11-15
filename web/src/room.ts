@@ -12,17 +12,20 @@ export type Msg = {
   n: number; id: string; cid?: string; at: number; kind: "human" | "wolt" | "patch" | "activity";  // activity: "maya made 3 changes to …", said by the room
   email?: string; wolt?: string; owner?: string; creature?: string;
   text?: string; audio?: string; seconds?: number; files?: FileInfo[]; file?: FileInfo; card?: CardNode; of?: string; page?: PageRef; activity?: Activity;
-  localUrl?: string; pending?: boolean; failed?: boolean; thread?: string;
+  localUrl?: string; pending?: boolean; failed?: boolean; thread?: string; progress?: string;  // progress: a note on its way ("sending 40%")
 };
 export type Tab = { slug: string; title: string; v: number };
 export type State = {
   version?: string; title: string; me: string; host?: string;  // host: the person who can pause or remove any agent
+  guest_agents?: boolean;  // through the relay: whether guests may bring their own agents (the host turns it off or on)
   members: { people: Person[]; wolts: Wolt[] };
   working: Record<string, unknown>; unreachable?: Record<string, number>; seen: Record<string, string[]>; tabs: Tab[];
   pages?: Record<string, { v: number; n: number }>;  // where each page stands: its version and its last change
   who?: Record<string, Record<string, "in" | "paused">>;  // per thread, the agents switched in or paused there (ThreadWho.tsx)
   who_default?: "in" | "out";
   working_in?: Record<string, string[]>;
+  looks?: Record<string, Record<string, string>>;  // each wolt's look, by name: {"hat": id} (hats.ts)
+  faces?: Record<string, string>;  // what each person wears, by email: "hat-<id>"
   main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it
 };
 
@@ -31,6 +34,26 @@ export const sending = { n: 0 };
 export async function send(url: string, init: RequestInit) {
   sending.n++;
   try { return await (relayRoom ? call(url, init) : fetch(url, init)).catch(() => null); } finally { sending.n--; }
+}
+// A send that says how far the upload has got (0..1). On this page's own room the browser reports it; through the
+// relay the pipe doesn't, so it is just sent. Either way the answer is a Response, or null when it never arrived.
+export function sendWithProgress(url: string, init: RequestInit, onUp: (part: number) => void): Promise<Response | null> {
+  if (relayRoom) return send(url, init);
+  sending.n++;
+  return new Promise((done) => {
+    const x = new XMLHttpRequest();
+    x.open(init.method || "GET", url);
+    for (const [k, v] of Object.entries((init.headers || {}) as Record<string, string>)) x.setRequestHeader(k, v);
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onUp(e.loaded / e.total); };
+    x.upload.onload = () => onUp(1);
+    x.onload = () => {
+      sending.n--;
+      try { done(new Response(x.responseText, { status: x.status, headers: { "Content-Type": x.getResponseHeader("Content-Type") || "application/json" } })); }
+      catch { done(null); }  // a status a Response can't carry (204, 304, outside 200..599): as if no answer came
+    };
+    x.onerror = x.ontimeout = x.onabort = () => { sending.n--; done(null); };
+    x.send(init.body as XMLHttpRequestBodyInit);
+  });
 }
 export async function say(url: string, init: RequestInit): Promise<string | null> {
   const r = await send(url, init);

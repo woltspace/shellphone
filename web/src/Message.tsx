@@ -7,6 +7,7 @@ import { PageTile } from "./Page";
 import { ShareButton } from "./Share";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
+import { worn } from "./hats";
 import { mentionNames } from "./mentions.js";
 
 export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void };
@@ -83,7 +84,7 @@ function Voice({ m, ctx }: { m: Msg; ctx: Ctx }) {
   return <div className="w-[min(260px,68vw)]">
     <Player src={src} seconds={m.seconds} seed={m.id || m.cid || "v"} guess={m.text ? Math.max(1, m.text.split(/\s+/).length / 2.6) : undefined} />
     {m.failed ? <Unsent m={m} ctx={ctx} /> : m.pending
-      ? <div className="h-5 leading-5 mt-1.5 text-xs text-dim flex items-center gap-1.5 animate-[pulse-soft_1.4s_ease-in-out_infinite]"><i className="w-[11px] h-[11px] border-2 border-line border-t-acc rounded-full animate-spin" />transcribing</div>
+      ? <div className="h-5 leading-5 mt-1.5 text-xs text-dim flex items-center gap-1.5 animate-[pulse-soft_1.4s_ease-in-out_infinite]"><i className="w-[11px] h-[11px] border-2 border-line border-t-acc rounded-full animate-spin" />{m.progress || "transcribing"}</div>
       : m.text ? <div data-tap onClick={() => setOpen(!open)} className={`mt-1.5 text-sm leading-snug whitespace-pre-wrap cursor-pointer ${open ? "" : "line-clamp-1 text-dim"}`}>
           <span className="text-acc">{open ? "▾ " : "▸ "}</span>{m.text}</div> : null}
   </div>;
@@ -129,7 +130,7 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
   const human = m.kind === "human", mine = human && m.email === ctx.me;
   const owner = human ? m.email : m.owner, who = ctx.person(owner);
   const name = human ? who.name : `${m.wolt} · ${owner === ctx.me ? "yours" : who.name + "'s"}`;
-  const avatar = human ? personAvatar(who.name, who.color) : woltAvatar(m.creature || "raccoon", who.color);
+  const avatar = human ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", who.color, worn.wolts[m.wolt!]);
   const readers = mine ? ctx.seen[m.id] || [] : [];
   return (
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
@@ -149,7 +150,7 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
         <div className="flex justify-end items-center gap-1 mt-0.5 font-mono text-[10px] text-dim">
           {time(m.at)}
           {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
-            {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltAvatar(w?.creature || "raccoon", ctx.person(w?.owner).color)} />; })}
+            {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltAvatar(w?.creature || "raccoon", ctx.person(w?.owner).color, worn.wolts[r])} />; })}
           </span>}
         </div>
         {footer}

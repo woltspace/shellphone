@@ -4,9 +4,11 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { Composer } from "./Composer";
 import { Listening, type Recording } from "./Listening";
 import { Message, type Ctx } from "./Message";
-import { say, send, useRoom, type Msg } from "./room";
+import { say, send, sendWithProgress, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
+import { wear, worn } from "./hats";
+import { WoltStrip, usePullDown } from "./WoltStrip";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { InboxSheet, ThreadFooter, threadColor, threadTitle, unread, useSeen } from "./Threads";
@@ -50,7 +52,7 @@ function Gnaw({ ctx, working, away = {}, place }: { ctx: Ctx; working: Record<st
   return <div className="flex items-center gap-1.5 h-[38px] px-3 pb-2 overflow-hidden">
     {on.map((w) => { const lines = LORE[w.creature] || LORE.beaver;
       return <div key={w.wolt} className="gnaw-row flex-[0_1_auto] min-w-0 flex items-center gap-1.5 pl-[3px] pr-[9px] py-[3px] bg-[#fffdf6ee] border border-line rounded-lg font-mono font-semibold text-xs whitespace-nowrap">
-        <img src={woltAvatar(w.creature, ctx.person(w.owner).color)} alt="" className="gnaw-img pixel flex-none w-6 h-6" />
+        <img src={woltAvatar(w.creature, ctx.person(w.owner).color, worn.wolts[w.wolt])} alt="" className="gnaw-img pixel flex-none w-6 h-6" />
         {away[w.wolt] ? <span className="overflow-hidden text-ellipsis text-dim">can't reach {w.wolt} · messages wait</span>
           : <span key={tick} className="lore new overflow-hidden text-ellipsis">{w.wolt}: {lines[(tick + w.wolt.length) % lines.length]}</span>}
       </div>; })}
@@ -417,6 +419,7 @@ function NameFirst({ done }: { done: () => void }) {
 export function App() {
   useFit();
   const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after, link: line } = useRoom();
+  wear(state.looks, state.faces);  // every face drawn below wears its hat
   const firstState = useRef(state), loading = state === firstState.current;  // nothing from the room yet
   const [naming, setNaming] = useState(needsName);  // an invite link: who are you, first
   const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
@@ -449,6 +452,8 @@ export function App() {
   const root = thread ? msgs.find((m) => m.id === thread) : undefined;
   const [listOpen, setListOpen] = useState(false);  // the inbox sheet; home is always the main chat
   const [menu, setMenu] = useState(false);
+  const [strip, setStrip] = useState(false);  // every wolt, gnawing or not: pulled down from the top of the chat
+  const pull = usePullDown(strip, setStrip);
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
@@ -577,7 +582,19 @@ export function App() {
   async function sendVoice(o: Outgoing) {
     outgoing.current.set(o.cid, o);
     shown(o.cid, { pending: true, failed: false });
-    const r = await send(`/api/voice?seconds=${o.seconds}&cid=${o.cid}${where(o.thread)}`, { method: "POST", headers: { "Content-Type": o.type }, body: o.blob });
+    // A note that doesn't get an answer (the connection dropped, the room was busy) is sent again by itself a few times
+    // before it shows "didn't send". The same cid each time, so the room keeps one copy: a try that did get there
+    // is handed back, not posted twice. A refusal (4xx) is final.
+    let r: Response | null = null;
+    const waits = [0, 2000, 5000, 10000];
+    for (const [i, wait] of waits.entries()) {
+      if (wait) { shown(o.cid, { progress: `trying again (${i}/${waits.length - 1})` }); await new Promise((ok) => setTimeout(ok, wait)); if (msgsNow.current.some((x) => x.cid === o.cid && x.id !== o.cid)) break; }
+      shown(o.cid, { progress: "sending" });
+      // where it is, as it is: the upload's own progress, then the room writing it down (the speech server isn't asked)
+      r = await sendWithProgress(`/api/voice?seconds=${o.seconds}&cid=${o.cid}${where(o.thread)}`, { method: "POST", headers: { "Content-Type": o.type }, body: o.blob },
+        (part) => shown(o.cid, { progress: part < 1 ? `sending ${Math.round(part * 100)}%` : "transcribing" }));
+      if (r?.ok || (r && r.status < 500 && r.status !== 408 && r.status !== 429)) break;
+    }
     settle(o.cid, r);
   }
   // Only the copy shown while sending (its id is still the cid) is ever marked; the room's copy never is.
@@ -596,7 +613,7 @@ export function App() {
       return;
     }
     shown(cid, { pending: false, failed: true });
-    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || "That didn't send." : "Can't reach the room.");
+    report(r ? ((await r.json().catch(() => ({}))) as { error?: string }).error || `That didn't send (${r.status}).` : "Can't reach the room.");
   }
   // after a reload or a closed app: notes the room never got come back, ready to send again
   useEffect(() => {
@@ -641,10 +658,10 @@ export function App() {
   const me = state.members.wolts.find((w) => w.owner === state.me);
   const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
   // on the desk: the wolts of the open thread (or every wolt that isn't paused, in the main chat)
-  const deskWolts = state.members.wolts.filter((w) => !w.paused && (!thread || !state.who || state.main === w.wolt || state.who[thread]?.[w.wolt] === "in"));
+  const deskWolts = state.members.wolts.filter((w) => !w.paused && (!thread || !state.who || (state.main === w.wolt && state.who[thread]?.[w.wolt] !== "paused") || state.who[thread]?.[w.wolt] === "in"));
   const room = (
     <div className="h-full flex flex-col relative bg-paper" {...menuSwipe.screen}>
-      <header ref={hdr} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-paper border-b border-line">
+      <header ref={hdr} {...pull} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-paper border-b border-line">
         {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
         <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={() => setMenu(!menu)}
           className={`relative ${menu ? "z-[1720]" : ""} flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-[10px]`}>
@@ -654,7 +671,7 @@ export function App() {
         <span className="relative flex-none w-12 h-12 rounded-full bg-[#f5f1e8] ring-1 ring-line"><img src="/room-icon.png" alt="" className="absolute inset-1 w-10 h-10 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
         <div className="min-w-0 flex-1">
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
-          <div className="font-mono text-[11px] text-dim truncate">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</div>
+          <button type="button" aria-expanded={strip} onClick={() => setStrip(!strip)} className="block max-w-full p-0 border-0 bg-transparent text-left font-mono text-[11px] text-dim truncate cursor-pointer">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</button>
         </div>
         {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
           className={`flex-none w-10 h-10 grid place-items-center border-0 cursor-pointer rounded-[10px] ${desk ? "bg-acc text-white" : "bg-transparent text-acc"}`}><Monitor size={20} /></button>}
@@ -662,6 +679,7 @@ export function App() {
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>
       </header>
+      <WoltStrip state={state} person={person} open={strip} onClose={() => setStrip(false)} />
       <Feed list={main} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
       {!thread && composer}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
@@ -672,13 +690,13 @@ export function App() {
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} place={thread} />
         {composer}
       </ThreadSheet>}
-      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} onAgent={() => setAdding(true)} main={state.main} />
+      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} onAgent={() => setAdding(true)} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}
       {relayRoom && (relayKeyMissing || (link !== "open" && !(naming && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
-      {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color)} audio={listening} onSend={voiceStart} onDone={voice} />}
+      {listening !== false && <Listening sprite={woltAvatar(me?.creature || "raccoon", person(state.me).color, worn.wolts[me?.wolt || ""])} audio={listening} onSend={voiceStart} onDone={voice} />}
       {viewing && <Viewer urls={viewing.urls} names={viewing.names} at={viewing.at} close={() => setViewing(null)} />}
       {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>
