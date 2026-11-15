@@ -17,6 +17,9 @@ export function ago(at: number) {
 
 const COLORS = ["#c4531e", "#2e7d9d", "#7a4fb5", "#2e9d57", "#b58a1f", "#c2417a"];
 export const threadColor = (id: string) => COLORS[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % COLORS.length];
+// and a bit of nature, so a thread is "the mushroom one" before you've read a word of it
+const EMOJI = ["🌲", "🍄", "🌿", "🌾", "🌻", "🍁", "🌊", "🪨", "🌙", "⭐", "🔥", "🌵", "🐚", "🪶", "🌸", "🍂", "❄️", "🌈", "🌰", "🪵", "💧", "☀️", "⛰️", "🍀", "🌷", "🪺"];
+export const threadEmoji = (id: string) => EMOJI[[...id].reduce((h, c) => (h * 131 + c.charCodeAt(0)) >>> 0, 11) % EMOJI.length];
 // the first few words of the message it hangs off, without the @tags in front
 export function threadTitle(m?: Msg) {
   if (!m) return "thread";
@@ -26,7 +29,7 @@ export function threadTitle(m?: Msg) {
 }
 
 // who replied, latest first, one face each
-function faces(list: Msg[], ctx: Ctx) {
+function faces(list: Msg[], ctx: Ctx, most = 3) {
   const out: { key: string; src: string }[] = [];
   for (const m of [...list].reverse()) {
     const key = m.kind === "human" ? m.email! : "wolt:" + m.wolt;
@@ -34,7 +37,7 @@ function faces(list: Msg[], ctx: Ctx) {
     const who = ctx.person(m.kind === "human" ? m.email : m.owner);
     out.push({ key, src: m.kind === "human" ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", who.color, worn.wolts[m.wolt!]) });
   }
-  return out.slice(0, 3);
+  return out.slice(0, most);
 }
 
 // What you've read in each thread lives on this phone only: the last message number you saw there.
@@ -60,15 +63,16 @@ export function Busy({ wolts, ctx }: { wolts?: Wolt[]; ctx: Ctx }) {
     working…</span>;
 }
 
-export function ThreadFooter({ list, fresh, ctx, onOpen, busy }: { list: Msg[]; fresh: boolean; ctx: Ctx; onOpen: () => void; busy?: Wolt[] }) {
+export function ThreadFooter({ id, list, fresh, ctx, onOpen, busy }: { id: string; list: Msg[]; fresh: boolean; ctx: Ctx; onOpen: () => void; busy?: Wolt[] }) {
   const faces: Msg[] = [];
   for (const m of [...list].reverse()) if (faces.length < 3 && !faces.some((f) => (f.wolt || f.email) === (m.wolt || m.email))) faces.push(m);
   const face = (m: Msg) => { const p = ctx.person(m.kind === "human" ? m.email : m.owner);
     return m.kind === "human" ? personAvatar(p.name, p.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", p.color, worn.wolts[m.wolt!]); };
   return <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={`Open the thread, ${list.length} ${list.length === 1 ? "reply" : "replies"}`}
     className={`flex w-[calc(100%+20px)] -mx-2.5 -mb-1.5 mt-1.5 items-center gap-2 border-0 border-t border-line rounded-b-xl px-2.5 py-1.5 cursor-pointer text-left active:opacity-60 ${fresh ? "bg-[#c4531e14]" : "bg-[#18100a06]"}`}>
+    <span className="flex-none w-6 h-6 rounded-full grid place-items-center text-[13px]" style={{ background: threadColor(id) + "22", boxShadow: `inset 0 0 0 1.5px ${threadColor(id)}` }}>{threadEmoji(id)}</span>
     <span className="flex flex-none">{faces.map((m, i) => <img key={m.id} src={face(m)} alt="" className={`pixel w-5 h-5 rounded-full border-2 border-panel bg-panel ${i ? "-ml-1.5" : ""}`} />)}</span>
-    <b className={`text-[13.5px] ${fresh ? "text-acc" : "text-ink"}`}>{list.length} {list.length === 1 ? "reply" : "replies"}</b>
+    <b className="text-[13.5px]" style={{ color: threadColor(id) }}>{list.length} {list.length === 1 ? "reply" : "replies"}</b>
     {fresh && <i className="flex-none w-[7px] h-[7px] rounded-full bg-acc" aria-label="new replies" />}
     <span className="flex-1" />
     {busy?.length ? <Busy wolts={busy} ctx={ctx} /> : <span className="flex-none font-mono text-[11px] text-dim">{ago(list.at(-1)!.at)}</span>}
@@ -76,7 +80,7 @@ export function ThreadFooter({ list, fresh, ctx, onOpen, busy }: { list: Msg[]; 
   </button>;
 }
 
-const preview = (m: Msg) => (m.text || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
+const preview = (m: Msg) => ((m.text && m.text.replace(/\*\*|`/g, "")) || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
 
 // Every thread in the room: ones with replies you haven't seen first, then the most recently active.
 export function ThreadList({ roots, replies, ctx, seen, onOpen, onClose }: {
@@ -114,30 +118,42 @@ export function ThreadList({ roots, replies, ctx, seen, onOpen, onClose }: {
   </div>;
 }
 
-// One inbox for the room: new main-chat messages and threads with new replies on top, then earlier threads.
+// One inbox for the room: every thread, one row each, the one that moved last on top. A row is the thread's title, its
+// latest message, and who's in it. What you haven't seen shows as a count; it never reorders the list.
 // It slides up over wherever you are; tap a row to go there, tap outside (or swipe it down) to stay.
-export function InboxSheet({ top, main, roots, replies, ctx, seen, current, onMain, onOpen, onClose }: {
-  top: number; main: Msg[]; roots: Msg[]; replies: Map<string, Msg[]>; ctx: Ctx; seen: Record<string, number>; current: string;
+export function InboxSheet({ top, main, all, roots, replies, ctx, seen, current, onMain, onOpen, onClose }: {
+  top: number; main: Msg[]; all: Msg[]; roots: Msg[]; replies: Map<string, Msg[]>; ctx: Ctx; seen: Record<string, number>; current: string;
   onMain: () => void; onOpen: (id: string) => void; onClose: () => void;
 }) {
-  const items = roots.map((r) => { const list = replies.get(r.id)!; return { r, list, last: list.at(-1)!, fresh: unread(list, seen[r.id], ctx.me) }; })
-    .sort((a, b) => b.last.at - a.last.at);
-  const fresh = items.filter((i) => i.fresh), earlier = items.filter((i) => !i.fresh);
+  const newCount = (list: Msg[], id: string) => list.filter((m) => m.n > (seen[id] || 0) && !(m.kind === "human" && m.email === ctx.me)).length;
+  const items = roots.map((r) => { const list = [r, ...replies.get(r.id)!]; return { id: r.id, r, list, last: list.at(-1)!, n: newCount(replies.get(r.id)!, r.id) }; });
+  if (all.length) items.push({ id: "", r: all[0], list: all, last: all.at(-1)!, n: main.length });
+  items.sort((a, b) => b.last.at - a.last.at);
+  const unreadRows = items.filter((i) => i.n).length;
   const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
   const count = (n: number) => <span className="flex-none min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{n}</span>;
-  const newCount = (list: Msg[], id: string) => list.filter((m) => m.n > (seen[id] || 0) && !(m.kind === "human" && m.email === ctx.me)).length;
-  const busyAt = (key: string) => ctx.busy?.(key === "main" || key === "main-back" ? "" : key) || [];
-  const sec = "px-4 pt-3.5 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
-  const row = (key: string, color: string, title: React.ReactNode, line: string, when: number, n: number, here: boolean, go: () => void) =>
-    <button key={key} type="button" onClick={go} style={{ borderLeft: `4px solid ${color}` }}
-      className={`block w-[calc(100%-20px)] mx-2.5 mb-2 text-left bg-panel border border-line rounded-[10px] px-3 py-2.5 cursor-pointer active:opacity-70 ${here ? "ring-2 ring-[#c4531e44]" : ""}`}>
-      <div className="flex items-center gap-2 font-mono text-[13px] font-semibold">
-        <span className="flex-1 min-w-0 truncate" style={{ color }}>{title}</span>
-        {n > 0 && count(n)}
-        {busyAt(key).length ? <Busy wolts={busyAt(key)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(when)}</span>}
-      </div>
-      <div className={`mt-0.5 text-sm truncate ${n ? "text-ink font-semibold" : "text-dim"}`}>{line}</div>
+  const busyAt = (key: string) => ctx.busy?.(key) || [];
+  const row = ({ id, r, list, last, n }: typeof items[number]) => {
+    const color = id ? threadColor(id) : "#c4531e", who = faces(list, ctx, 6), here = id === current;
+    const names = [...new Set([...list].reverse().map(name))];
+    return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())}
+      className={`flex w-full gap-3 text-left bg-transparent border-0 border-b border-line px-4 py-2.5 cursor-pointer active:bg-[#18100a0a] ${here ? "bg-[#c4531e0d]" : ""}`}>
+      <span className="flex-none w-9 h-9 mt-0.5 rounded-full grid place-items-center text-[18px]" style={{ background: color + "22", boxShadow: `inset 0 0 0 2px ${color}` }}>{id ? threadEmoji(id) : "#"}</span>
+      <span className="flex-1 min-w-0">
+        <span className="flex items-center gap-2 font-mono text-[13px] font-semibold">
+          <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : "main chat"}</span>
+          {n > 0 && count(n)}
+          {busyAt(id).length ? <Busy wolts={busyAt(id)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(last.at)}</span>}
+        </span>
+        <span className={`block mt-0.5 text-sm truncate ${n ? "text-ink" : "text-dim"}`}><b className="font-semibold text-ink">{name(last)}:</b> {preview(last)}</span>
+        <span className="mt-1.5 flex items-center gap-2 font-mono text-[11px] text-dim">
+          <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-[18px] h-[18px] rounded-full ring-2 ring-paper bg-panel" />)}</span>
+          <span className="flex-1 min-w-0 truncate">{names.slice(0, 4).join(", ")}{names.length > 4 ? ` +${names.length - 4}` : ""}</span>
+          <span className="flex-none">{list.length} msgs</span>
+        </span>
+      </span>
     </button>;
+  };
   const from = useState<{ y: number; dy: number } | null>(null), [drag, setDrag] = from;
   return <div className="absolute inset-x-0 bottom-0 z-[1600]" style={{ top: 0 }}>
     <div onClick={onClose} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
@@ -150,18 +166,12 @@ export function InboxSheet({ top, main, roots, replies, ctx, seen, current, onMa
         <div className="w-10 h-[5px] rounded-full bg-line mx-auto mt-2 mb-1.5" />
         <div className="flex items-baseline gap-2 px-4 pb-2.5 border-b border-line">
           <b className="font-mono font-semibold text-acc text-base">inbox</b>
-          <span className="font-mono text-[11px] text-dim">{main.length + fresh.length ? `${main.length + fresh.length} unread` : "all caught up 👍"}</span>
+          <span className="font-mono text-[11px] text-dim">{items.length} {items.length === 1 ? "thread" : "threads"} · {unreadRows ? `${unreadRows} with new` : "all caught up 👍"}</span>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))]">
-        {(main.length > 0 || fresh.length > 0) && <div className={sec}>New</div>}
-        {main.length > 0 && row("main", "#c4531e", "# main chat", `${name(main.at(-1)!)}: ${preview(main.at(-1)!)}`, main.at(-1)!.at, main.length, false, onMain)}
-        {fresh.map(({ r, list, last }) => row(r.id, threadColor(r.id), threadTitle(r), `${name(last)}: ${preview(last)}`, last.at, newCount(list, r.id), r.id === current, () => onOpen(r.id)))}
-        {!main.length && !fresh.length && <p className="text-center text-dim font-mono text-xs my-5 px-6">Nothing new. You're all caught up.</p>}
-        {current && row("main-back", "#c4531e", "# main chat", "back to the main chat", Date.now() / 1000, 0, false, onMain)}
-        {earlier.length > 0 && <div className={sec}>Earlier threads</div>}
-        {earlier.map(({ r, last }) => row(r.id, threadColor(r.id), threadTitle(r), `${name(last)}: ${preview(last)}`, last.at, 0, r.id === current, () => onOpen(r.id)))}
-        {!items.length && <p className="text-center text-dim font-mono text-xs mt-2 px-6">No threads yet. Tap any message to start one.</p>}
+        {items.map(row)}
+        {!roots.length && <p className="text-center text-dim font-mono text-xs mt-4 px-6">No threads yet. Tap any message to start one.</p>}
       </div>
     </div>
   </div>;
