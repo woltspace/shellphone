@@ -23,13 +23,14 @@ export const threadEmoji = (id: string) => EMOJI[[...id].reduce((h, c) => (h * 1
 // Behind a thread, like a WhatsApp wallpaper: its emoji scattered with a few from the lodge (the creatures, their wood, water
 // and shells), faint, over a wash of its color. The sheet stays see-through.
 const LORE = ["🦝", "🦫", "🦦", "🪵", "🐚", "🌰", "🌲", "🌊"];
-export function threadWallpaper(id: string) {
+export function threadWallpaper(id: string, wash = true) {  // no wash on a bubble: it keeps its own color
   const h = [...id].reduce((h, c) => (h * 37 + c.charCodeAt(0)) >>> 0, 3), mine = threadEmoji(id), color = threadColor(id);
   const pick = (k: number) => LORE[(h >>> (k * 3)) % LORE.length];
   const spots: [number, number, number, string][] = [[24, 34, -18, mine], [104, 22, 14, pick(1)], [64, 88, 8, pick(2)], [150, 78, -12, mine], [22, 146, 20, pick(3)], [116, 150, -8, mine]];
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><g opacity=".16" font-size="30" text-anchor="middle" dominant-baseline="central">${
     spots.map(([x, y, r, e]) => `<text x="${x}" y="${y}" transform="rotate(${r} ${x} ${y})">${e}</text>`).join("")}</g></svg>`;
-  return { backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(svg)}"), linear-gradient(${color}12, ${color}12)`, backgroundSize: "180px 180px, auto" };
+  const tile = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  return wash ? { backgroundImage: `${tile}, linear-gradient(${color}12, ${color}12)`, backgroundSize: "180px 180px, auto" } : { backgroundImage: tile, backgroundSize: "180px 180px" };
 }
 // the first few words of the message it hangs off, without the @tags in front
 export function threadTitle(m?: Msg) {

@@ -211,7 +211,7 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
         <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
           onClick={(e) => { if (open && !m.pending && !m.failed && !(e.target as HTMLElement).closest("button,a,audio,video,img,[data-tap]")) open(m.id); }}>
-          <Message m={m} ctx={ctx} firstOfRun={run} wallpaper={thread.length > 0 && open ? { ...threadWallpaper(m.id), borderColor: threadColor(m.id) + "80" } : undefined} footer={thread.length > 0 && open ?
+          <Message m={m} ctx={ctx} firstOfRun={run} wallpaper={thread.length > 0 && open ? { ...threadWallpaper(m.id, false), borderColor: threadColor(m.id) + "80" } : undefined} footer={thread.length > 0 && open ?
             <ThreadFooter id={m.id} list={thread} fresh={unread(thread, seen?.[m.id], ctx.me)} ctx={ctx} onOpen={() => open(m.id)} busy={ctx.busy?.(m.id)} /> : undefined} />
         </div>
         {divider !== undefined && i === 0 && <div className="flex items-center gap-2.5 px-3.5 my-3 font-mono text-[11px] text-dim">
