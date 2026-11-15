@@ -629,6 +629,22 @@ class ThroughTheRelay(unittest.TestCase):
         fake = self.page(f"{base}#h.{secret_part}.{self.token}", helloWait=400)
         self.assertEqual(fake(cmd="request", method="GET", path="/api/state"), {"failed": "refused"})
 
+    def test_the_host_renames_a_chat_through_the_relay_and_a_guest_cannot(self):
+        link = self.link()
+        self.host(link)
+        base, me = link.split("#")[0], self.page(link)
+        said = me(cmd="request", method="POST", path="/api/messages", body={"text": "plans for the weekend", "cid": "r0000001"})
+        self.assertEqual(said["status"], 200)
+        chat = said["body"]["id"]
+        got = me(cmd="request", method="POST", path="/api/rename", body={"thread": chat, "name": "  Weekend   plans "})
+        self.assertEqual((got["status"], got["body"]), (200, {"thread": chat, "name": "Weekend plans"}))
+        self.assertEqual(me(cmd="request", method="GET", path="/api/state?after=0")["body"]["names"], {chat: "Weekend plans"})
+        key = me(cmd="request", method="GET", path="/api/invite")["body"]["key"]
+        token = self.page(f"{base}#{key}")(cmd="request", method="POST", path="/api/guest", body={"name": "Ali"})["body"]["token"]
+        ali = self.page(f"{base}#i.{key.split('.')[1]}.{token}")
+        self.assertEqual(ali(cmd="request", method="POST", path="/api/rename", body={"thread": chat, "name": "Mine now"})["status"], 403)
+        self.assertEqual(ali(cmd="request", method="GET", path="/api/state?after=0")["body"]["names"], {chat: "Weekend plans"})  # a guest sees the name, and can't change it
+
     def test_a_room_has_one_host_and_the_relay_can_be_locked(self):
         link = self.link()
         self.host(link)

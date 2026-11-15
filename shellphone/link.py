@@ -7,7 +7,7 @@ Everything that reaches the room through the relay passes `Link.answer`, and not
 import hashlib, hmac, json, os, secrets, threading, urllib.parse
 
 RELAY = "https://shellphone.woltspace.app"  # where a room links to unless it's told otherwise (SHELLPHONE_RELAY)
-SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt"), ("GET", "/api/page"), ("POST", "/api/page"), ("POST", "/api/thread-who"), ("POST", "/api/main")}  # what a page may ask through the relay, for now: text chat, pausing or removing an agent (the room refuses guests), and pages
+SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt"), ("GET", "/api/page"), ("POST", "/api/page"), ("POST", "/api/thread-who"), ("POST", "/api/main"), ("POST", "/api/rename")}  # what a page may ask through the relay, for now: text chat, pausing or removing an agent and renaming a chat (the room refuses guests), and pages
 MAX_GUESTS = 50  # people who may come in through one link's invite
 # What an agent may ask through the relay (experimental): sign up with a person's one-time code, then hear the room and
 # answer in it. No files, pages or voice yet, and nothing that changes who else is in the room.
