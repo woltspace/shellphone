@@ -12,7 +12,7 @@ import { WoltStrip, usePullDown } from "./WoltStrip";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
-import { InboxSheet, ThreadFooter, chatRows, threadColor, threadEmoji, threadTitle, threadWallpaper, useChatsHome, unread, useSeen } from "./Threads";
+import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWallpaper, ThreadHat, useChatsHome, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
@@ -244,7 +244,7 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 // Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
 // A thread pops up over the main chat, like the voice-note sheet: you're still in the room, just looking closer.
 // Drag the handle down, tap above it, or tap ✕ to drop back.
-function ThreadSheet({ startFull, chat, color, wallpaper, title, count, close, who, children }: { startFull?: boolean; chat?: boolean; color: string; wallpaper?: React.CSSProperties; title: string; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
+function ThreadSheet({ startFull, chat, color, wallpaper, title, count, close, who, children }: { startFull?: boolean; chat?: boolean; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
   const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null), [full, setFull] = useState(!!startFull);
   const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
   const timer = useRef(0);
@@ -721,7 +721,7 @@ export function App() {
       {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} onStart={startChat} onClose={() => setStarting(false)} />}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} all={main.filter((m) => m.kind === "human" || m.kind === "wolt")} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
-      {thread && <ThreadSheet key={thread} startFull={chatsHome} chat={chatsHome} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={`${threadEmoji(thread)} ${threadTitle(root)}`} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
+      {thread && <ThreadSheet key={thread} startFull={chatsHome} chat={chatsHome} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />

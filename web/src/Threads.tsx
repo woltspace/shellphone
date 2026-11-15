@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, MessagesSquare } from "lucide-react";
 import { mix, woltColor, type Ctx } from "./Message";
 import type { Msg, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
-import { worn } from "./hats";
+import { HATS, hatSize, hatSrc, worn } from "./hats";
 
 export function ago(at: number) {
   const s = Math.max(0, Date.now() / 1000 - at);
@@ -22,13 +22,20 @@ const EMOJI = ["🌲", "🍄", "🌿", "🌾", "🌻", "🍁", "🌊", "🪨", "
 export const threadEmoji = (id: string) => EMOJI[[...id].reduce((h, c) => (h * 131 + c.charCodeAt(0)) >>> 0, 11) % EMOJI.length];
 // Behind a thread, like Instagram's emoji wallpaper: its one emoji scattered and tilted, faint, over a wash of its color.
 // The sheet stays see-through.
+// each thread wears one of the Hat Shop's pixel hats: the wallpaper is that hat, scattered and tilted
+export const threadHat = (id: string) => HATS[[...id].reduce((h, c) => (h * 131 + c.charCodeAt(0)) >>> 0, 11) % HATS.length].id;
 export function threadWallpaper(id: string, wash = true, strong = false) {  // no wash on a bubble: it keeps its own color; strong on home's rows
-  const mine = threadEmoji(id), color = threadColor(id);
+  const hat = threadHat(id), src = hatSrc(hat)!, { w, h } = hatSize(hat), color = threadColor(id);
+  const k = 30 / Math.max(w, h), iw = Math.round(w * k), ih = Math.round(h * k);
   const spots: [number, number, number][] = [[24, 34, -18], [104, 22, 14], [64, 88, 8], [150, 78, -12], [22, 146, 20], [116, 150, -8]];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><g opacity="${strong ? ".3" : ".16"}" font-size="${strong ? 26 : 30}" text-anchor="middle" dominant-baseline="central">${
-    spots.map(([x, y, r]) => `<text x="${x}" y="${y}" transform="rotate(${r} ${x} ${y})">${mine}</text>`).join("")}</g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><g opacity="${strong ? ".42" : ".26"}" style="image-rendering:pixelated">${
+    spots.map(([x, y, r]) => `<image href="${src}" x="${x - iw / 2}" y="${y - ih / 2}" width="${iw}" height="${ih}" transform="rotate(${r} ${x} ${y})"/>`).join("")}</g></svg>`;
   const tile = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   return wash ? { backgroundImage: `${tile}, linear-gradient(${color}${strong ? "24" : "12"}, ${color}${strong ? "24" : "12"})`, backgroundSize: "180px 180px, auto" } : { backgroundImage: tile, backgroundSize: "180px 180px" };
+}
+// the thread's hat, small, as its badge in the header
+export function ThreadHat({ id, className = "" }: { id: string; className?: string }) {
+  return <img src={hatSrc(threadHat(id))} alt="" className={`pixel inline-block align-[-3px] object-contain ${className}`} />;
 }
 // the first few words of the message it hangs off, without the @tags in front
 export function threadTitle(m?: Msg) {
