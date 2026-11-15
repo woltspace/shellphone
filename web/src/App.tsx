@@ -245,7 +245,7 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 // A thread pops up over the main chat, like the voice-note sheet: you're still in the room, just looking closer.
 // Drag the handle down, tap above it, or tap ✕ to drop back.
 function ThreadSheet({ startFull, chat, name, onRename, color, wallpaper, title, count, close, who, children }: { startFull?: boolean; chat?: boolean; name?: string; onRename?: (name: string) => void; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
-  const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null), [full, setFull] = useState(!!startFull);
+  const [drag, setDrag] = useState<{ y: number; dy: number; t: number } | null>(null), [full, setFull] = useState(!!startFull);
   const [editing, setEditing] = useState(false);  // renaming the chat: its title becomes a box
   const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
   const timer = useRef(0);
@@ -253,10 +253,18 @@ function ThreadSheet({ startFull, chat, name, onRename, color, wallpaper, title,
   const bye = () => { if (leaving) return; setLeaving(true); timer.current = window.setTimeout(close, 220); };
   // the handle on top and the strip down the right edge both move the sheet with your finger: far enough down, it closes
   const grip = {
-    onTouchStart: (e: React.TouchEvent) => setDrag({ y: e.touches[0].clientY, dy: 0 }),
+    onTouchStart: (e: React.TouchEvent) => setDrag({ y: e.touches[0].clientY, dy: 0, t: performance.now() }),
     onTouchMove: (e: React.TouchEvent) => drag && setDrag({ ...drag, dy: e.touches[0].clientY - drag.y }),
-    // up far enough: full screen; down from full screen: back to the tray; down from the tray: closed
-    onTouchEnd: () => { if (drag) { if (drag.dy < -60) setFull(true); else if (drag.dy > 80) { if (full) setFull(false); else bye(); } } setDrag(null); },
+    // a chat is one screen: down far enough, or a quick flick down, and it slides away from where your finger left it.
+    // a thread over the room keeps its tray: up far enough: full screen; down from full screen: back to the tray; down from the tray: closed
+    onTouchEnd: () => {
+      if (drag) {
+        const flick = drag.dy > 30 && drag.dy / Math.max(1, performance.now() - drag.t) > 0.5;
+        if (chat) { if (drag.dy > 120 || flick) bye(); }
+        else if (drag.dy < -60) setFull(true); else if (drag.dy > 80) { if (full) setFull(false); else bye(); }
+      }
+      setDrag(null);
+    },
     onClick: (e: React.MouseEvent) => { if ((e.currentTarget as HTMLElement).dataset.side !== undefined) bye(); },  // a plain tap on a side edge: back to the chat
   };
   return <div className="absolute inset-0 z-[1580]">
@@ -266,8 +274,8 @@ function ThreadSheet({ startFull, chat, name, onRename, color, wallpaper, title,
       if (t.closest("[data-bubble],[data-composer],button,a,input,textarea,img,audio,video,[role=button],[data-tap]") || !t.closest("[data-feed]")) return;
       if (String(window.getSelection() || "")) return;  // selecting words, not leaving
       bye();
-    }} style={{ ...wallpaper, transform: leaving ? "translateY(100%)" : drag ? `translateY(${Math.max(full ? 0 : -96, drag.dy)}px)` : undefined, opacity: leaving ? 0 : undefined,
-      transition: drag ? "none" : "top .25s cubic-bezier(.2,.8,.2,1), transform .22s cubic-bezier(.4,0,1,1), opacity .22s ease-in" }}
+    }} style={{ ...wallpaper, transform: leaving ? "translateY(100%)" : drag ? `translateY(${Math.max(full ? 0 : -96, drag.dy)}px)` : undefined, opacity: leaving && !chat ? 0 : undefined,
+      transition: drag ? "none" : chat ? "transform .22s cubic-bezier(.2,.8,.2,1)" : "top .25s cubic-bezier(.2,.8,.2,1), transform .22s cubic-bezier(.4,0,1,1), opacity .22s ease-in" }}
       className={`absolute inset-x-0 bottom-0 ${full ? "top-[env(safe-area-inset-top)]" : "top-[calc(env(safe-area-inset-top)+96px)]"} max-w-[640px] mx-auto ${chat ? "bg-paper" : "bg-[#f5f1e88c] backdrop-blur-sm"} rounded-t-[18px] flex flex-col overflow-hidden shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]`}>
       <div className="flex-none touch-none bg-[#fffdf680] border-b border-line" style={{ boxShadow: `inset 0 3px 0 ${color}` }}
         {...grip}>
