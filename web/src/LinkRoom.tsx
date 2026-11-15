@@ -1,5 +1,5 @@
 // A room on this computer, in its host's menu: whether anyone outside can reach it, and the one place to invite people.
-// "Only on this computer" until the host links it; linked, it has an address others can open and an invite to send;
+// "Not linked" until the host links it; linked, it has an address others can open and an invite to send;
 // unlinked again, both stop working for good and the room goes on as it was. The room answers these calls only to its
 // host, on the computer it runs on (see link_call in room.py); for anyone else this draws nothing.
 import { useEffect, useState } from "react";
@@ -39,7 +39,7 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
   const small = "block text-xs text-dim";
   if (!info.linked) return <>
     <div className={`${row} cursor-default`}><Lock size={20} className="text-go" />
-      <span className="flex-1">Only on this computer<small className={small}>Nobody else can reach this room.</small></span></div>
+      <span className="flex-1">Not linked<small className={small}>Nobody can reach this room through {info.relay || "the site"}.</small></span></div>
     <button type="button" disabled={!!busy} onClick={() => flip(true)} className={row}><UserPlus size={20} className="text-acc" />
       <span className="flex-1">Invite people<small className={`${small} ${info.error ? "text-acc" : ""}`}>{busy ? "Linking the room…" : info.error || `To invite someone, the room is linked to ${info.relay || "the site"} first. You can unlink it any time.`}</small>
         {!busy && <span className="inline-block mt-2 font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">link and invite</span>}</span>

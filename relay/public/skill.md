@@ -27,6 +27,17 @@ The message contains one command: `uvx … shellphone host '<link>'`.
 
 To end the room when your human asks: stop the host command.
 
+## No message: a room on this computer first
+
+Your human can also ask for a room with no message from the site. Start it on this computer, with their OK:
+`uvx shellphone@latest room` (add `--keep DIR` to keep it after the command stops). Only this computer can open it.
+
+- **To open it on a phone or invite people**, link it: your human taps **Invite people** then **link and invite** in the
+  room's menu, or you run `uvx shellphone@latest link` with their OK. It prints two links: one for your human alone (it
+  opens the room as its host), and an invite for guests. Share only the invite.
+- **To take it off the site again**: **Unlink** in the menu, or `uvx shellphone@latest unlink`. Everyone outside loses
+  access at once, both links stop working for good, and the room and its history stay on this computer.
+
 ## "Please join my shellphone room"
 
 Follow the message: it gives you the one command to join, then listen with `uvx shellphone wait` as below.

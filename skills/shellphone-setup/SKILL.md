@@ -24,9 +24,8 @@ people) is asked separately.
 
 ## 2. Start the room
 
-Pick by where they'll open it:
-
-**This computer only.** Run in the background, kept so it survives a restart of the command:
+Always start it on this computer first. It needs no website and no account. Run in the background, kept so it survives a
+restart of the command:
 
 ```bash
 uvx shellphone@latest room --name '<their name>' --keep ~/.shellphone/rooms/<short-name>
@@ -36,11 +35,45 @@ It prints "Open the chat: http://127.0.0.1:…/?k=…" and "Bring an agent: uvx 
 Keep both lines to yourself: they are keys to the room. Each start makes new ones (and may pick another port): if the
 command ever restarts, send your human the new chat link, and the old join line stops working (wolts already in keep theirs).
 
-**On their phone too.** A link on this computer doesn't reach a phone. Two ways, ask which:
+### On their phone too, or with other people: link the room
 
-- **Through the relay, nothing to set up:** send them https://shellphone.woltspace.app/start. They tap **Start a shellphone**
-  and send you the message it shows; follow the shellphone-host skill (`uvx shellphone@latest host '<link>' --keep …`).
-  The relay page is text only for now: no voice notes or files.
+A link on this computer doesn't reach a phone or a friend. Linking gives the same room an address on
+shellphone.woltspace.app. Messages stay on this computer; the site only passes sealed messages along and can't read them.
+Ask your human first ("May I link the room so you can open it on your phone?"). Then either:
+
+- **They do it:** in the room's menu, **Invite people** has a **link and invite** button. Tell them where it is.
+- **You do it:**
+  ```bash
+  uvx shellphone@latest link --keep ~/.shellphone/rooms/<short-name>
+  ```
+
+`link` prints two links. "Open it from anywhere" is your human's own: it opens the room as its host, so send it only to
+them, on their channel. "Invite people" lets someone in as a guest: that is the one to pass to friends, and the room's menu
+shows it too (**Invite people**). Never mix the two up.
+
+Through the link the page is text only for now: no voice notes or files. On this computer the room has both.
+
+**Unlink** when they ask, or when they no longer need it:
+
+```bash
+uvx shellphone@latest unlink --keep ~/.shellphone/rooms/<short-name>
+```
+
+(or **Unlink** in the room's menu, two taps). Everyone who came in through the site loses access at once, both links stop
+working for good, and the room and its history stay on this computer. Linking again later makes new links: the old ones
+never come back. A kept room that was linked when its command stopped comes back linked, at the same address, on the next
+start; an unlinked one stays unlinked.
+
+Say it precisely to your human: unlinking closes the way in through shellphone.woltspace.app. If the room is also shared
+another way (below), that way stays open until it is closed too.
+
+### Other ways to share
+
+- **Behind your own Cloudflare login** (a lasting room, people log in by email): supported, with a guide in
+  `docs/hosting.md`. It is a separate way to run a room (`room.py` behind a Cloudflare tunnel and Access): a room started
+  with `shellphone room` can't be moved there in place yet. Don't point a tunnel at a `shellphone room` room: it has no
+  log-in of its own for people coming from outside.
+- **Tailscale:** not built yet. Don't improvise it.
 - **As a lodge app behind their own login (Woltspace lodges):** ask your human first, in so many words, before creating any
   app ("May I add a lodge app called shellphone-<name>? It runs the room and shows it at <address> behind your login").
   Only on that yes: set the room up as an app with `lodge.py up` from the shellphone repo (steps in `docs/hosting.md`; load

@@ -316,7 +316,7 @@ def switch(a):
     if info.get("linked"):
         print("The room is linked.\n\n" + linked_words(info))
     else:
-        print("The room is on this computer only. Nobody outside can reach it, and its old links don't work any more.")
+        print("The room is unlinked. Nobody can reach it through the site any more, and its old links don't work again. It stays open on this computer.")
 
 
 def _read(path):
