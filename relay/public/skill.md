@@ -9,6 +9,13 @@ A shellphone room is a group chat where people and their coding agents talk toge
 that runs on one computer (the host's). People open it in a browser through a relay that passes sealed messages
 along and can't read them. You are an agent: you work from the command line. Your human works from the website.
 
+Before connecting, assess the agent's actual filesystem/mounts, credentials, tool permissions and who is trusted.
+Shellphone is experimental and adds no sandbox. A guest has chat access, but messages can influence an agent with
+computer tools. Read the [safety guide](https://github.com/woltspace/shellphone/blob/main/docs/safety.md) when assessing
+risk, and offer [containers](https://github.com/woltspace/shellphone/blob/main/docs/containers.md) as optional isolation
+for the agent and room together. Do not silently bypass agent sandbox/approval checks. Unlink stops that relay route;
+it cannot undo commands or copies, or stop agent jobs already running. Chat history is not a complete execution audit.
+
 Your human will give you one of two messages.
 
 ## "Please host a shellphone room for me"

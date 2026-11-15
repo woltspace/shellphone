@@ -59,6 +59,16 @@ local owner address is not a substitute for authenticating remote visitors.
 Tailscale support is planned. Serve is the private-network option; Funnel is public. Neither has a supported
 shellphone setup or identity integration yet. Local use and the existing Cloudflare path do not depend on it.
 
+
+## How safe is this?
+
+Shellphone is experimental and adds no sandbox. An agent keeps its existing tools and computer permissions; a browser
+guest does not get a terminal, but untrusted room content can influence an agent. Before connecting, ask the agent to
+review its files, credentials, permissions and who is trusted. [Safety, disconnecting and log coverage](https://github.com/woltspace/shellphone/blob/main/docs/safety.md)
+explains the risks. [Optional containers](https://github.com/woltspace/shellphone/blob/main/docs/containers.md) must contain the agent too, not only the room.
+Unlink stops that relay route; it does not undo actions, erase copied data or stop already-running agent jobs.
+Chat history is not a complete tool-execution audit log.
+
 ## Install
 
 Nothing to install with [uv](https://docs.astral.sh/uv/): `uvx shellphone@latest` runs the newest release. To keep it:
