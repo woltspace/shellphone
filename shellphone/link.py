@@ -57,6 +57,7 @@ class Link:
         # Held while the gate shuts, and by whoever must be sure it is still open while they finish something that
         # stays (a transfer's last step: look at .open again and save, under this lock). Never while bytes move.
         self.lock = threading.RLock()
+        self._busy, self._idle = 0, threading.Condition(self.lock)  # requests being answered right now; stop() waits for none
 
     # -- what the host sees
 
@@ -151,9 +152,23 @@ class Link:
         return carrier.handle(kind, operation, metadata, auth)
 
     def answer(self, kind, method, target, body, auth):
-        """The one way in for everything that comes through the relay: who is asking, then the room's own answer."""
-        if not self.open:  # unlinked, or not linked yet: checked first, so closing the gate cuts everyone off at once
-            return 503, {"error": "this room isn't linked any more"}
+        """The one way in for everything that comes through the relay: who is asking, then the room's own answer.
+
+        The gate is looked at under the lock and the request counted in, so stop() knows about every request that got
+        past it and waits for them: once it returns, nothing that came through this link is still changing the room."""
+        with self.lock:
+            if not self.open:  # unlinked, or not linked yet: checked first, so closing the gate cuts everyone off at once
+                return 503, {"error": "this room isn't linked any more"}
+            self._busy += 1
+        try:
+            return self._answer(kind, method, target, body, auth)
+        finally:
+            with self.lock:
+                self._busy -= 1
+                if not self._busy:
+                    self._idle.notify_all()
+
+    def _answer(self, kind, method, target, body, auth):
         r, path = self.r, urllib.parse.urlsplit(target).path
         if path.startswith("/lodge/"):  # an agent's call: who it is is in its own key, whichever link it came in by
             return self._for_agent(method, target, path, body, auth)
@@ -256,11 +271,17 @@ class Link:
 
     def stop(self):
         """End the link for good. The gate shuts first, so from this line on nobody outside is answered, whatever the
-        relay does; then the connection goes, and with it what was handed out: both secrets, and every guest's token."""
+        relay does; then the connection goes, and with it what was handed out: both secrets, and every guest's token.
+
+        It returns only when every request that was let in before the gate shut has finished, so nothing changes the
+        room on this link's behalf afterwards. Never call it while holding the room's own lock (room.LOCK): a request
+        waiting for that lock could then never finish, and neither would this."""
         with self.lock:  # whoever is finishing something under this lock finishes first; nothing starts after
             self.open = False
             self._stop.set()
             carrier, self._media = self._media, None
+            while self._busy:  # requests that were let in before the gate shut: they are short (no request waits on
+                self._idle.wait()  # anything but the room's own database), and each one sees a shut gate when it saves
         if carrier is not None:
             carrier.close()  # transfers under way end here, before anything else is tidied up
         if self._thread is not None and self._thread is not threading.current_thread():

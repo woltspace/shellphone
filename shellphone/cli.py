@@ -174,6 +174,22 @@ def private(path):
     return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600), "w")
 
 
+def replace_private(path, text):
+    """Put text at path, readable by this user only, without ever leaving the name empty or half-written: it is
+    written beside it first, then moved over what was there. If that fails, what was there stays."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    try:
+        with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600), "w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)  # a link planted at path is replaced, not followed
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+
+
 class Linker:
     """The room's switch between "only on this computer" and "linked". The room's own page and `shellphone link`
     both end up here; nothing that comes through a relay can."""
@@ -204,10 +220,13 @@ class Linker:
         with self.filing:
             if self.link is not link or not link.open:  # unlinked or closing meanwhile: what it holds now must not be kept
                 return
-            with private(self.data / LINK) as f:
-                json.dump({"relay": link.relay, "room": seal.b64e(link.room_id), "secret": seal.b64e(link.secret), "token": link.token,
-                           "invite_secret": seal.b64e(link.invite_secret), "invite_token": link.invite_token,
-                           "guests": dict(link.guests), "guest_agents": link.allow["guest_agents"]}, f)
+            try:
+                replace_private(self.data / LINK, json.dumps({
+                    "relay": link.relay, "room": seal.b64e(link.room_id), "secret": seal.b64e(link.secret), "token": link.token,
+                    "invite_secret": seal.b64e(link.invite_secret), "invite_token": link.invite_token,
+                    "guests": dict(link.guests), "guest_agents": link.allow["guest_agents"]}))
+            except OSError as exc:  # the room goes on; what was saved before is still there, whole
+                print(f"Couldn't save the room's link in {self.data} ({exc}). After a restart it may come back as it was last saved.", flush=True)
 
     def on(self):
         """Link the room. Returns (status, what the host's page shows)."""
