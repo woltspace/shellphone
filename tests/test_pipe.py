@@ -689,7 +689,7 @@ class ThroughTheRelay(unittest.TestCase):
         # unlink: everyone outside is cut off, and the room goes on as it was
         gone = self.switch("unlink", url)
         self.assertEqual(gone.returncode, 0, gone.stdout + gone.stderr)
-        self.assertIn("on this computer only", gone.stdout)
+        self.assertIn("The room is unlinked", gone.stdout)
         self.assertEqual(ask(cmd="wait", state="offline")["state"], "offline")
         self.assertEqual(guest(cmd="wait", state="offline")["state"], "offline")
         room_id = re.search(r"/r/([A-Za-z0-9_-]{22})", first).group(1)
