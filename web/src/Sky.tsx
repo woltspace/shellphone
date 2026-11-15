@@ -91,3 +91,28 @@ export function Backdrop({ sky, height }: { sky: Sky; height: number }) {
 export function Mushroom({ size }: { size: number }) {
   return <img src={art["./scene/n-mushroom.png"]} alt="" aria-hidden className="mushroom pixel block pointer-events-none" style={{ width: size, height: size, imageRendering: "pixelated" }} />;
 }
+
+// Above the scene, only seen when you pull the chats down past it: the same sky going higher. By day a hot air
+// balloon floats there, birds and a little plane cross it; at night it turns to space, with a ringed planet,
+// a satellite drifting by and now and then a shooting star. (Mock sprites from the pixel-art atlas.)
+export const UPPER = 260;
+const HIGH: Record<Sky, [string, string]> = { day: ["#1d5aa3", "#3d8fd1"], sunset: ["#22183f", "#43306b"], night: ["#05030c", "#140f24"] };
+export function UpperSky({ sky }: { sky: Sky }) {
+  const [top, low] = HIGH[sky], px = (id: string) => art[`./scene/${id}.png`];
+  const sprite = (id: string, size: number, cls: string, style: React.CSSProperties = {}) =>
+    <img src={px(id)} alt="" aria-hidden className={`absolute pixel pointer-events-none ${cls}`} style={{ width: size, height: size, imageRendering: "pixelated", ...style }} />;
+  const stars = useMemo(() => Array.from({ length: 40 }, () => [Math.random() * 100, Math.random() * 100, Math.random() < 0.2 ? 3 : 2, Math.random() * 3]), []);
+  return <div aria-hidden className="relative overflow-hidden" style={{ height: UPPER, background: `linear-gradient(${top}, ${low})` }}>
+    {sky !== "day" && stars.map(([x, y, s, d], i) => <i key={i} className="absolute block bg-white twinkle" style={{ left: `${x}%`, top: `${y}%`, width: s, height: s, opacity: 0.8, animationDelay: `${-d}s` }} />)}
+    {sky === "day" ? <>
+      {sprite("sky-balloon", 64, "balloon", { left: "62%", top: 40 })}
+      {sprite("sky-swallow", 36, "flyby", { top: 150, ["--far" as string]: "460px", animationDuration: "19s" })}
+      {sprite("sky-gull", 40, "flyby", { top: 196, ["--far" as string]: "460px", animationDuration: "27s", animationDelay: "-11s" })}
+      {sprite("sky-plane", 34, "flyby", { top: 70, ["--far" as string]: "460px", animationDuration: "46s", animationDelay: "-30s" })}
+    </> : <>
+      {sprite("sky-planet", 72, "balloon", { left: "14%", top: 44 })}
+      {sprite("sky-satellite", 40, "flyby", { top: 150, ["--far" as string]: "460px", animationDuration: "60s", animationDelay: "-20s" })}
+      {sprite("sky-star", 44, "shoot", { right: "12%", top: 40 })}
+    </>}
+  </div>;
+}

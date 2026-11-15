@@ -10,6 +10,7 @@ import { LORE, woltAvatar } from "./sprites";
 import { wear, worn } from "./hats";
 import { WoltStrip, usePullDown, type Who } from "./WoltStrip";
 import { Profile } from "./Profile";
+import { UPPER } from "./Sky";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
@@ -484,6 +485,14 @@ export function App() {
   // Home as the chats: no main chat to talk in. Every thread is a chat, and so is anything someone just said in the main chat
   // (it starts one, the wolts answer under it). The rest of the old main chat is one more chat, the lobby.
   const chatsHome = useChatsHome(), [lobby, setLobby] = useState(false), [starting, setStarting] = useState(false);
+  // the sky above the scene stays hidden until you pull down for it: the chats open scrolled just past it
+  // (once per time the list appears, as soon as it's tall enough to scroll that far)
+  const skyTucked = useRef(false);
+  useLayoutEffect(() => {
+    const l = chatList.current;
+    if (!l) { skyTucked.current = false; return; }
+    if (!skyTucked.current && l.scrollHeight - l.clientHeight >= UPPER) { l.scrollTop = UPPER; skyTucked.current = true; }
+  });
   const since = Date.now() / 1000 - 86400;
   const roots = main.filter((m) => replies.has(m.id) || (chatsHome && m.kind === "human" && m.at > since));
   const lobbyList = chatsHome ? main.filter((m) => !roots.includes(m)) : main;
@@ -728,7 +737,7 @@ export function App() {
         <span className="relative flex-none w-12 h-12 rounded-full bg-[#f5f1e8] ring-1 ring-line"><img src="/room-icon.png" alt="" className="absolute inset-1 w-10 h-10 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
         <div className="min-w-0 flex-1">
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
-          <button type="button" aria-expanded={strip} onClick={() => { if (chatsHome && !lobby) chatList.current?.scrollTo({ top: 0, behavior: "smooth" }); else setStrip(!strip); }} className="block max-w-full p-0 border-0 bg-transparent text-left font-mono text-[11px] text-dim truncate cursor-pointer">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</button>
+          <button type="button" aria-expanded={strip} onClick={() => { if (chatsHome && !lobby) chatList.current?.scrollTo({ top: UPPER, behavior: "smooth" }); else setStrip(!strip); }} className="block max-w-full p-0 border-0 bg-transparent text-left font-mono text-[11px] text-dim truncate cursor-pointer">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</button>
         </div>
         {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
           className={`flex-none w-10 h-10 grid place-items-center border-0 cursor-pointer rounded-[10px] ${desk ? "bg-acc text-white" : "bg-transparent text-acc"}`}><Monitor size={20} /></button>}

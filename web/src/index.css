@@ -46,9 +46,17 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 /* still most of the time, then a quick little wiggle */
 @keyframes jiggle { 0%, 88%, 100% { transform: rotate(0) scale(1); } 90% { transform: rotate(-8deg) scale(1.04, .94); } 92% { transform: rotate(7deg) scale(.97, 1.05); } 94% { transform: rotate(-5deg); } 96% { transform: rotate(3deg); } }
 .mushroom { animation: jiggle 6.5s ease-in-out infinite; transform-origin: 50% 100%; }
+/* the sky above the scene: a balloon that bobs and sways, things that fly across, stars that twinkle, a star that shoots now and then */
+@keyframes sway { 0%, 100% { transform: translate(0, 0) rotate(-2deg); } 50% { transform: translate(-14px, -8px) rotate(2deg); } }
+.balloon { animation: sway 9s ease-in-out infinite; }
+.flyby { left: 0; animation: drift linear infinite; }
+@keyframes twinkle { 50% { opacity: .25; } }
+.twinkle { animation: twinkle 3s ease-in-out infinite; }
+@keyframes shoot { 0%, 82% { opacity: 0; transform: translate(0, 0); } 84% { opacity: 1; } 96% { opacity: 1; } 100% { opacity: 0; transform: translate(-180px, 110px); } }
+.shoot { animation: shoot 7s ease-in infinite; }
 .cursor::after { content: "_"; color: var(--color-acc); animation: blink 1s steps(1) infinite; }
 .wave.quiet i { animation: quiet 1.4s ease-in-out infinite alternate; }
-@media (prefers-reduced-motion: reduce) { .gnaw-img, .gnaw-row, .idle-bob, .snooze, .cloud, .mushroom, .lore, .wave-in, .wave-out { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .gnaw-img, .gnaw-row, .idle-bob, .snooze, .cloud, .mushroom, .balloon, .flyby, .twinkle, .shoot, .lore, .wave-in, .wave-out { animation: none; } }
 
 /* how far the everyone strip is open, 0 to 1: registered so it springs along with the strip instead of jumping */
 @property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
