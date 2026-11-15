@@ -51,6 +51,11 @@ Ask your human first ("May I link the room so you can open it on your phone?"). 
 them, on their channel. "Invite people" lets someone in as a guest: that is the one to pass to friends, and the room's menu
 shows it too (**Invite people**). Never mix the two up.
 
+**Give your human both links right away, each with one line saying what it is.** Linking is not done until they have
+them. If they talk to you in a terminal, the terminal is their channel: show the links there. "Never print the link" means
+never put it where someone else could read it (a room, a commit, a shared file, a log), not that you hide it from the
+human it belongs to. Also tell them the room's menu has both, under **Invite people** and **Open it on your phone**.
+
 Through the link the page is text only for now: no voice notes or files. On this computer the room has both.
 
 **Unlink** when they ask, or when they no longer need it:

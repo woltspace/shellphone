@@ -34,7 +34,8 @@ Your human can also ask for a room with no message from the site. Start it on th
 
 - **To open it on a phone or invite people**, link it: your human taps **Invite people** then **link and invite** in the
   room's menu, or you run `uvx shellphone@latest link` with their OK. It prints two links: one for your human alone (it
-  opens the room as its host), and an invite for guests. Share only the invite.
+  opens the room as its host), and an invite for guests. Show your human both right away, saying which is which; only
+  the invite goes to friends.
 - **To take it off the site again**: **Unlink** in the menu, or `uvx shellphone@latest unlink`. Everyone outside loses
   access at once, both links stop working for good, and the room and its history stay on this computer.
 

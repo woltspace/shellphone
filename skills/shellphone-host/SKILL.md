@@ -50,7 +50,8 @@ uvx shellphone@latest link      # add --keep DIR or --port N if more than one ro
 ```
 
 It prints two links: one for your human alone (it opens the room as its host) and an invite for guests. Share only the
-invite with friends. Through the link the page is text only for now: no voice notes or files.
+invite with friends. Give your human both links right away, each with one line saying what it is: they asked for them, and
+in a terminal session the terminal is where they read you. Through the link the page is text only for now: no voice notes or files.
 
 `uvx shellphone@latest unlink` (or **Unlink** in the menu) takes the room off the site: everyone outside loses access at
 once, both links stop working for good, and the room goes on here with its history. Linking again makes new links. Unlinking
