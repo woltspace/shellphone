@@ -1,9 +1,9 @@
 // Everyone in the room at a glance, pulled down from the top of the chats: the people, and every wolt: who is gnawing on something, who is idle,
 // who is paused or out of reach, and which one is the room's main agent. Pull down again, or tap it, to put it away.
-import { woltColor } from "./Message";
+import { mix, woltColor } from "./Message";
 import { useEffect, useRef, useState } from "react";
 import type { State, Wolt } from "./room";
-import { lodgeScene, personAvatar, SCENE, verbs, woltSprite } from "./sprites";
+import { lodgeScene, personAvatar, SCENE, verbs, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 
 type Person = (email: string) => { name: string; color: string };
@@ -33,16 +33,16 @@ export function WoltStrip({ state, person, open, onClose, onPick, el }: { state:
   // everyone in their own circle: people first, then the wolts, each one alive in its own way; tap one to see what it's up to
   const tile = (key: string, face: string, name: string, color: string, m: { awake: boolean; busy: boolean; word: string }, star: boolean, i: number, lore?: string) =>
     <button type="button" key={key} onClick={(e) => { e.stopPropagation(); onPick?.(key); }} aria-label={`${name}: ${m.word}`}
-      className={`flex-none w-[100px] flex flex-col items-center gap-0.5 p-0 border-0 bg-transparent cursor-pointer active:scale-95 transition-transform ${m.awake ? "" : "opacity-60"}`}>
+      className={`flex-none w-[100px] flex flex-col items-center gap-1 p-0 border-0 bg-transparent cursor-pointer active:scale-95 transition-transform ${m.awake ? "" : "opacity-60"}`}>
+      <span className="max-w-full truncate font-mono font-bold text-[13px] px-2 py-px rounded-full bg-[#fffdf6f2] shadow-[0_1px_2px_#0003]" style={{ color }}>{name}{star && <span className="ml-0.5 text-acc" title="main agent">★</span>}</span>
       <span className="relative">
         <span className={`block ${m.busy ? "" : m.awake ? "idle-bob" : ""}`} style={{ animationDelay: `${(i % 5) * -0.6}s` }}>
-          <span className="flex items-end justify-center w-[84px] h-[84px]"><img src={face} alt="" className={`pixel block object-contain object-bottom ${key.startsWith("p:") ? "w-16 h-16" : "w-[84px] h-[84px]"} ${m.busy ? "gnaw-img" : ""}`} /></span></span>
+          <span className="flex items-end justify-center w-[84px] h-[84px]"><img src={face} alt="" className={`pixel block object-contain object-bottom ${key.startsWith("p:") ? "w-[72px] h-[72px] mb-1" : "w-[84px] h-[84px]"} ${m.busy ? "gnaw-img" : ""}`} /></span></span>
         <i className={`absolute right-2 bottom-1 w-3.5 h-3.5 rounded-full border-2 border-[#4A8838] ${m.busy ? "bg-acc" : m.awake ? "bg-go" : "bg-[#c9bfae]"}`} />
         {!m.awake && m.word === "napping" && <span className="absolute -top-1 -right-1 font-mono text-[11px] text-dim snooze">z</span>}
       </span>
-      <span className="mt-1.5 max-w-full truncate font-mono font-semibold text-[13px] px-1.5 rounded-md bg-[#fffdf6e6] shadow-[0_1px_0_#0003]" style={{ color }}>{name}{star && <span className="ml-0.5 text-acc" title="main agent">★</span>}</span>
-      {m.busy ? <span className="gnaw-row max-w-full truncate px-1.5 rounded-md bg-[#fffdf6ee] border border-line font-mono font-semibold text-[10.5px]"><span key={tick} className="lore new">{chew(name, lore)}</span></span>
-        : <span className="max-w-full truncate font-mono font-semibold text-[10.5px] px-1 rounded bg-[#1a3a18aa] text-[#e8f1dc]">{m.word}</span>}
+      {m.busy ? <span className="mt-1 gnaw-row max-w-full truncate px-1.5 rounded-md bg-[#fffdf6ee] border border-line font-mono font-semibold text-[10.5px]"><span key={tick} className="lore new">{chew(name, lore)}</span></span>
+        : <span className="mt-1 max-w-full truncate font-mono font-semibold text-[10.5px] px-1.5 rounded-md bg-[#1a3a18aa] text-[#e8f1dc]">{m.word}</span>}
     </button>;
   // its height is the pull's: the hook below moves it with your finger and lets it spring open or shut
   return <div ref={el} aria-hidden={!open} onClick={onClose}
@@ -55,7 +55,7 @@ export function WoltStrip({ state, person, open, onClose, onPick, el }: { state:
       {people.map((p, i) => tile("p:" + p.email, personAvatar(p.name, person(p.email).color, worn.people[p.email]), p.name, person(p.email).color,
         { awake: true, busy: false, word: p.email === state.me ? "you" : "human" }, false, i))}
       {people.length > 0 && wolts.length > 0 && <i className="flex-none w-2" />}
-      {wolts.map((w, i) => tile("w:" + w.wolt, woltSprite(w.creature, worn.wolts[w.wolt]), w.wolt, woltColor(w.wolt, state.members.wolts), mood(w, state), state.main === w.wolt, i + people.length, w.creature))}
+      {wolts.map((w, i) => tile("w:" + w.wolt, woltAvatar(w.creature, woltColor(w.wolt, state.members.wolts), worn.wolts[w.wolt], mix(woltColor(w.wolt, state.members.wolts), "#ffffff", 0.78)), w.wolt, woltColor(w.wolt, state.members.wolts), mood(w, state), state.main === w.wolt, i + people.length, w.creature))}
       {wolts.length === 0 && people.length === 0 && <div className="py-6 w-full text-center text-sm text-dim">Nobody here yet</div>}
       </div>
     </div>
@@ -65,7 +65,7 @@ export function WoltStrip({ state, person, open, onClose, onPick, el }: { state:
 // Pull down on an element (the header, or the chats when they're at their top): the strip follows your finger,
 // stretches a little past open, and springs open or shut when you let go, by how far and how fast you pulled.
 export const STRIP = SCENE.rows * SCENE.px - 44;  // the landscape from just above the peaks down to the river
-const STAND = SCENE.grass * SCENE.px - 44 + 8 - 84;  // where everyone's top goes, so their feet land just inside the grass
+const STAND = SCENE.grass * SCENE.px - 44 + 8 - 84 - 26;  // minus the name above each face  // where everyone's top goes, so their feet land just inside the grass
 const SPRING = "height .5s cubic-bezier(.25,1.45,.45,1)";
 export function usePullDown(open: boolean, setOpen: (on: boolean) => void, el: React.RefObject<HTMLDivElement | null>, atTop: () => boolean = () => true) {
   const drag = useRef<{ x: number; y: number; top: boolean; base: number; h: number; on: boolean; v: number; t: number; ly: number } | null>(null);

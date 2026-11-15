@@ -36,13 +36,13 @@ function hatImage(hat: string, x: number, brim: number, scale = 1, tilt = 0) {
   const { w, h } = hatSize(hat), W = w * scale, H = h * scale;
   return `<image href="${src}" x="${x - W / 2}" y="${brim - H}" width="${W}" height="${H}" style="image-rendering:pixelated"${tilt ? ` transform="rotate(${tilt} ${x} ${brim - H / 2})"` : ""}/>`;
 }
-export function woltAvatar(creature: string, color: string, hat = "") {
+export function woltAvatar(creature: string, color: string, hat = "", fill = color + "33") {  // fill: the circle's inside (see-through by default)
   const { rects, side } = spriteRects(creature);
   const pad = side * 0.25, box = side + pad * 2;
   const at = HAT_AT[creature] || HAT_AT.raccoon, top = hatImage(hat, at.x, at.y);
   // with a hat, the picture grows upward (and as much sideways, to stay square) so the hat fits
   const grow = top ? Math.max(0, hatSize(hat).h - at.y - pad + 0.5) : 0, x0 = -pad - grow / 2, y0 = -pad - grow, b = box + grow;
-  return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${b} ${b}" shape-rendering="crispEdges"><circle cx="${side / 2}" cy="${side / 2}" r="${box / 2 - 1}" fill="${color}33" stroke="${color}" stroke-width="1.6"/>${rects}${top}</svg>`);
+  return svgUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${b} ${b}" shape-rendering="crispEdges"><circle cx="${side / 2}" cy="${side / 2}" r="${box / 2 - 1}" fill="${fill}" stroke="${color}" stroke-width="1.6"/>${rects}${top}</svg>`);
 }
 
 // A wolt standing in the scene, the way the lodge draws it: the whole creature, no circle, feet on the bottom edge.
