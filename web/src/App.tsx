@@ -473,7 +473,7 @@ export function App() {
   const [listOpen, setListOpen] = useState(false);  // the inbox sheet; home is always the main chat
   const [menu, setMenu] = useState(false);
   // everyone, people and wolts, pulled down from the top: on the chats, the app opens with it down, and scrolling folds it away
-  const [strip, setStrip] = useState(() => { try { return localStorage.getItem("shellphone.home") !== "classic"; } catch { return true; } });
+  const [strip, setStrip] = useState(true);
   const stripEl = useRef<HTMLDivElement>(null), pull = usePullDown(strip, setStrip, stripEl);
   const chatList = useRef<HTMLDivElement>(null), pullChats = usePullDown(strip, setStrip, stripEl, () => (chatList.current?.scrollTop ?? 0) <= 0);  // the chats, pulled down at their top, show everyone too
   const [who, setWho] = useState<Who>("");  // someone's card, opened from the strip

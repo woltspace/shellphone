@@ -1,6 +1,6 @@
 // Thread pieces, borrowed from Slack: the replies line under a message, the list of every thread, and what you've seen.
 // Each thread gets a short title and its own color, so with many of them you can still tell them apart at a glance.
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useState } from "react";
 import { ChevronLeft, ChevronRight, MessagesSquare } from "lucide-react";
 import { mix, woltColor, type Ctx, woltFace } from "./Message";
 import type { Msg, Wolt } from "./room";
@@ -62,14 +62,8 @@ function faces(list: Msg[], ctx: Ctx, most = 3) {
   return out.slice(0, most);
 }
 
-// Home as the list of chats (no main chat to talk in), or the classic chat with threads. A switch in the menu, kept in this browser.
-const HOME = "shellphone.home", homeListeners = new Set<() => void>();
-const readHome = () => { try { return localStorage.getItem(HOME) !== "classic"; } catch { return true; } };
-export function setChatsHome(on: boolean) {
-  try { localStorage.setItem(HOME, on ? "chats" : "classic"); } catch { /* private window: this visit only */ }
-  homeListeners.forEach((f) => f());
-}
-export const useChatsHome = () => useSyncExternalStore((f) => { homeListeners.add(f); return () => { homeListeners.delete(f); }; }, readHome);
+// Home is the list of chats: there is no main chat to talk in (the old one is the lobby, one row on home).
+export const useChatsHome = () => true;
 
 // What you've read in each thread lives on this phone only: the last message number you saw there.
 export function useSeen() {

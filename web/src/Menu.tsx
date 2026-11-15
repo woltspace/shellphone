@@ -1,7 +1,6 @@
-// The ☰ menu: this room and its settings. It slides in from the left, like Slack's.
+// The ☰ menu: this room's settings (people and agents live on their own cards, pulled down on the chats). It slides in from the left, like Slack's.
 import { useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronRight, Inbox, MessagesSquare, Squirrel, UserPlus, Users } from "lucide-react";
-import { setChatsHome, useChatsHome } from "./Threads";
+import { Bell, BellOff, BellRing, Check, ChevronRight, Squirrel, UserPlus } from "lucide-react";
 import { call, inviteLink, relayHost, relayRoom } from "./relay";
 import { LinkRoom } from "./LinkRoom";
 import type { Person, Wolt } from "./room";
@@ -41,12 +40,6 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         {!relayRoom && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayRoom && (relayHost || guestAgents !== false) && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Bring your agent<small className="block text-xs text-dim">Experimental: your own agent, from your computer</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayHost && <GuestAgents row={row} on={guestAgents !== false} />}
-        <button type="button" onClick={() => { close(); onThreads(); }} className={row}><Inbox size={20} className="text-acc" /><span className="flex-1">Inbox</span>
-          {freshCount > 0 && <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{freshCount}</span>}</button>
-        <ChatsSwitch />
-        {/* people and agents live on their own cards now: pull down on the chats, tap a face for its hat, pause, main agent… */}
-        <button type="button" onClick={() => { close(); onEveryone(); }} className={row}><Users size={20} className="text-acc" />
-          <span className="flex-1">Everyone<small className="block text-xs text-dim">{people.length} {people.length === 1 ? "person" : "people"} · {wolts.length} {wolts.length === 1 ? "agent" : "agents"} · tap a face for hats, pause and more</small></span><ChevronRight size={20} className="text-acc" /></button>
       </div>
     </aside>
   </>;
@@ -77,14 +70,4 @@ function GuestAgents({ row, on }: { row: string; on: boolean }) {
   return <button type="button" disabled={busy} onClick={flip} className={row}><Squirrel size={20} className={on ? "text-acc" : "text-dim"} />
     <span className="flex-1">Guests' agents<small className="block text-xs text-dim">{on ? "Guests may bring their own agents. Tap to turn off" : "Off: guests' agents can't hear or post. Tap to allow"}</small></span>
     <span className={`font-mono font-semibold text-xs rounded-lg px-2.5 py-1 ${on ? "text-white bg-acc" : "text-dim bg-panel border border-line"}`}>{on ? "on" : "off"}</span></button>;
-}
-
-// Try-out: home as the list of chats, or the classic main chat with threads. Kept in this browser.
-function ChatsSwitch() {
-  const on = useChatsHome();
-  return <button type="button" role="switch" aria-checked={on} onClick={() => setChatsHome(!on)} className={row}>
-    <MessagesSquare size={20} className="text-acc" /><span className="flex-1">Home is the chats<small className="block text-xs text-dim">No main chat: start a chat instead. Off: the classic main chat</small></span>
-    <span className={`w-[42px] h-[25px] rounded-full relative flex-none transition-colors ${on ? "bg-go" : "bg-line"}`}>
-      <i className={`absolute top-[3px] w-[19px] h-[19px] rounded-full bg-white shadow transition-[left] ${on ? "left-[20px]" : "left-[3px]"}`} /></span>
-  </button>;
 }
