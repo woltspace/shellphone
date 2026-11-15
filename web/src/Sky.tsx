@@ -52,7 +52,7 @@ export function Backdrop({ sky, height }: { sky: Sky; height: number }) {
   }, [height]);
   useEffect(() => {
     let off = false;
-    const ids = ["n-big-pine", "n-campfire", "n-flower", "n-mushroom"];
+    const ids = ["n-big-pine", "n-campfire", "n-flower", "n-mushroom", "sky-moon"];
     Promise.all(ids.map(load)).then((ims) => {
       const cv = ref.current; if (off || !cv) return;
       const by = Object.fromEntries(ids.map((id, i) => [id, ims[i]])), c = cv.getContext("2d")!, W = cols, H = ROWS, G = GROUND;
@@ -64,7 +64,7 @@ export function Backdrop({ sky, height }: { sky: Sky; height: number }) {
       const sx = W - 12;  // the sun or moon in the top right corner, where it can be tapped
       if (sky === "day") { disc(sx, 9, 5, "#ffe9a0"); disc(sx, 9, 4, "#ffd23f"); }
       else if (sky === "sunset") { disc(sx, 12, 6, "#ffb347"); disc(sx, 12, 4, "#ffd98a"); }
-      else { disc(sx, 9, 4, "#f4f0d8"); disc(sx + 2, 7, 3, S.top); }
+      else { const moon = by["sky-moon"]; if (moon) c.drawImage(moon, W - 20, 1); }  // the sleepy crescent
       c.fillStyle = S.ground; c.fillRect(0, G, W, H - G); c.fillStyle = S.edge; c.fillRect(0, G, W, 1);
       const put = (id: string, x: number) => { const im = by[id]; if (im) c.drawImage(im, x, G + 2 - im.height); };
       put("n-big-pine", 0);  // the mushroom stands among everyone instead (Mushroom below), where it can wiggle

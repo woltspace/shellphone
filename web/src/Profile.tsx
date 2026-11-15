@@ -20,29 +20,37 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
   const w = isWolt ? state.members.wolts.find((x) => x.wolt === key) : undefined;
   const p = !isWolt ? state.members.people.find((x) => x.email === key) : undefined;
   const [hats, setHats] = useState(false), [asking, setAsking] = useState(false), [busy, setBusy] = useState(false), [note, setNote] = useState("");
-  // a sheet of one fixed height: what's inside scrolls, and a swipe down slides it away from under your finger
+  // a sheet with two heights: half the screen when it opens, nearly all of it for more. It follows your finger:
+  // up grows it to tall, down from tall brings it back to half, down from half slides it away. What's inside scrolls.
   const panel = useRef<HTMLDivElement>(null), body = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ y: number; t: number; dy: number; on: boolean; inBody: boolean; up: boolean } | null>(null);
+  const [tall, setTall] = useState(false);
+  const short = () => Math.max(340, window.innerHeight * 0.46), full = () => window.innerHeight * 0.92;
+  const drag = useRef<{ y: number; t: number; dy: number; on: boolean; inBody: boolean; base: number } | null>(null);
   const bye = () => { const p = panel.current; if (p) { p.style.transition = "transform .2s cubic-bezier(.2,.8,.2,1)"; p.style.transform = "translateY(100%)"; } setTimeout(onClose, 180); };
+  const settle = (toTall: boolean) => { const p = panel.current; if (!p) return;
+    p.style.transition = "transform .3s cubic-bezier(.25,1.3,.45,1), height .35s cubic-bezier(.25,1.2,.45,1)"; p.style.transform = ""; p.style.height = `${toTall ? full() : short()}px`; setTall(toTall); };
   const swipe = {
-    onTouchStart: (e: React.TouchEvent) => { drag.current = { y: e.touches[0].clientY, t: performance.now(), dy: 0, on: false, up: false, inBody: !!body.current?.contains(e.target as Node) }; },
+    onTouchStart: (e: React.TouchEvent) => { drag.current = { y: e.touches[0].clientY, t: performance.now(), dy: 0, on: false, base: tall ? full() : short(), inBody: !!body.current?.contains(e.target as Node) }; },
     onTouchMove: (e: React.TouchEvent) => {
       const d = drag.current, p = panel.current; if (!d || !p) return;
       d.dy = e.touches[0].clientY - d.y;
       if (!d.on) {
         if (Math.abs(d.dy) < 6) return;
         const b = body.current, canScroll = !!b && b.scrollHeight > b.clientHeight;
-        if (d.inBody && ((d.dy > 0 && (b?.scrollTop || 0) > 0) || (d.dy < 0 && canScroll))) { drag.current = null; return; }  // scrolling the card, not moving it
-        d.on = true; d.up = d.dy < 0; d.y = e.touches[0].clientY; d.dy = 0;
+        // tall: the list scrolls as usual, and only a pull down from its top moves the card. Half height: up grows it first.
+        if (d.inBody && ((d.dy > 0 && (b?.scrollTop || 0) > 0) || (tall && d.dy < 0 && canScroll))) { drag.current = null; return; }
+        d.on = true; d.y = e.touches[0].clientY; d.dy = 0;
       }
       p.style.transition = "none";
-      if (d.up && d.dy <= 0) { p.style.transform = ""; p.style.height = `calc(46dvh + ${Math.round(-d.dy * 0.3)}px)`; }  // up: it stretches a little, like a rubber band
-      else { p.style.height = ""; p.style.transform = `translateY(${Math.max(0, d.dy)}px)`; }
+      const h = d.base - d.dy, top = full();
+      if (h >= short() || tall) { p.style.transform = ""; p.style.height = `${h > top ? top + (h - top) * 0.3 : Math.max(short(), h)}px`; }  // past tall it gets heavier
+      else { p.style.height = `${short()}px`; p.style.transform = `translateY(${short() - h}px)`; }  // below half: on its way out
     },
     onTouchEnd: () => {
-      const d = drag.current, p = panel.current; drag.current = null; if (!d?.on || !p) return;
-      if (!d.up && (d.dy > 90 || d.dy / Math.max(1, performance.now() - d.t) > 0.5)) bye();
-      else { p.style.transition = "transform .3s cubic-bezier(.25,1.4,.45,1), height .3s cubic-bezier(.25,1.4,.45,1)"; p.style.transform = ""; p.style.height = ""; }  // back to its own height
+      const d = drag.current; drag.current = null; if (!d?.on) return;
+      const v = d.dy / Math.max(1, performance.now() - d.t);
+      if (!tall) { if (d.dy < -60 || v < -0.5) settle(true); else if (d.dy > 90 || v > 0.5) bye(); else settle(false); }
+      else settle(!(d.dy > 80 || v > 0.5));
     },
   };
   const [tick, setTick] = useState(0);  // a busy wolt's line of lore changes every few seconds, like in the chats
@@ -58,7 +66,7 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
   const chats = new Map<string, Msg>();
   for (const x of mine) chats.set(x.thread || x.id, x);
   const threads = new Set(msgs.map((x) => x.thread).filter(Boolean));  // a chat is a message with replies, or one a person started
-  const rows = [...chats.entries()].filter(([id]) => { const r = byId.get(id); return !!r && !r.thread && (threads.has(id) || r.kind === "human"); }).sort((a, b) => b[1].at - a[1].at).slice(0, 12);
+  const rows = [...chats.entries()].filter(([id]) => { const r = byId.get(id); return !!r && !r.thread && (threads.has(id) || r.kind === "human"); }).sort((a, b) => b[1].at - a[1].at);
   const working = w ? (state.working_in?.[w.wolt] || []) : [];
   const last = mine[mine.length - 1];
   const wolts = p ? state.members.wolts.filter((x) => x.owner === p.email) : [];
@@ -73,7 +81,7 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
   const sec = "mt-4 mb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
   return <div className="absolute inset-0 z-[1660]">
     <div onClick={bye} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
-    <div ref={panel} {...swipe} role="dialog" aria-label={name} className="absolute inset-x-0 bottom-0 h-[46dvh] min-h-[340px] max-w-[640px] mx-auto flex flex-col bg-paper rounded-t-[18px] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)] overflow-hidden">
+    <div ref={panel} {...swipe} role="dialog" aria-label={name} style={{ height: "max(340px, 46dvh)" }} className="absolute inset-x-0 bottom-0 max-w-[640px] mx-auto flex flex-col bg-paper rounded-t-[18px] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)] overflow-hidden">
       <div className="flex-none px-4 pt-2 pb-3" style={{ background: `linear-gradient(${mix(color, "#ffffff", 0.78)}, transparent)` }}>
         <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />
         <div className="flex items-center gap-3">
@@ -128,6 +136,15 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
               <span className={`font-mono text-[10.5px] ${xm.busy ? "lore font-semibold" : "text-dim"}`}>{xm.busy ? "gnawing…" : xm.word}</span></button>; })}
           </div>
         </>}
+        {/* a little more about them, for when the card is pulled up */}
+        <div className={sec}>In this room</div>
+        <div className="grid grid-cols-3 gap-2">
+          {[[String(mine.length), mine.length === 1 ? "message" : "messages"], [String(rows.length), rows.length === 1 ? "chat" : "chats"],
+            [mine.length ? new Date(mine[0].at * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—", "first said hi"]].map(([n, l]) =>
+            <div key={l} className="rounded-xl border border-line bg-white px-2 py-2 text-center">
+              <div className="font-mono font-bold text-[17px]" style={{ color }}>{n}</div>
+              <div className="font-mono text-[10.5px] text-dim">{l}</div></div>)}
+        </div>
         <div className={sec}>Chats {name === "you" ? "" : "they're in"}</div>
         {rows.length === 0 && <p className="text-sm text-dim py-2">No chats yet.</p>}
         {rows.map(([id, x]) => <button type="button" key={id} onClick={() => onOpen(id)}
