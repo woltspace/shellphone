@@ -90,10 +90,16 @@ def sweep():
 def free_port(wanted):
     for port in (wanted, 0):
         with socket.socket() as s:
+            # Match HTTPServer's reuse policy: a recently stopped room's port
+            # can still have closed connections in TIME_WAIT. Moving the room
+            # then would strand agents whose saved configuration has its URL.
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.bind(("127.0.0.1", port))
                 return s.getsockname()[1]
             except OSError:
+                if port:
+                    print(f"Port {port} is unavailable; choosing another port. Existing agents may need their room URL updated.", flush=True)
                 continue
     sys.exit("couldn't find a free port")
 
