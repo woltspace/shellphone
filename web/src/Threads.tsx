@@ -150,7 +150,7 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
   items.sort((a, b) => b.last.at - a.last.at);
   const unreadRows = items.filter((i) => i.n).length;
   const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
-  // the card is in the colour of whoever spoke last, as their bubble is in the chat
+  // the latest message's bubble is in the colour of whoever said it, as in the chat
   const ink = (m: Msg) => m.kind === "human" ? mix(ctx.person(m.email).color, "#ffffff", 0.82) : mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9);
   const count = (n: number) => <span className="flex-none min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{n}</span>;
   const busyAt = (key: string) => ctx.busy?.(key) || [];
@@ -167,10 +167,11 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
           {n > 0 && count(n)}
           {busyAt(id).length ? <Busy wolts={busyAt(id)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(last.at)}</span>}
         </span>
-        <span className="block px-3.5 pt-2.5 pb-2.5" style={{ background: ink(last) }}>
-          <span className={`flex items-start gap-2 text-[15px] leading-snug ${n ? "text-ink" : "text-[#4a4038]"}`}>
+        <span className="block px-3.5 pt-2.5 pb-2.5 bg-[#fffdf8]">
+          <span className={`flex items-end gap-2 text-[15px] leading-snug ${n ? "text-ink" : "text-[#4a4038]"}`}>
             <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-7 h-7 rounded-full ring-2 ring-paper bg-panel" />
-            <span className="min-w-0 line-clamp-2"><b className="font-semibold text-ink">{name(last)}:</b> {preview(last)}</span></span>
+            {/* the latest message as a speech bubble in its speaker's colour, apart from the card */}
+            <span className="min-w-0 rounded-xl rounded-bl-sm border border-line px-2.5 py-1.5" style={{ background: ink(last) }}><span className="line-clamp-2"><b className="font-semibold text-ink">{name(last)}:</b> {preview(last)}</span></span></span>
           <span className="mt-2 flex items-center gap-2 font-mono text-[11px] text-dim">
             <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-5 h-5 rounded-full ring-2 ring-paper bg-panel" />)}</span>
             <span className="flex-1 min-w-0 truncate">{names.slice(0, 4).join(", ")}{names.length > 4 ? ` +${names.length - 4}` : ""}</span>
