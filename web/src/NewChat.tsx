@@ -17,14 +17,14 @@ function Switch({ on, locked, label, flip }: { on: boolean; locked?: boolean; la
 
 export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
   ctx: Ctx; people: Person[]; wolts: Wolt[]; main?: string | null;
-  onStart: (text: string, agents: Record<string, boolean>, people: Record<string, boolean>) => void; onClose: () => void;
+  onStart: (text: string, agents: Record<string, boolean>, people: Record<string, boolean>, title: string) => void; onClose: () => void;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(""), [title, setTitle] = useState("");
   const [agents, setAgents] = useState<Record<string, boolean>>(() => Object.fromEntries(wolts.map((w) => [w.wolt, w.wolt === main])));
   const [folks, setFolks] = useState<Record<string, boolean>>(() => Object.fromEntries(people.map((p) => [p.email, true])));
   const tagged = (w: string) => new RegExp(`@${w}\\b`, "i").test(text);
   const agentIn = (w: Wolt) => !w.paused && (agents[w.wolt] || tagged(w.wolt));
-  const start = () => { const t = text.trim(); if (!t) return; onStart(t, Object.fromEntries(wolts.map((w) => [w.wolt, agentIn(w)])), folks); };
+  const start = () => { const t = text.trim(); if (!t) return; onStart(t, Object.fromEntries(wolts.map((w) => [w.wolt, agentIn(w)])), folks, title.trim()); };
   const sec = "mt-3 mb-0.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
   const row = (key: string, face: string, name: string, color: string | undefined, yes: boolean, note: string, sw: React.ReactNode) =>
     <div key={key} className="flex items-center gap-2.5 py-2 border-t border-line">
@@ -44,8 +44,10 @@ export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
           <b className="flex-1 font-mono text-[13px] text-dim tracking-wide">NEW CHAT</b>
           <button type="button" aria-label="Cancel" onClick={onClose} className="w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={18} /></button>
         </div>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} placeholder="Title (optional: its first words otherwise)"
+          className="w-full mt-1 rounded-xl border-2 border-line bg-white px-3 py-2 font-mono font-semibold text-[14px] outline-none focus:border-acc" />
         <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="What's it about?"
-          className="w-full mt-1 rounded-xl border-2 border-line bg-white px-3 py-2.5 text-[15px] leading-snug resize-none outline-none focus:border-acc" />
+          className="w-full mt-2 rounded-xl border-2 border-line bg-white px-3 py-2.5 text-[15px] leading-snug resize-none outline-none focus:border-acc" />
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4">
         <div className={sec}>People</div>

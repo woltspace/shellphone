@@ -40,6 +40,7 @@ export function ThreadHat({ id, className = "" }: { id: string; className?: stri
 // the first few words of the message it hangs off, without the @tags in front
 export function threadTitle(m?: Msg) {
   if (!m) return "thread";
+  if (m.title) return m.title;  // named when it was started
   const words = (m.text || "").replace(/\s+/g, " ").replace(/^(@[\w-]+[\s,:]*)+/, "").trim().split(" ").filter(Boolean);
   if (!words.length) return m.files?.length ? m.files[0].name : "Voice note";
   return words.slice(0, 6).join(" ") + (words.length > 6 ? "…" : "");

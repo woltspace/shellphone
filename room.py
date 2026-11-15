@@ -1225,8 +1225,11 @@ def for_person(req, email):
         with one_send(email, cid) as named:
             if named and (prev := sent_before(email, cid)):  # sent before, but the answer never got back to the page
                 return reply(200, prev)
-            return reply(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread")),
-                                     **({"cid": cid} if named else {})))
+            spot = thread_of(data.get("thread"))
+            # a message that starts a chat may name it; without a title the chat is called by its first words
+            named_as = " ".join(str(data.get("title") or "").split())[:80] if not spot else ""
+            return reply(200, append(kind="human", email=email, text=text, **spot,
+                                     **({"cid": cid} if named else {}), **({"title": named_as} if named_as else {})))
     if path == "/api/voice":
         where = thread_of(q.get("thread", [""])[0])
         ext = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp3": "mp3"}.get(req.kind, "webm")

@@ -567,7 +567,7 @@ export function App() {
   const where = (t?: string) => (t ? `&thread=${t}` : "");
   const stick = () => (thread ? stickThread : stickMain).current();
   // A voice note waits on this phone until the room has it. If it doesn't get there, it stays with "Tap to send again".
-  type Typed = { cid: string; text: string; thread?: string };
+  type Typed = { cid: string; text: string; thread?: string; title?: string };
   const outgoing = useRef(new Map<string, Outgoing | Typed>());
   // A voice note shows as sent the moment you tap send; the room's copy takes its place under the same id once the
   // words are written down. The recording joins it a moment later, when the phone has handed it over.
@@ -662,14 +662,14 @@ export function App() {
   async function sendTyped(o: Typed) {
     outgoing.current.set(o.cid, o);
     shown(o.cid, { pending: true, failed: false });
-    settle(o.cid, await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: o.text, cid: o.cid, ...(o.thread ? { thread: o.thread } : {}) }) }));
+    settle(o.cid, await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: o.text, cid: o.cid, ...(o.thread ? { thread: o.thread } : {}), ...(o.title ? { title: o.title } : {}) }) }));
   }
 
   // a chat started from the new-chat sheet: the first message, then who's in, once the room has given it its id
-  async function startChat(t: string, agents: Record<string, boolean>, _people: Record<string, boolean>) {  // people: not kept by the room yet
+  async function startChat(t: string, agents: Record<string, boolean>, _people: Record<string, boolean>, title = "") {  // people: not kept by the room yet
     setStarting(false);
-    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t };
-    setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true }]);
+    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t, ...(title ? { title } : {}) };
+    setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, ...(title ? { title } : {}) }]);
     setThread(o.cid);
     await sendTyped(o);
     let real: Msg | undefined;  // the room's copy reaches the page a render later

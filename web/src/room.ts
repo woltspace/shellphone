@@ -9,7 +9,7 @@ export type CardNode = { type: string; props?: Record<string, any>; children?: C
 export type PageRef = { id: string; title: string; line?: string; v: number };  // a page an agent posted (Page.tsx)
 export type Activity = { page: string; title: string; by: { kind: string; name: string; count: number }[]; from: number; to: number };
 export type Msg = {
-  n: number; id: string; cid?: string; at: number; kind: "human" | "wolt" | "patch" | "activity";  // activity: "maya made 3 changes to …", said by the room
+  n: number; id: string; cid?: string; title?: string; at: number; kind: "human" | "wolt" | "patch" | "activity";  // activity: "maya made 3 changes to …", said by the room
   email?: string; wolt?: string; owner?: string; creature?: string;
   text?: string; audio?: string; seconds?: number; files?: FileInfo[]; file?: FileInfo; card?: CardNode; of?: string; page?: PageRef; activity?: Activity;
   localUrl?: string; pending?: boolean; failed?: boolean; thread?: string; progress?: string;  // progress: a note on its way ("sending 40%")
