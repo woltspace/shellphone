@@ -1,6 +1,6 @@
 // Thread pieces, borrowed from Slack: the replies line under a message, the list of every thread, and what you've seen.
 // Each thread gets a short title and its own color, so with many of them you can still tell them apart at a glance.
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight, MessagesSquare } from "lucide-react";
 import type { Ctx } from "./Message";
 import type { Msg, Wolt } from "./room";
@@ -50,6 +50,15 @@ function faces(list: Msg[], ctx: Ctx, most = 3) {
   return out.slice(0, most);
 }
 
+// Home as the list of chats (no main chat to talk in), or the classic chat with threads. A switch in the menu, kept in this browser.
+const HOME = "shellphone.home", homeListeners = new Set<() => void>();
+const readHome = () => { try { return localStorage.getItem(HOME) !== "classic"; } catch { return true; } };
+export function setChatsHome(on: boolean) {
+  try { localStorage.setItem(HOME, on ? "chats" : "classic"); } catch { /* private window: this visit only */ }
+  homeListeners.forEach((f) => f());
+}
+export const useChatsHome = () => useSyncExternalStore((f) => { homeListeners.add(f); return () => { homeListeners.delete(f); }; }, readHome);
+
 // What you've read in each thread lives on this phone only: the last message number you saw there.
 export function useSeen() {
   const [seen, setSeen] = useState<Record<string, number>>(() => { try { return JSON.parse(localStorage.getItem("threads-seen") || "{}"); } catch { return {}; } });
@@ -95,7 +104,7 @@ const preview = (m: Msg) => ((m.text && m.text.replace(/\*\*|`/g, "")) || (m.fil
 export function ThreadList({ roots, replies, ctx, seen, onOpen, onClose }: {
   roots: Msg[]; replies: Map<string, Msg[]>; ctx: Ctx; seen: Record<string, number>; onOpen: (id: string) => void; onClose: () => void;
 }) {
-  const items = roots.map((r) => { const list = replies.get(r.id)!; return { r, list, last: list.at(-1)!, fresh: unread(list, seen[r.id], ctx.me) }; })
+  const items = roots.map((r) => { const list = replies.get(r.id) || []; return { r, list, last: list.at(-1) || r, fresh: unread(list, seen[r.id], ctx.me) }; })
     .sort((a, b) => Number(b.fresh) - Number(a.fresh) || b.last.at - a.last.at);
   const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
   const freshCount = items.filter((i) => i.fresh).length;
@@ -130,12 +139,13 @@ export function ThreadList({ roots, replies, ctx, seen, onOpen, onClose }: {
 // One inbox for the room: every thread, one row each, the one that moved last on top. A row is the thread's title, its
 // latest message, and who's in it. What you haven't seen shows as a count; it never reorders the list.
 // It slides up over wherever you are; tap a row to go there, tap outside (or swipe it down) to stay.
-export function InboxSheet({ top, main, all, roots, replies, ctx, seen, current, onMain, onOpen, onClose }: {
-  top: number; main: Msg[]; all: Msg[]; roots: Msg[]; replies: Map<string, Msg[]>; ctx: Ctx; seen: Record<string, number>; current: string;
-  onMain: () => void; onOpen: (id: string) => void; onClose: () => void;
-}) {
+// The rows of every chat (thread), the one that moved last on top, and the main chat as one more row ("lobby" when home is
+// the chats). Used by the inbox sheet and by home in the chats layout.
+type RowsProps = { main: Msg[]; all: Msg[]; roots: Msg[]; replies: Map<string, Msg[]>; ctx: Ctx; seen: Record<string, number>; current: string;
+  onMain: () => void; onOpen: (id: string) => void; lobby?: boolean };
+export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain, onOpen, lobby }: RowsProps) {
   const newCount = (list: Msg[], id: string) => list.filter((m) => m.n > (seen[id] || 0) && !(m.kind === "human" && m.email === ctx.me)).length;
-  const items = roots.map((r) => { const list = [r, ...replies.get(r.id)!]; return { id: r.id, r, list, last: list.at(-1)!, n: newCount(replies.get(r.id)!, r.id) }; });
+  const items = roots.map((r) => { const rs = replies.get(r.id) || [], list = [r, ...rs]; return { id: r.id, r, list, last: list.at(-1)!, n: newCount(rs, r.id) }; });
   if (all.length) items.push({ id: "", r: all[0], list: all, last: all.at(-1)!, n: main.length });
   items.sort((a, b) => b.last.at - a.last.at);
   const unreadRows = items.filter((i) => i.n).length;
@@ -150,7 +160,7 @@ export function InboxSheet({ top, main, all, roots, replies, ctx, seen, current,
       <span className="flex-none w-9 h-9 mt-0.5 rounded-full grid place-items-center text-[18px]" style={{ background: color + "22", boxShadow: `inset 0 0 0 2px ${color}` }}>{id ? threadEmoji(id) : "#"}</span>
       <span className="flex-1 min-w-0">
         <span className="flex items-center gap-2 font-mono text-[13px] font-semibold">
-          <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : "main chat"}</span>
+          <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : lobby ? "lobby" : "main chat"}</span>
           {n > 0 && count(n)}
           {busyAt(id).length ? <Busy wolts={busyAt(id)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(last.at)}</span>}
         </span>
@@ -163,6 +173,12 @@ export function InboxSheet({ top, main, all, roots, replies, ctx, seen, current,
       </span>
     </button>;
   };
+  return { count: items.length, unreadRows, rows: items.map(row) };
+}
+
+// The inbox: those rows in a sheet that slides up over wherever you are; tap a row to go there, tap outside (or swipe it down) to stay.
+export function InboxSheet({ onClose, ...p }: RowsProps & { top: number; onClose: () => void }) {
+  const { count: n, unreadRows, rows } = chatRows(p);
   const from = useState<{ y: number; dy: number } | null>(null), [drag, setDrag] = from;
   return <div className="absolute inset-x-0 bottom-0 z-[1600]" style={{ top: 0 }}>
     <div onClick={onClose} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
@@ -175,12 +191,12 @@ export function InboxSheet({ top, main, all, roots, replies, ctx, seen, current,
         <div className="w-10 h-[5px] rounded-full bg-line mx-auto mt-2 mb-1.5" />
         <div className="flex items-baseline gap-2 px-4 pb-2.5 border-b border-line">
           <b className="font-mono font-semibold text-acc text-base">inbox</b>
-          <span className="font-mono text-[11px] text-dim">{items.length} {items.length === 1 ? "thread" : "threads"} · {unreadRows ? `${unreadRows} with new` : "all caught up 👍"}</span>
+          <span className="font-mono text-[11px] text-dim">{n} {n === 1 ? "thread" : "threads"} · {unreadRows ? `${unreadRows} with new` : "all caught up 👍"}</span>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))]">
-        {items.map(row)}
-        {!roots.length && <p className="text-center text-dim font-mono text-xs mt-4 px-6">No threads yet. Tap any message to start one.</p>}
+        {rows}
+        {!p.roots.length && <p className="text-center text-dim font-mono text-xs mt-4 px-6">No threads yet. Tap any message to start one.</p>}
       </div>
     </div>
   </div>;

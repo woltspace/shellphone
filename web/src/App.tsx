@@ -11,7 +11,7 @@ import { wear, worn } from "./hats";
 import { WoltStrip, usePullDown } from "./WoltStrip";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
-import { InboxSheet, ThreadFooter, threadColor, threadEmoji, threadTitle, threadWallpaper, unread, useSeen } from "./Threads";
+import { InboxSheet, ThreadFooter, chatRows, threadColor, threadEmoji, threadTitle, threadWallpaper, useChatsHome, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
@@ -243,8 +243,8 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 // Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
 // A thread pops up over the main chat, like the voice-note sheet: you're still in the room, just looking closer.
 // Drag the handle down, tap above it, or tap ✕ to drop back.
-function ThreadSheet({ color, wallpaper, title, count, close, who, children }: { color: string; wallpaper?: React.CSSProperties; title: string; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
-  const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null), [full, setFull] = useState(false);
+function ThreadSheet({ startFull, color, wallpaper, title, count, close, who, children }: { startFull?: boolean; color: string; wallpaper?: React.CSSProperties; title: string; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
+  const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null), [full, setFull] = useState(!!startFull);
   const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
   const timer = useRef(0);
   useEffect(() => () => clearTimeout(timer.current), []);  // gone before the fade ended (another thread took its place): no late close
@@ -458,15 +458,22 @@ export function App() {
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
-  const roots = main.filter((m) => replies.has(m.id));
+  // Home as the chats: no main chat to talk in. Every thread is a chat, and so is anything someone just said in the main chat
+  // (it starts one, the wolts answer under it). The rest of the old main chat is one more chat, the lobby.
+  const chatsHome = useChatsHome(), [lobby, setLobby] = useState(false);
+  const since = Date.now() / 1000 - 86400;
+  const roots = main.filter((m) => replies.has(m.id) || (chatsHome && m.kind === "human" && m.at > since));
+  const lobbyList = chatsHome ? main.filter((m) => !roots.includes(m)) : main;
+  // a chat you just started opens under the name your phone gave it, then follows it to the room's own id
+  useEffect(() => { if (!thread || msgs.some((m) => m.id === thread)) return; const real = msgs.find((m) => m.cid === thread); if (real) setThread(real.id); }, [msgs, thread]);
   // a room with no threads yet opens on its chat, not on an empty list (a brand-new room, someone's first)
   const settled = useRef(false);
   const threadsSeen = useRef(false); threadsSeen.current = replies.size > 0;
   useEffect(() => { if (!settled.current && state.me) { settled.current = true; if (!replies.size) setListOpen(false); } }, [state.me]);
-  const freshCount = roots.filter((r) => unread(replies.get(r.id)!, seen[r.id], state.me)).length;
+  const freshCount = roots.filter((r) => unread(replies.get(r.id) || [], seen[r.id], state.me)).length;
   // the main chat counts as read while it's on screen; what arrives while you're in a thread waits in the inbox
   const mainFresh = main.filter((m) => m.n > (seen.main || 0) && !(m.kind === "human" && m.email === state.me));
-  useEffect(() => { if (!thread && main.length) mark("main", main.at(-1)!.n); }, [thread, main]);
+  useEffect(() => { if (!thread && (!chatsHome || lobby) && main.length) mark("main", main.at(-1)!.n); }, [thread, main, chatsHome, lobby]);
   const inboxCount = freshCount + mainFresh.length;
   const hdr = useRef<HTMLElement>(null), [hdrH, setHdrH] = useState(0);
   useLayoutEffect(() => { const el = hdr.current; if (!el) return; const ro = new ResizeObserver(() => setHdrH(el.offsetHeight)); ro.observe(el); return () => ro.disconnect(); }, []);
@@ -646,6 +653,7 @@ export function App() {
     stick();
     const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t, thread: thread || undefined };
     setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, thread: o.thread }]);
+    if (chatsHome && !thread && !lobby) setThread(o.cid);  // from home, a message starts a chat: go straight into it
     sendTyped(o);
   }
   // every try carries the same name (cid), so if the room got an earlier one, it answers with that copy instead of posting again
@@ -656,7 +664,7 @@ export function App() {
   }
 
   const me = state.members.wolts.find((w) => w.owner === state.me);
-  const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? "$ reply in thread" : undefined} />;
+  const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? (chatsHome ? "$ message this chat" : "$ reply in thread") : chatsHome && !lobby ? "$ start a new chat…" : undefined} />;
   // on the desk: the wolts of the open thread (or every wolt that isn't paused, in the main chat)
   const deskWolts = state.members.wolts.filter((w) => !w.paused && (!thread || !state.who || (state.main === w.wolt && state.who[thread]?.[w.wolt] !== "paused") || state.who[thread]?.[w.wolt] === "in"));
   const room = (
@@ -675,22 +683,30 @@ export function App() {
         </div>
         {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
           className={`flex-none w-10 h-10 grid place-items-center border-0 cursor-pointer rounded-[10px] ${desk ? "bg-acc text-white" : "bg-transparent text-acc"}`}><Monitor size={20} /></button>}
-        <button type="button" aria-label="Inbox" onClick={() => setListOpen(!listOpen)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
+        {!chatsHome && <button type="button" aria-label="Inbox" onClick={() => setListOpen(!listOpen)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
-        </button>
+        </button>}
       </header>
       <WoltStrip state={state} person={person} open={strip} onClose={() => setStrip(false)} />
-      <Feed list={main} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
+      {chatsHome && !lobby ? <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+        {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
+          onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
+        {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
+      </div> : <>
+        {chatsHome && <button type="button" onClick={() => setLobby(false)} className="flex-none flex items-center gap-1 px-3 py-2 border-0 border-b border-line bg-panel font-mono text-[12px] text-acc text-left cursor-pointer">
+          <ChevronLeft size={16} /> chats <span className="text-dim">· lobby: the old main chat. Anything you say here starts a chat.</span></button>}
+        <Feed list={lobbyList} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
+      </>}
       {!thread && composer}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} all={main.filter((m) => m.kind === "human" || m.kind === "wolt")} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
-      {thread && <ThreadSheet key={thread} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={`${threadEmoji(thread)} ${threadTitle(root)}`} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
+      {thread && <ThreadSheet key={thread} startFull={chatsHome} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={`${threadEmoji(thread)} ${threadTitle(root)}`} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={(replies.get(thread) || []).length} stick={stickThread} place={thread} />
         {composer}
       </ThreadSheet>}
-      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => setListOpen(true)} onAgent={() => setAdding(true)} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
+      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}
