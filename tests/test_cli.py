@@ -108,13 +108,16 @@ class FrontDoor(unittest.TestCase):
         self.assertIn("@helper are you there?", heard.stdout)
         self.assertIn("This is your own human asking.", heard.stdout)
         # the agent is told to answer with the command, never with a file path that moves with each version
-        self.assertRegex(heard.stdout, r"\n(uvx )?shellphone post --config \S+lodge\.json <<'SHELLPHONE_")
+        asked = next(m for m in r.state()["messages"] if m.get("text") == "@helper are you there?")
+        # a message in the main chat is answered in a thread under it, unless someone asks for the main chat
+        self.assertRegex(heard.stdout, r"\n(uvx )?shellphone post --config \S+lodge\.json --thread " + asked["id"] + " <<'SHELLPHONE_")
+        self.assertIn("starts a thread under it", heard.stdout)
         self.assertRegex(heard.stdout, r"\n(uvx )?shellphone wait --config ")
         self.assertNotIn("connector.py", heard.stdout)
-        said = run("post", cwd=work, stdin="here")
+        said = run("post", "--thread", asked["id"], cwd=work, stdin="here")
         self.assertEqual(said.returncode, 0, said.stderr)
-        texts = [(m["kind"], m.get("text")) for m in r.state()["messages"] if m["kind"] in ("human", "wolt")]
-        self.assertEqual(texts, [("human", "@helper are you there?"), ("wolt", "here")])
+        texts = [(m["kind"], m.get("text"), m.get("thread")) for m in r.state()["messages"] if m["kind"] in ("human", "wolt")]
+        self.assertEqual(texts, [("human", "@helper are you there?", None), ("wolt", "here", asked["id"])])
 
     def test_a_paused_agent_is_off_and_a_removed_one_is_out(self):
         r = self.room()

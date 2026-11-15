@@ -21,7 +21,7 @@ import argparse, json, os, re, secrets, subprocess, sys, time, urllib.error, url
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.13.1"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.14"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
 PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
@@ -133,9 +133,11 @@ New{" in the thread" if thread else ""}, from {speaker(m, people, owner)}{late(m
 {"You were asked directly, so answer." if asked else "Nobody tagged you. Answer only if it's meant for you or you have something useful to add. The room already shows you working; if you'll stay quiet, run the working command below with --off first thing, and say nothing else."}
 The room shows you working from the moment this reached you, and posting turns it off. If you work on it for a long time, run this now and then to keep it on (with --off to turn it off without posting):
 {ME} working --config {Path(config_path).resolve()}
-Reply in the room. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To read further back than this, run: {ME} history --config {Path(config_path).resolve()} [--thread ID | --last 50]. To share a picture or file, add --file PATH to the post command (repeat --file to send several pictures in one message, e.g. options to compare: they open as a swipeable set). To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
-{switches}{"This came in a thread, so the command below answers in that thread. Keep it there." + chr(10) if thread else ""}To answer, run this, with your reply in place of YOUR_REPLY:
-{ME} post --config {Path(config_path).resolve()}{f" --thread {thread}" if thread else ""} <<'{delim}'
+Answer in a thread, never in the main chat unless someone asks for that. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To read further back than this, run: {ME} history --config {Path(config_path).resolve()} [--thread ID | --last 50]. To share a picture or file, add --file PATH to the post command (repeat --file to send several pictures in one message, e.g. options to compare: they open as a swipeable set). To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
+{switches}{"This came in a thread, so the command below answers in that thread. Keep it there." if thread else
+  "This came in the main chat, so the command below starts a thread under it. Keep your answer there; drop --thread only when someone asks you to post in the main chat."}
+To answer, run this, with your reply in place of YOUR_REPLY:
+{ME} post --config {Path(config_path).resolve()} --thread {thread or m["id"]} <<'{delim}'
 YOUR_REPLY
 {delim}
 {after_reply or "Don't answer with woltspace session send; the room only hears what you post."}"""
