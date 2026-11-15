@@ -21,7 +21,7 @@ import argparse, json, os, re, secrets, shlex, subprocess, sys, time, urllib.err
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.15"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.15.1"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
 PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
@@ -114,10 +114,12 @@ def prompt(cfg, config_path, m, recent, members, asked=True, after_reply=None):
         page, start, end = room_id(a.get("page")), a.get("from"), a.get("to")
         if type(start) is not int or type(end) is not int:
             page = None
+        # built apart: a triple-quoted f-string inside another only compiles from Python 3.12
+        look = f""" To see the changes, with who made each:
+{ME} page changes {shlex.quote(page)} --config {Path(config_path).resolve()} --after {start - 1}""" if page else ""
         return f"""[shellphone room, you are {cfg['wolt']}, {people.get(owner, owner)}'s {"wolt" if cfg.get("session") else "agent"}]
 {m.get("text")} (your page{f"; changes {start} to {end}" if page else ""}).
-Nobody is asking you anything: this is so you know the page's board changed.{f""" To see the changes, with who made each:
-{ME} page changes {shlex.quote(page)} --config {Path(config_path).resolve()} --after {start - 1}""" if page else ""}
+Nobody is asking you anything: this is so you know the page's board changed.{look}
 Say something in the room only if it's useful.{chr(10) + after_reply if after_reply else ""}"""
     delim ="SHELLPHONE_" + secrets.token_hex(8).upper()
     thread = room_id(m.get("thread"))
