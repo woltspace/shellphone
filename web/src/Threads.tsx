@@ -158,7 +158,7 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
   const row = ({ id, r, list, last, n }: typeof items[number]) => {
     const color = id ? threadColor(id) : "#c4531e", who = faces(list, ctx, 6), here = id === current;
     const names = [...new Set([...list].reverse().map(name))];
-    return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())}
+    return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())} style={id ? threadWallpaper(id, true, true) : undefined}
       className={`flex w-full text-left bg-transparent border-0 border-b-2 border-line px-3 py-4 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
       {/* the wallpaper shows around it; what you read sits on solid ground: the title in its own band, then the latest message
           in the colour of whoever said it */}
@@ -168,7 +168,7 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
           {n > 0 && count(n)}
           {busyAt(id).length ? <Busy wolts={busyAt(id)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(last.at)}</span>}
         </span>
-        <span className="block px-3.5 pt-2.5 pb-2.5 bg-[#fffdf8]" style={id ? threadWallpaper(id, true, true) : undefined}>
+        <span className="block px-3.5 pt-2.5 pb-2.5 bg-[#fffdf8]">
           {/* who spoke last, up front: their face and name in their colour, then what they said in a bubble of that colour */}
           <span className={`flex items-start gap-2.5 text-[15px] leading-snug ${n ? "text-ink" : "text-[#4a4038]"}`}>
             <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-10 h-10 rounded-full ring-2 bg-panel" style={{ ["--tw-ring-color" as string]: voice(last) }} />
