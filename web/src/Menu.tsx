@@ -1,19 +1,17 @@
 // The ☰ menu: this room and its settings. It slides in from the left, like Slack's.
 import { useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronRight, Inbox, MessagesSquare, Squirrel, UserPlus } from "lucide-react";
+import { Bell, BellOff, BellRing, Check, ChevronRight, Inbox, MessagesSquare, Squirrel, UserPlus, Users } from "lucide-react";
 import { setChatsHome, useChatsHome } from "./Threads";
 import { call, inviteLink, relayHost, relayRoom } from "./relay";
-import { Agents } from "./Agents";
 import { LinkRoom } from "./LinkRoom";
-import { People } from "./HatShop";
 import type { Person, Wolt } from "./room";
 
 const row = "flex items-center gap-3 w-full px-4 py-2.5 border-0 bg-transparent text-left text-[15px] text-ink no-underline cursor-pointer active:bg-panel";
 const sec = "px-4 pt-4 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
 
-export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts, people, push, freshCount, onThreads, onAgent, main, looks, faces, guestAgents }: {
+export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts, people, push, freshCount, onThreads, onAgent, onEveryone, guestAgents }: {
   open: boolean; panel: React.RefObject<HTMLElement | null>; scrim: React.RefObject<HTMLDivElement | null>; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string; host?: string; wolts: Wolt[]; people: Person[];
-  push: { state: "ask" | "on" | "off"; turnOn: () => void }; freshCount: number; onThreads: () => void; onAgent: () => void; main?: string | null;
+  push: { state: "ask" | "on" | "off"; turnOn: () => void }; freshCount: number; onThreads: () => void; onAgent: () => void; onEveryone: () => void; main?: string | null;
   looks?: Record<string, Record<string, string>>; faces?: Record<string, string>; guestAgents?: boolean;
 }) {
   // while a finger drags it, App moves these two directly; otherwise the classes below decide
@@ -46,8 +44,9 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         <button type="button" onClick={() => { close(); onThreads(); }} className={row}><Inbox size={20} className="text-acc" /><span className="flex-1">Inbox</span>
           {freshCount > 0 && <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{freshCount}</span>}</button>
         <ChatsSwitch />
-        <People people={people} me={me} host={host} faces={faces} sec={sec} />
-        <Agents wolts={wolts} people={people} me={me} host={host} sec={sec} main={main} looks={looks} />
+        {/* people and agents live on their own cards now: pull down on the chats, tap a face for its hat, pause, main agent… */}
+        <button type="button" onClick={() => { close(); onEveryone(); }} className={row}><Users size={20} className="text-acc" />
+          <span className="flex-1">Everyone<small className="block text-xs text-dim">{people.length} {people.length === 1 ? "person" : "people"} · {wolts.length} {wolts.length === 1 ? "agent" : "agents"} · tap a face for hats, pause and more</small></span><ChevronRight size={20} className="text-acc" /></button>
       </div>
     </aside>
   </>;

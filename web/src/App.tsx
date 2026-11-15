@@ -763,7 +763,7 @@ export function App() {
           New chat started{state.main && state.who?.[thread]?.[state.main] !== "paused" ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
         {composer}
       </ThreadSheet>}
-      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
+      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} onEveryone={() => { setThread(""); setLobby(false); setStrip(true); }} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}

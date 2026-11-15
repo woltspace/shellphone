@@ -1,6 +1,9 @@
 // Someone's card, opened from the strip: who they are, what they're up to right now, and the chats they're in.
 // For a wolt: who keeps it and where it's gnawing. For a person: their wolts. Tap a chat to go there.
-import { X } from "lucide-react";
+import { useState } from "react";
+import { Crown, Pause, Play, Shirt, X } from "lucide-react";
+import { crown, setWolt } from "./Agents";
+import { HatGrid, putFace, putLook } from "./HatShop";
 import { mix, woltColor, woltFace } from "./Message";
 import type { Msg, State } from "./room";
 import { personAvatar } from "./sprites";
@@ -16,6 +19,7 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
   const isWolt = who.startsWith("w:"), key = who.slice(2);
   const w = isWolt ? state.members.wolts.find((x) => x.wolt === key) : undefined;
   const p = !isWolt ? state.members.people.find((x) => x.email === key) : undefined;
+  const [hats, setHats] = useState(false), [asking, setAsking] = useState(false), [busy, setBusy] = useState(false), [note, setNote] = useState("");
   if (!w && !p) return null;
   const color = w ? woltColor(w.wolt, state.members.wolts) : person(p!.email).color;
   const face = w ? woltFace(w.wolt, w.creature) : personAvatar(p!.name, color, worn.people[p!.email]);
@@ -32,6 +36,13 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
   const last = mine[mine.length - 1];
   const wolts = p ? state.members.wolts.filter((x) => x.owner === p.email) : [];
   const keeper = w ? state.members.people.find((x) => x.email === w.owner) : undefined;
+  // what you may change here, the same as the room allows: your own hat; your own wolts (any wolt, for the host)
+  const meP = state.members.people.find((x) => x.email === state.me), guest = !!meP?.guest;
+  const mayWolt = !!w && !guest && (state.me === state.host || w.owner === state.me);
+  const mayHat = w ? mayWolt : p!.email === state.me && !guest;
+  const hatNow = w ? state.looks?.[w.wolt]?.hat || "" : (state.faces?.[p!.email] || "").replace(/^hat-/, "");
+  const act = async (f: () => Promise<string | null>) => { setBusy(true); setAsking(false); setNote((await f()) || ""); setBusy(false); };
+  const chip = "flex items-center gap-1.5 h-9 px-3 rounded-full border font-mono text-[12.5px] font-semibold cursor-pointer disabled:opacity-50";
   const sec = "mt-4 mb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
   return <div className="absolute inset-0 z-[1660]">
     <div onClick={onClose} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
@@ -57,6 +68,20 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-[max(16px,env(safe-area-inset-bottom))]">
+        {(mayHat || mayWolt) && <div className="flex flex-wrap gap-2 pt-1">
+          {mayHat && <button type="button" onClick={() => setHats(!hats)} aria-expanded={hats} className={`${chip} ${hats ? "border-acc bg-[#f6e2d6] text-acc" : "border-line bg-white text-ink"}`}><Shirt size={15} />{w ? "Hat" : "Your hat"}</button>}
+          {mayWolt && <button type="button" disabled={busy} onClick={() => act(() => setWolt(w!.wolt, w!.paused ? "on" : "paused"))}
+            className={`${chip} border-line bg-white ${w!.paused ? "text-acc" : "text-ink"}`}>{w!.paused ? <><Play size={15} />Bring back</> : <><Pause size={15} />Pause</>}</button>}
+          {mayWolt && state.me === state.host && state.main !== undefined && <button type="button" disabled={busy} onClick={() => act(() => crown(state.main === w!.wolt ? null : w!.wolt))}
+            className={`${chip} ${state.main === w!.wolt ? "border-acc bg-[#f6e2d6] text-acc" : "border-line bg-white text-ink"}`}><Crown size={15} />{state.main === w!.wolt ? "Main agent ✓" : "Make main agent"}</button>}
+          {mayWolt && (asking
+            ? <><button type="button" disabled={busy} onClick={() => act(async () => { const r = await setWolt(w!.wolt, "removed"); if (!r) onClose(); return r; })} className={`${chip} border-acc bg-acc text-white`}>Remove {w!.wolt}</button>
+              <button type="button" onClick={() => setAsking(false)} className={`${chip} border-line bg-white text-dim`}>Keep</button></>
+            : <button type="button" onClick={() => setAsking(true)} aria-label={`Remove ${w!.wolt}`} className={`${chip} border-line bg-white text-dim`}><X size={15} />Remove</button>)}
+        </div>}
+        {w?.paused && <p className="mt-2 text-[12.5px] text-dim">Paused: it hears nothing in this room, a tag included, and can't post.</p>}
+        {hats && <div className="-mx-4 mt-2"><HatGrid hat={hatNow} put={(h) => (w ? putLook(w.wolt, state.looks?.[w.wolt], h) : putFace(h))} /></div>}
+        {note && <p className="mt-1 text-xs text-acc">{note}</p>}
         {working.length > 0 && <>
           <div className={sec}>Working on it now</div>
           {working.map((t) => { const r = byId.get(t); return <button type="button" key={t || "main"} onClick={() => t && onOpen(t)}
