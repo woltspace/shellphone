@@ -475,7 +475,7 @@ export function App() {
   // everyone, people and wolts, pulled down from the top: on the chats, the app opens with it down, and scrolling folds it away
   const [strip, setStrip] = useState(true);
   const stripEl = useRef<HTMLDivElement>(null), pull = usePullDown(strip, setStrip, stripEl);
-  const chatList = useRef<HTMLDivElement>(null), pullChats = usePullDown(strip, setStrip, stripEl, () => (chatList.current?.scrollTop ?? 0) <= 0);  // the chats, pulled down at their top, show everyone too
+  const chatList = useRef<HTMLDivElement>(null);  // on the chats, everyone is the top of the list: scroll up to see them
   const [who, setWho] = useState<Who>("");  // someone's card, opened from the strip
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
@@ -728,7 +728,7 @@ export function App() {
         <span className="relative flex-none w-12 h-12 rounded-full bg-[#f5f1e8] ring-1 ring-line"><img src="/room-icon.png" alt="" className="absolute inset-1 w-10 h-10 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
         <div className="min-w-0 flex-1">
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
-          <button type="button" aria-expanded={strip} onClick={() => setStrip(!strip)} className="block max-w-full p-0 border-0 bg-transparent text-left font-mono text-[11px] text-dim truncate cursor-pointer">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</button>
+          <button type="button" aria-expanded={strip} onClick={() => { if (chatsHome && !lobby) chatList.current?.scrollTo({ top: 0, behavior: "smooth" }); else setStrip(!strip); }} className="block max-w-full p-0 border-0 bg-transparent text-left font-mono text-[11px] text-dim truncate cursor-pointer">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</button>
         </div>
         {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
           className={`flex-none w-10 h-10 grid place-items-center border-0 cursor-pointer rounded-[10px] ${desk ? "bg-acc text-white" : "bg-transparent text-acc"}`}><Monitor size={20} /></button>}
@@ -736,8 +736,9 @@ export function App() {
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>}
       </header>
-      <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />
-      {chatsHome && !lobby ? <div ref={chatList} {...pullChats} onScroll={(e) => { if (strip && e.currentTarget.scrollTop > 12) setStrip(false); }} className="flex-1 min-h-0 overflow-y-auto overscroll-y-none pb-24">
+      {!(chatsHome && !lobby) && <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />}
+      {chatsHome && !lobby ? <div ref={chatList} className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
+        <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
         {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
           onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
