@@ -4,8 +4,7 @@
 // host, on the computer it runs on (see link_call in room.py); for anyone else this draws nothing.
 import { useEffect, useState } from "react";
 import { ChevronRight, Globe, Loader2, Lock, Smartphone, UserPlus } from "lucide-react";
-
-type Info = { linked: boolean; relay?: string; link?: string; invite?: string; guests?: number; error?: string };
+import { after, unlinkedWords, type Info } from "./linkwords.js";
 
 async function ask(on?: boolean): Promise<Info | null> {
   try {
@@ -32,16 +31,17 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
     setBusy(on ? "link" : "unlink"); setNote(""); setMine(""); setSure(false);
     const got = await ask(on);
     setBusy("");
-    if (!got) return setNote("Couldn't reach the room. Try again.");
-    setInfo(got.error ? { ...info, error: got.error } : got);
-    if (on && got.linked && got.invite) pass(got.invite, "Join my shellphone room", setNote);  // "Link and invite": the invite comes right after
+    const now = after(info, got);
+    setInfo(now.info); setNote(now.note);
+    if (on && got && got.linked && got.invite) pass(got.invite, "Join my shellphone room", setNote);  // "Link and invite": the invite comes right after
   };
   const small = "block text-xs text-dim";
+  const words = unlinkedWords(info, note, busy);
   if (!info.linked) return <>
     <div className={`${row} cursor-default`}><Lock size={20} className="text-go" />
       <span className="flex-1">Not linked<small className={small}>Nobody can reach this room through {info.relay || "the site"}.</small></span></div>
     <button type="button" disabled={!!busy} onClick={() => flip(true)} className={row}><UserPlus size={20} className="text-acc" />
-      <span className="flex-1">Invite people<small className={`${small} ${info.error ? "text-acc" : ""}`}>{busy ? "Linking the room…" : info.error || `To invite someone, the room is linked to ${info.relay || "the site"} first. You can unlink it any time.`}</small>
+      <span className="flex-1">Invite people<small className={`${small} ${words.warn ? "text-acc" : ""}`}>{words.text}</small>
         {!busy && <span className="inline-block mt-2 font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">link and invite</span>}</span>
       {busy && <Loader2 size={20} className="text-acc animate-spin" />}</button>
   </>;
@@ -53,7 +53,7 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
     <button type="button" onClick={() => info.link && pass(info.link, "My shellphone room", setMine)} className={row}><Smartphone size={20} className="text-acc" />
       <span className="flex-1">Open it on your phone<small className={`${small} ${mine.startsWith("http") ? "break-all" : ""}`}>{mine || "Your own link: it opens the room as you, its host. Keep it to yourself."}</small></span><ChevronRight size={20} className="text-acc" /></button>
     <button type="button" disabled={!!busy} onClick={() => (sure ? flip(false) : setSure(true))} className={row}><Lock size={20} className={sure ? "text-acc" : "text-dim"} />
-      <span className="flex-1">{sure ? "Tap again to unlink" : "Unlink"}<small className={small}>{busy ? "Unlinking…" : "Everyone outside loses access at once, and both links stop working for good. The room and its history stay here."}</small></span>
+      <span className="flex-1">{sure ? "Tap again to unlink" : "Unlink"}<small className={small}>{busy ? "Unlinking…" : `Everyone who came in through ${info.relay} loses access at once, and both links stop working for good. The room and its history stay here.`}</small></span>
       {busy ? <Loader2 size={20} className="text-acc animate-spin" /> : sure ? <span className="font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">unlink</span> : null}</button>
   </>;
 }

@@ -180,6 +180,7 @@ class Linker:
 
     def __init__(self, r, data, keep, relay, link=None):
         self.r, self.data, self.keep, self.relay, self.link, self.lock = r, data, keep, relay.rstrip("/"), link, threading.Lock()
+        self.filing = threading.Lock()  # held while link.json is written or removed, so a late save can't bring an unlinked room's link back
 
     def info(self):
         link = self.link
@@ -191,17 +192,22 @@ class Linker:
         try:
             got = json.loads((self.data / LINK).read_text())
             return dict(relay=got["relay"], room_id=seal.b64d(got["room"], 16), secret=seal.b64d(got["secret"], 32), token=got["token"],
-                        invite_secret=seal.b64d(got["invite_secret"], 32), invite_token=got["invite_token"])
-        except (OSError, ValueError, KeyError, TypeError, seal.SealError):
+                        invite_secret=seal.b64d(got["invite_secret"], 32), invite_token=got["invite_token"],
+                        guests={str(t): str(e) for t, e in (got.get("guests") or {}).items()}, guest_agents=bool(got.get("guest_agents", True)))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, seal.SealError):
             return None
 
     def save(self, link):
         from . import seal
         if not self.keep:
             return
-        with private(self.data / LINK) as f:
-            json.dump({"relay": link.relay, "room": seal.b64e(link.room_id), "secret": seal.b64e(link.secret), "token": link.token,
-                       "invite_secret": seal.b64e(link.invite_secret), "invite_token": link.invite_token}, f)
+        with self.filing:
+            if self.link is not link or not link.open:  # unlinked or closing meanwhile: what it holds now must not be kept
+                return
+            with private(self.data / LINK) as f:
+                json.dump({"relay": link.relay, "room": seal.b64e(link.room_id), "secret": seal.b64e(link.secret), "token": link.token,
+                           "invite_secret": seal.b64e(link.invite_secret), "invite_token": link.invite_token,
+                           "guests": dict(link.guests), "guest_agents": link.allow["guest_agents"]}, f)
 
     def on(self):
         """Link the room. Returns (status, what the host's page shows)."""
@@ -214,6 +220,7 @@ class Linker:
             if why != "up":
                 return 502, {"error": f"couldn't link the room through {urllib.parse.urlsplit(link.relay).netloc}: {why_not(why)}", "linked": False}
             self.link = link
+            link.changed = lambda: self.save(link)  # a guest came in, or the host changed what guests may do
             self.save(link)
             return 200, link.info()
 
@@ -223,11 +230,13 @@ class Linker:
             link, self.link = self.link, None
             if link:
                 link.stop()
-            (self.data / LINK).unlink(missing_ok=True)
+            with self.filing:
+                (self.data / LINK).unlink(missing_ok=True)
             return 200, self.info()
 
     def close(self):  # the room is closing: the connection goes, a kept room's link stays for its next run
-        link, self.link = self.link, None
+        with self.filing:  # nothing is saved from here on: stop() below throws the link's secrets away
+            link, self.link = self.link, None
         if link:
             link.stop()
 

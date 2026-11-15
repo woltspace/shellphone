@@ -38,14 +38,18 @@ class Link:
     start() connects out and says how that went; stop() ends it for good: the address, both secrets and every
     guest's token are thrown away, so nothing that was handed out can come back in. A new link is a new Link."""
 
-    def __init__(self, r, host_email, relay, room_id=None, secret=None, token=None, invite_secret=None, invite_token=None, say=print):
+    def __init__(self, r, host_email, relay, room_id=None, secret=None, token=None, invite_secret=None, invite_token=None, guests=None, guest_agents=True, say=print):
         self.r, self.host_email, self.relay, self.say = r, host_email, relay.rstrip("/"), say
         self.room_id, self.secret, self.token = room_id or secrets.token_bytes(16), secret or secrets.token_bytes(32), token or secrets.token_urlsafe(24)
         # The invite link has a secret and a token of its own, so nobody holding it can come in as the host. All it can
         # do is make a guest: a person with the name they typed, the guest mark, and a token of their own. (That token is
         # handed over under the invite secret, which every invited person shares: guests are not protected from each other.)
-        self.invite_secret, self.invite_token, self.guests = invite_secret or secrets.token_bytes(32), invite_token or secrets.token_urlsafe(24), {}
-        self.allow = {"guest_agents": True}  # the host can turn agents from guests off (and on) from the room's menu
+        self.invite_secret, self.invite_token = invite_secret or secrets.token_bytes(32), invite_token or secrets.token_urlsafe(24)
+        # Guests' tokens and the host's choice below come back with a kept room's link (guests, guest_agents), so a
+        # restart neither locks out the people already in nor quietly undoes what the host turned off.
+        self.guests = dict(guests or {})
+        self.allow = {"guest_agents": bool(guest_agents)}  # the host can turn agents from guests off (and on) from the room's menu
+        self.changed = lambda: None  # called when either of those changes, so whoever keeps this link can save it
         self.open = False  # the gate: while it's shut, nothing that comes through the relay is answered
         self.state, self.first = None, threading.Event()
         self._stop, self._news, self._thread = threading.Event(), threading.Event(), None
@@ -169,6 +173,7 @@ class Link:
                 return 400, {"error": str(exc)}
             mine = secrets.token_urlsafe(24)
             self.guests[mine] = email
+            self.changed()
             return 200, {"token": mine}
         else:  # a guest's own token
             email = self.person(kind, auth)
@@ -180,6 +185,7 @@ class Link:
             if email != self.host_email:
                 return 403, {"error": "only the room's host can do that"}
             self.allow["guest_agents"] = bool(body.get("on")) if isinstance(body, dict) else self.allow["guest_agents"]
+            self.changed()
             return 200, {"guest_agents": self.allow["guest_agents"]}
         if (method, path) not in SHARED:
             return 404, {"error": "not found"}

@@ -756,6 +756,38 @@ class ThroughTheRelay(unittest.TestCase):
         proc, banner, url, door = self.local_room("--keep", keep)
         self.assertIn("on this computer only", banner)
 
+    def test_a_kept_room_restarts_with_its_guests_and_the_hosts_choices(self):
+        keep = tempfile.mkdtemp(dir=self.tmp.name)
+        proc, banner, url, door = self.local_room("--keep", keep, "--link")
+        mine = re.search(r"Open it from anywhere:\s+(\S+)", banner).group(1)
+        invite = re.search(r"Invite people:\s+(\S+)", banner).group(1)
+        base, key = invite.split("#")
+        got = self.page(invite)(cmd="request", method="POST", path="/api/guest", body={"name": "Ali"})
+        self.assertEqual(got["status"], 200)
+        ali_link = f"{base}#i.{key.split('.')[1]}.{got['body']['token']}"
+        ali = self.page(ali_link)
+        self.assertEqual(ali(cmd="request", method="POST", path="/api/messages", body={"text": "before the restart", "cid": "k0000001"})["status"], 200)
+        self.assertEqual(self.page(mine)(cmd="request", method="POST", path="/api/guest-agents", body={"on": False})["body"], {"guest_agents": False})
+        self.assertEqual(os.stat(Path(keep) / "link.json").st_mode & 0o777, 0o600)
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=15)
+        proc, banner, url, door = self.local_room("--keep", keep)
+        # the same browser, with the token it kept, is still Ali; and what the host turned off stays off
+        again = self.page(ali_link)
+        state = again(cmd="request", method="GET", path="/api/state?after=0")
+        self.assertEqual(state["status"], 200)
+        self.assertIn("before the restart", self.texts(state["body"]))
+        self.assertEqual(again(cmd="request", method="POST", path="/api/messages", body={"text": "after the restart", "cid": "k0000002"})["status"], 200)
+        self.assertFalse(self.page(mine)(cmd="request", method="GET", path="/api/state?after=0")["body"]["guest_agents"])
+        # unlinked, the guest's token is gone with the link, and a restart doesn't bring it back
+        self.assertEqual(self.switch("unlink", url).returncode, 0)
+        self.assertFalse((Path(keep) / "link.json").exists())
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=15)
+        proc, banner, url, door = self.local_room("--keep", keep)
+        self.assertIn("on this computer only", banner)
+        self.assertFalse((Path(keep) / "link.json").exists())
+
 
 @E2E
 class RoomCap(unittest.TestCase):
