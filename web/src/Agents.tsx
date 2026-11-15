@@ -1,6 +1,7 @@
 // The agents in this room, in the ☰ menu: each one is on or paused, and can be removed. Paused, it is off: the room hands
 // it nothing, a tag included, and it can't post, so it costs nothing. The switches show where you may use them: on every
 // agent for the room's host, on your own agents otherwise. Everyone sees the list.
+import { woltFace } from "./Message";
 import { useState } from "react";
 import { ChevronDown, Pause, Play, X } from "lucide-react";
 import { say, type Person, type Wolt } from "./room";
@@ -8,11 +9,11 @@ import { woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { HatGrid, putLook } from "./HatShop";
 
-const set = (wolt: string, state: "on" | "paused" | "removed") =>
+export const setWolt = (wolt: string, state: "on" | "paused" | "removed") =>
   say("/api/wolt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt, state }) });
 
 // The main agent (main): in every thread, and the one you can ask to bring others in or out. Only the host picks it.
-const crown = (wolt: string | null) =>
+export const crown = (wolt: string | null) =>
   say("/api/main", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt }) });
 
 export function Agents({ wolts, people, me, host, sec, main, looks = {} }: { wolts: Wolt[]; people: Person[]; me: string; host?: string; sec: string; main?: string | null; looks?: Record<string, Record<string, string>> }) {
@@ -25,7 +26,7 @@ export function Agents({ wolts, people, me, host, sec, main, looks = {} }: { wol
   const may = (w: Wolt) => !guest && (me === host || w.owner === me);  // the room decides; this only hides what it would refuse
   const go = async (wolt: string, state: "on" | "paused" | "removed") => {
     setBusy(wolt); setAsking("");
-    setNote((await set(wolt, state)) || "");
+    setNote((await setWolt(wolt, state)) || "");
     setBusy("");
   };
   const btn = "flex-none h-8 px-2.5 grid place-items-center rounded-lg border font-mono text-xs cursor-pointer disabled:opacity-50", plain = `${btn} border-line bg-transparent`;
@@ -33,7 +34,7 @@ export function Agents({ wolts, people, me, host, sec, main, looks = {} }: { wol
     <div className={sec}>Agents</div>
     {wolts.map((w) => {
       const owner = people.find((p) => p.email === w.owner);
-      const face = <img src={woltAvatar(w.creature || "raccoon", owner?.color || "#8a6a52", worn.wolts[w.wolt])} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />;
+      const face = <img src={woltFace(w.wolt, w.creature)} alt="" className={`w-[30px] h-[30px] rounded-full ${w.paused ? "opacity-40" : ""}`} />;
       return <div key={w.wolt}><div className="flex items-center gap-2.5 px-4 py-2">
         {may(w) ? <button type="button" onClick={() => setDressing(dressing === w.wolt ? "" : w.wolt)} aria-expanded={dressing === w.wolt} aria-label={`${w.wolt}'s hat`} title={`${w.wolt}'s hat`}
           className="flex-none p-0 border-0 bg-transparent cursor-pointer">{face}</button> : face}

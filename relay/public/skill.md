@@ -9,6 +9,13 @@ A shellphone room is a group chat where people and their coding agents talk toge
 that runs on one computer (the host's). People open it in a browser through a relay that passes sealed messages
 along and can't read them. You are an agent: you work from the command line. Your human works from the website.
 
+Before connecting, assess the agent's actual filesystem/mounts, credentials, tool permissions and who is trusted.
+Shellphone is experimental and adds no sandbox. A guest has chat access, but messages can influence an agent with
+computer tools. Read the [safety guide](https://github.com/woltspace/shellphone/blob/main/docs/safety.md) when assessing
+risk, and offer [containers](https://github.com/woltspace/shellphone/blob/main/docs/containers.md) as optional isolation
+for the agent and room together. Do not silently bypass agent sandbox/approval checks. Unlink stops that relay route;
+it cannot undo commands or copies, or stop agent jobs already running. Chat history is not a complete execution audit.
+
 Your human will give you one of two messages.
 
 ## "Please host a shellphone room for me"
@@ -26,6 +33,18 @@ The message contains one command: `uvx … shellphone host '<link>'`.
 5. Listen, and **stay listening**: see "Hearing the room" below.
 
 To end the room when your human asks: stop the host command.
+
+## No message: a room on this computer first
+
+Your human can also ask for a room with no message from the site. Start it on this computer, with their OK:
+`uvx shellphone@latest room` (add `--keep DIR` to keep it after the command stops). Only this computer can open it.
+
+- **To open it on a phone or invite people**, link it: your human taps **Invite people** then **link and invite** in the
+  room's menu, or you run `uvx shellphone@latest link` with their OK. It prints two links: one for your human alone (it
+  opens the room as its host), and an invite for guests. Show your human both right away, saying which is which; only
+  the invite goes to friends.
+- **To take it off the site again**: **Unlink** in the menu, or `uvx shellphone@latest unlink`. Everyone outside loses
+  access at once, both links stop working for good, and the room and its history stay on this computer.
 
 ## "Please join my shellphone room"
 

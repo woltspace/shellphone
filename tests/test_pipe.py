@@ -629,6 +629,22 @@ class ThroughTheRelay(unittest.TestCase):
         fake = self.page(f"{base}#h.{secret_part}.{self.token}", helloWait=400)
         self.assertEqual(fake(cmd="request", method="GET", path="/api/state"), {"failed": "refused"})
 
+    def test_the_host_renames_a_chat_through_the_relay_and_a_guest_cannot(self):
+        link = self.link()
+        self.host(link)
+        base, me = link.split("#")[0], self.page(link)
+        said = me(cmd="request", method="POST", path="/api/messages", body={"text": "plans for the weekend", "cid": "r0000001"})
+        self.assertEqual(said["status"], 200)
+        chat = said["body"]["id"]
+        got = me(cmd="request", method="POST", path="/api/rename", body={"thread": chat, "name": "  Weekend   plans "})
+        self.assertEqual((got["status"], got["body"]), (200, {"thread": chat, "name": "Weekend plans"}))
+        self.assertEqual(me(cmd="request", method="GET", path="/api/state?after=0")["body"]["names"], {chat: "Weekend plans"})
+        key = me(cmd="request", method="GET", path="/api/invite")["body"]["key"]
+        token = self.page(f"{base}#{key}")(cmd="request", method="POST", path="/api/guest", body={"name": "Ali"})["body"]["token"]
+        ali = self.page(f"{base}#i.{key.split('.')[1]}.{token}")
+        self.assertEqual(ali(cmd="request", method="POST", path="/api/rename", body={"thread": chat, "name": "Mine now"})["status"], 403)
+        self.assertEqual(ali(cmd="request", method="GET", path="/api/state?after=0")["body"]["names"], {chat: "Weekend plans"})  # a guest sees the name, and can't change it
+
     def test_a_room_has_one_host_and_the_relay_can_be_locked(self):
         link = self.link()
         self.host(link)
@@ -636,6 +652,164 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertNotIn("room is up", said)
         _, said = self.host(self.link(), key="wrong", wait_for="not open to new rooms")
         self.assertNotIn("room is up", said)
+
+    # -- a room opened on this computer first, and linked afterwards
+
+    def local_room(self, *args):
+        env = {**os.environ, "PYTHONPATH": str(REPO), "PYTHONUNBUFFERED": "1", "SHELLPHONE_RELAY_KEY": "test-host-key", "SHELLPHONE_RELAY": self.base}
+        p = subprocess.Popen([sys.executable, "-m", "shellphone.cli", "room", "--port", "0", "--name", "Sam", *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+        self.procs.append(p)
+        seen = ""
+        while "Press Ctrl-C" not in seen:
+            line = p.stdout.readline()
+            if not line:
+                self.fail("the room didn't start:\n" + seen)
+            seen += line
+        local = re.search(r"Open the chat:\s+(\S+)", seen).group(1)
+        door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        door.open(local)
+        return p, seen, local.split("/?")[0], door
+
+    def switch(self, cmd, url):
+        env = {**os.environ, "PYTHONPATH": str(REPO)}
+        return subprocess.run([sys.executable, "-m", "shellphone.cli", cmd, "--port", url.rsplit(":", 1)[1]], capture_output=True, text=True, timeout=60, env=env)
+
+    def say(self, door, url, text, cid):
+        return door.open(urllib.request.Request(url + "/api/messages", data=json.dumps({"text": text, "cid": cid}).encode(), headers={"Content-Type": "application/json"}))
+
+    def texts(self, body):
+        return [m.get("text") for m in body["messages"] if m["kind"] == "human"]
+
+    def test_a_room_on_this_computer_is_linked_and_unlinked_while_it_runs(self):
+        proc, banner, url, door = self.local_room()
+        self.assertIn("on this computer only", banner)
+        self.assertEqual(json.load(door.open(url + "/api/link"))["linked"], False)
+        self.say(door, url, "said before anyone could reach the room", "before01")
+        # link it: the same room, with what was said in it, is reachable through the relay
+        linked = self.switch("link", url)
+        self.assertEqual(linked.returncode, 0, linked.stdout + linked.stderr)
+        first = re.search(r"Open it from anywhere:\s+(\S+)", linked.stdout).group(1)
+        invite = re.search(r"Invite people:\s+(\S+)", linked.stdout).group(1)
+        info = json.load(door.open(url + "/api/link"))
+        self.assertEqual((info["linked"], info["link"], info["invite"]), (True, first, invite))
+        ask = self.page(first)
+        state = ask(cmd="request", method="GET", path="/api/state?after=0")
+        self.assertEqual((state["status"], state["body"]["me"], self.texts(state["body"])), (200, "host@shellphone.local", ["said before anyone could reach the room"]))
+        guest = self.page(invite)
+        self.assertEqual(guest(cmd="request", method="POST", path="/api/guest", body={"name": "Robin"})["status"], 200)
+        # linking again changes nothing: it is the same link
+        self.assertIn(first, self.switch("link", url).stdout)
+        # the switch itself can't be reached through the relay, by the host's own link either
+        self.assertEqual(ask(cmd="request", method="GET", path="/api/link")["status"], 404)
+        self.assertEqual(ask(cmd="request", method="POST", path="/api/link", body={"on": False})["status"], 404)
+        # unlink: everyone outside is cut off, and the room goes on as it was
+        gone = self.switch("unlink", url)
+        self.assertEqual(gone.returncode, 0, gone.stdout + gone.stderr)
+        self.assertIn("The room is unlinked", gone.stdout)
+        self.assertEqual(ask(cmd="wait", state="offline")["state"], "offline")
+        self.assertEqual(guest(cmd="wait", state="offline")["state"], "offline")
+        room_id = re.search(r"/r/([A-Za-z0-9_-]{22})", first).group(1)
+        self.assertFalse(json.load(urllib.request.urlopen(f"{self.base}/r/{room_id}/up"))["up"])
+        self.assertEqual(json.load(door.open(url + "/api/link"))["linked"], False)
+        self.say(door, url, "said after unlinking", "after001")
+        self.assertEqual(self.texts(json.load(door.open(url + "/api/state"))), ["said before anyone could reach the room", "said after unlinking"])
+        # link once more: a new address and new keys; the old links open nothing
+        again = self.switch("link", url)
+        second = re.search(r"Open it from anywhere:\s+(\S+)", again.stdout).group(1)
+        self.assertNotEqual(second.split("#")[0], first.split("#")[0])
+        self.assertNotEqual(second.split("#")[1], first.split("#")[1])
+        fresh = self.page(second)
+        self.assertEqual(self.texts(fresh(cmd="request", method="GET", path="/api/state?after=0")["body"])[-1], "said after unlinking")
+        old = self.page(first)
+        self.assertNotEqual(old(cmd="request", method="GET", path="/api/state?after=0").get("status"), 200)
+        self.assertIsNone(proc.poll())  # one process the whole time: the room was never restarted
+
+    def test_only_the_host_on_this_computer_reaches_the_switch(self):
+        proc, banner, url, door = self.local_room()
+        for headers in ({}, {"Cookie": "sp0=wrong"}):
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                urllib.request.urlopen(urllib.request.Request(url + "/api/link", headers=headers))
+            self.assertEqual(refused.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as refused:  # another site's page, with the host's own cookie
+            door.open(urllib.request.Request(url + "/api/link", data=b'{"on": true}', headers={"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site"}))
+        self.assertEqual(refused.exception.code, 403)
+        with self.assertRaises(urllib.error.HTTPError) as refused:  # the room reached by another name than this computer's own
+            door.open(urllib.request.Request(url + "/api/link", headers={"Host": "room.example.com"}))
+        self.assertEqual(refused.exception.code, 403)
+        self.assertEqual(json.load(door.open(url + "/api/link"))["linked"], False)
+
+    def test_a_room_that_cant_be_linked_stays_open_on_this_computer(self):
+        env = {**os.environ, "PYTHONPATH": str(REPO), "PYTHONUNBUFFERED": "1", "SHELLPHONE_RELAY": f"http://127.0.0.1:{free_port()}"}  # nothing listens there
+        p = subprocess.Popen([sys.executable, "-m", "shellphone.cli", "room", "--port", "0", "--name", "Sam", "--link"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+        self.procs.append(p)
+        seen = ""
+        while "Press Ctrl-C" not in seen:
+            line = p.stdout.readline()
+            self.assertTrue(line, seen)
+            seen += line
+        self.assertIn("couldn't link the room", seen)
+        local = re.search(r"Open the chat:\s+(\S+)", seen).group(1)
+        door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        door.open(local)
+        self.assertEqual(json.load(door.open(local.split("/?")[0] + "/api/state"))["me"], "host@shellphone.local")
+
+    def test_a_kept_room_comes_back_at_the_same_address_until_it_is_unlinked(self):
+        keep = tempfile.mkdtemp(dir=self.tmp.name)
+        proc, banner, url, door = self.local_room("--keep", keep, "--link")
+        first = re.search(r"Open it from anywhere:\s+(\S+)", banner).group(1)
+        self.assertEqual(os.stat(Path(keep) / "link.json").st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(Path(keep) / "run.json").st_mode & 0o777, 0o600)
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=15)
+        self.assertFalse((Path(keep) / "run.json").exists())
+        proc, banner, url, door = self.local_room("--keep", keep)
+        self.assertEqual(re.search(r"Open it from anywhere:\s+(\S+)", banner).group(1), first)
+        self.assertEqual(self.page(first)(cmd="request", method="GET", path="/api/state?after=0")["status"], 200)
+        self.assertEqual(self.switch("unlink", url).returncode, 0)
+        self.assertFalse((Path(keep) / "link.json").exists())
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=15)
+        proc, banner, url, door = self.local_room("--keep", keep)
+        self.assertIn("on this computer only", banner)
+
+    def test_a_kept_room_restarts_with_its_guests_and_the_hosts_choices(self):
+        keep = tempfile.mkdtemp(dir=self.tmp.name)
+        proc, banner, url, door = self.local_room("--keep", keep, "--link")
+        mine = re.search(r"Open it from anywhere:\s+(\S+)", banner).group(1)
+        invite = re.search(r"Invite people:\s+(\S+)", banner).group(1)
+        base, key = invite.split("#")
+        got = self.page(invite)(cmd="request", method="POST", path="/api/guest", body={"name": "Ali"})
+        self.assertEqual(got["status"], 200)
+        ali_link = f"{base}#i.{key.split('.')[1]}.{got['body']['token']}"
+        ali = self.page(ali_link)
+        self.assertEqual(ali(cmd="request", method="POST", path="/api/messages", body={"text": "before the restart", "cid": "k0000001"})["status"], 200)
+        self.assertEqual(self.page(mine)(cmd="request", method="POST", path="/api/guest-agents", body={"on": False})["body"], {"guest_agents": False})
+        self.assertEqual(os.stat(Path(keep) / "link.json").st_mode & 0o777, 0o600)
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=15)
+        proc, banner, url, door = self.local_room("--keep", keep)
+        # the same browser, with the token it kept, is still Ali; and what the host turned off stays off
+        again = self.page(ali_link)
+        state = again(cmd="request", method="GET", path="/api/state?after=0")
+        self.assertEqual(state["status"], 200)
+        self.assertIn("before the restart", self.texts(state["body"]))
+        self.assertEqual(again(cmd="request", method="POST", path="/api/messages", body={"text": "after the restart", "cid": "k0000002"})["status"], 200)
+        self.assertFalse(self.page(mine)(cmd="request", method="GET", path="/api/state?after=0")["body"]["guest_agents"])
+        # unlinked, the guest's token is gone with the link, and a restart doesn't bring it back
+        self.assertEqual(self.switch("unlink", url).returncode, 0)
+        self.assertFalse((Path(keep) / "link.json").exists())
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=15)
+        proc, banner, url, door = self.local_room("--keep", keep)
+        self.assertIn("on this computer only", banner)
+        self.assertFalse((Path(keep) / "link.json").exists())
+
+
+def entered(test, manager):
+    """TestCase.enterContext, which only exists from Python 3.11: enter now, leave when the test is over."""
+    value = manager.__enter__()
+    test.addCleanup(manager.__exit__, None, None, None)
+    return value
 
 
 @E2E
@@ -687,7 +861,7 @@ class RoomCap(unittest.TestCase):
                 host(claim)
             return no.exception.response.status_code
         mine, other = "m" * 43, "o" * 43
-        first = self.enterContext(host(mine))
+        first = entered(self, host(mine))
         self.assertTrue(up())
         self.assertEqual(refused(mine), 409)  # just let in: nobody takes its place
         for _ in range(4):  # it says it's here, and the relay answers by itself, for longer than the silence allowed
@@ -700,7 +874,7 @@ class RoomCap(unittest.TestCase):
         self.assertFalse(up())
         self.assertEqual(refused(other), 409)
         self.assertEqual(refused(), 409)
-        second = self.enterContext(host(mine))  # the room's own host, on a new connection
+        second = entered(self, host(mine))  # the room's own host, on a new connection
         self.assertTrue(up())
         with self.assertRaises(ConnectionClosed) as closed:
             first.recv(timeout=5)
@@ -709,7 +883,7 @@ class RoomCap(unittest.TestCase):
         self.assertEqual(second.recv(timeout=5), '{"pong":1}')
         second.close()
         # a host that shows no claim is the host of before: silent for as long, it is still the room, and stays
-        old = self.enterContext(host())
+        old = entered(self, host())
         time.sleep(2.5)
         self.assertTrue(up())
         self.assertEqual(refused(mine), 409)

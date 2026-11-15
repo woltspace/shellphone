@@ -32,6 +32,7 @@ TTS_MODEL = os.environ.get("SHELLPHONE_TTS_MODEL", "pocket")
 SPEECH_KEY = os.environ.get("SHELLPHONE_SPEECH_KEY", "")  # for a hosted speech service; sent as a Bearer token
 LOCK = threading.RLock()
 DEV = False
+LINKER = None  # set by the `shellphone` command: the room's switch between "only on this computer" and "linked" (info, on, off)
 LOCAL = {}  # `shellphone room` (a room on this computer only): login token -> email. The token comes in the link the host opens.
 # Behind Cloudflare Access: the team domain and the Access app's audience tag. With both set, people must carry a valid Access login.
 ACCESS_TEAM = os.environ.get("SHELLPHONE_ACCESS_TEAM", "")
@@ -89,6 +90,7 @@ create table if not exists thread_seen(thread text primary key);
 create table if not exists working_in(wolt text not null, thread text not null, until real not null, primary key(wolt, thread));
 create table if not exists looks(wolt text primary key, look text not null);
 create table if not exists faces(email text primary key, face text not null);
+create table if not exists chat_names(thread text primary key, name text not null, by text not null, at real not null);
 """
 CON = None
 
@@ -106,6 +108,8 @@ def con():
             CON.execute("alter table people add column guest integer not null default 0")
         if "paused" not in [c[1] for c in CON.execute("pragma table_info(wolts)")]:  # rooms from before agents could be paused
             CON.execute("alter table wolts add column paused integer not null default 0")
+        if "via" not in [c[1] for c in CON.execute("pragma table_info(wolts)")]:  # which link an agent on another computer joined through (shellphone/link.py)
+            CON.execute("alter table wolts add column via text")
         os.chmod(DB, 0o600)
     return CON
 
@@ -379,6 +383,20 @@ def seed(c, tid):
         for name, owner in known.items():
             if tagged(m, name):
                 c.execute("insert or ignore into thread_who values (?, ?, 'in')", (tid, name))
+
+
+def chat_names():
+    """Chats renamed by someone after they started: {thread: name}. Unnamed ones go by their title or first words."""
+    return {r["thread"]: r["name"] for r in q("select thread, name from chat_names")}
+
+
+def rename_chat(tid, name, email):
+    with tx() as c:
+        if name:
+            c.execute("insert or replace into chat_names values (?, ?, ?, ?)", (tid, name, email, time.time()))
+        else:  # an empty name: back to the one it started with
+            c.execute("delete from chat_names where thread = ?", (tid,))
+    return {"thread": tid, "name": name}
 
 
 def who_now():
@@ -874,6 +892,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Hand a call that passed the door (a known person, or a wolt's key) to the room, and send back its answer."""
         return Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0])
 
+    def link_call(self, email, body):
+        """Link or unlink the room, or say which it is. Only for the host, on this computer, from the room's own page or
+        command: this is answered here at the door and is no part of what the room answers through a relay."""
+        if not (LINKER and LOCAL and self.local_host() and email == host()):
+            return 403, {"error": "only the room's host can do that, on the computer the room runs on"}
+        if body is None:
+            return 200, LINKER.info()
+        if not isinstance(body, dict) or not isinstance(body.get("on"), bool):
+            return 400, {"error": "say on: true or false"}
+        return LINKER.on() if body["on"] else LINKER.off()
+
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -911,6 +940,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, join_page(email, p["name"]).encode(), "text/html; charset=utf-8")
         if not p:
             return self.send(403, {"error": "not on this room's list"})
+        if path == "/api/link":  # whether the room can be reached from outside: the host's to see, on this computer only
+            return self.send(*self.link_call(email, None))
         m = re.fullmatch(r"/assets/([\w.-]+\.(js|css))", path)  # the page's code and styles, built ahead of time into dist/
         if m and (HERE / "dist" / "assets" / m.group(1)).is_file():
             return self.send(200, (HERE / "dist" / "assets" / m.group(1)).read_bytes(), "text/javascript; charset=utf-8" if m.group(2) == "js" else "text/css; charset=utf-8")
@@ -931,6 +962,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             email, p = self.person()
             if not p:
                 return self.send(403, {"error": "not on this room's list"})
+            if path == "/api/link":
+                return self.send(*self.link_call(email, json.loads(self.body() or b"{}")))
             self.send(*for_person(self.call("POST"), email))
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})
@@ -1123,7 +1156,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "messages": messages(after)})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
@@ -1181,6 +1214,17 @@ def for_person(req, email):
         if not may_switch(email, who):
             return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
         return reply(200, set_who(where["thread"], who, state))
+    if path == "/api/rename":  # rename a chat ({"thread", "name"}; an empty name puts back the one it started with)
+        data = json.loads(req.read(20_000) or b"{}")
+        try:
+            spot = thread_of(data.get("thread"))
+        except ValueError as exc:
+            return reply(404, {"error": str(exc)})
+        if not spot:
+            return reply(400, {"error": "which chat?"})
+        if people().get(email, {}).get("guest"):
+            return reply(403, {"error": "guests can't rename chats"})
+        return reply(200, rename_chat(spot["thread"], " ".join(str(data.get("name") or "").split())[:80], email))
     if path == "/api/look":  # dress a wolt ({"wolt", "look": {"hat", ...}}): its keeper or the host
         data = json.loads(req.read(20_000) or b"{}")
         who, look = str(data.get("wolt") or ""), data.get("look")
@@ -1225,8 +1269,11 @@ def for_person(req, email):
         with one_send(email, cid) as named:
             if named and (prev := sent_before(email, cid)):  # sent before, but the answer never got back to the page
                 return reply(200, prev)
-            return reply(200, append(kind="human", email=email, text=text, **thread_of(data.get("thread")),
-                                     **({"cid": cid} if named else {})))
+            spot = thread_of(data.get("thread"))
+            # a message that starts a chat may name it; without a title the chat is called by its first words
+            named_as = " ".join(str(data.get("title") or "").split())[:80] if not spot else ""
+            return reply(200, append(kind="human", email=email, text=text, **spot,
+                                     **({"cid": cid} if named else {}), **({"title": named_as} if named_as else {})))
     if path == "/api/voice":
         where = thread_of(q.get("thread", [""])[0])
         ext = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp3": "mp3"}.get(req.kind, "webm")

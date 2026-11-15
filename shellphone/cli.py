@@ -1,13 +1,14 @@
 """shellphone: a chat room for you and your coding agents, on your own computer. Standard library only.
 
     shellphone room [--name NAME] [--port N] [--keep DIR]   # open a room; Ctrl-C closes it and deletes everything in it
-    shellphone host LINK [--name NAME] [--keep DIR]         # the same room, also reachable through the link's relay
+    shellphone link | unlink                                # make that room reachable from anywhere, or take that away again
+    shellphone host LINK [--name NAME] [--keep DIR]         # a room opened with a link from the Start a room page
     shellphone join LINK --name NAME [--dir DIR]            # an agent joins with the link the room printed
     shellphone wait | post | history | working | run ...    # after join: the connector's commands (see connector.py)
 
 The room is the same one as room.py; the agent side is the same connector.py. This is only the front door.
 """
-import argparse, contextlib, hashlib, hmac, importlib.util, io, ipaddress, json, os, re, secrets, shlex, shutil, signal, socket, sys, tempfile, threading, urllib.error, urllib.parse
+import argparse, contextlib, hashlib, hmac, importlib.util, io, ipaddress, json, os, re, secrets, shlex, shutil, signal, socket, stat, sys, tempfile, threading, urllib.error, urllib.parse
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -78,15 +79,27 @@ def sweep():
             continue  # not clearly ours to delete
         if not alive(pid):
             shutil.rmtree(d, ignore_errors=True)
+    for note in Path(tempfile.gettempdir()).glob(POINTER + "*.json"):  # and the notes of kept rooms that are no longer open
+        try:
+            if not alive(int(note.stem[len(POINTER):])):
+                note.unlink(missing_ok=True)
+        except (OSError, ValueError):
+            continue
 
 
 def free_port(wanted):
     for port in (wanted, 0):
         with socket.socket() as s:
+            # Match HTTPServer's reuse policy: a recently stopped room's port
+            # can still have closed connections in TIME_WAIT. Moving the room
+            # then would strand agents whose saved configuration has its URL.
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.bind(("127.0.0.1", port))
                 return s.getsockname()[1]
             except OSError:
+                if port:
+                    print(f"Port {port} is unavailable; choosing another port. Existing agents may need their room URL updated.", flush=True)
                 continue
     sys.exit("couldn't find a free port")
 
@@ -137,6 +150,8 @@ def run(a, r, data, server, banner, closing=lambda: None):
         pass
     finally:
         closing()
+        (data / RUN).unlink(missing_ok=True)
+        (Path(tempfile.gettempdir()) / f"{POINTER}{os.getpid()}.json").unlink(missing_ok=True)
         server.server_close()
         if r.CON is not None:
             r.CON.close()
@@ -147,32 +162,205 @@ def run(a, r, data, server, banner, closing=lambda: None):
             print("\nRoom closed and deleted." if not data.exists() else f"\nRoom closed, but {data} couldn't be deleted: remove it yourself.")
 
 
+RUN = "run.json"    # in an open room's folder: where the room listens and the host's token, for `shellphone link` on this computer
+POINTER = "shellphone-open-"  # in the temporary folder, one per open kept room: where that room is kept
+LINK = "link.json"  # in a kept room's folder while it is linked: the link's parts, so the room comes back at the same address
+
+
+def private(path):
+    """A new file only this user can read, to write to. Whatever was at that name goes first, and a link planted
+    there is never followed."""
+    path.unlink(missing_ok=True)
+    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600), "w")
+
+
+def replace_private(path, text):
+    """Put text at path, readable by this user only, without ever leaving the name empty or half-written: it is
+    written beside it first, then moved over what was there. If that fails, what was there stays."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    try:
+        with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600), "w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)  # a link planted at path is replaced, not followed
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+
+
+class Linker:
+    """The room's switch between "only on this computer" and "linked". The room's own page and `shellphone link`
+    both end up here; nothing that comes through a relay can."""
+
+    def __init__(self, r, data, keep, relay, link=None):
+        self.r, self.data, self.keep, self.relay, self.link, self.lock = r, data, keep, relay.rstrip("/"), link, threading.Lock()
+        self.filing = threading.Lock()  # held while link.json is written or removed, so a late save can't bring an unlinked room's link back
+
+    def info(self):
+        link = self.link
+        return link.info() if link and link.open else {"linked": False, "relay": urllib.parse.urlsplit(self.relay).netloc}
+
+    def saved(self):
+        """A kept room's link from its last run, as Link's arguments, or nothing."""
+        from . import seal
+        try:
+            got = json.loads((self.data / LINK).read_text())
+            return dict(relay=got["relay"], room_id=seal.b64d(got["room"], 16), secret=seal.b64d(got["secret"], 32), token=got["token"],
+                        invite_secret=seal.b64d(got["invite_secret"], 32), invite_token=got["invite_token"],
+                        guests={str(t): str(e) for t, e in (got.get("guests") or {}).items()}, guest_agents=bool(got.get("guest_agents", True)))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, seal.SealError):
+            return None
+
+    def save(self, link):
+        from . import seal
+        if not self.keep:
+            return
+        with self.filing:
+            if self.link is not link or not link.open:  # unlinked or closing meanwhile: what it holds now must not be kept
+                return
+            try:
+                replace_private(self.data / LINK, json.dumps({
+                    "relay": link.relay, "room": seal.b64e(link.room_id), "secret": seal.b64e(link.secret), "token": link.token,
+                    "invite_secret": seal.b64e(link.invite_secret), "invite_token": link.invite_token,
+                    "guests": dict(link.guests), "guest_agents": link.allow["guest_agents"]}))
+            except OSError as exc:  # the room goes on; what was saved before is still there, whole
+                print(f"Couldn't save the room's link in {self.data} ({exc}). After a restart it may come back as it was last saved.", flush=True)
+
+    def on(self):
+        """Link the room. Returns (status, what the host's page shows)."""
+        from .link import Link, why_not
+        with self.lock:
+            if self.link and self.link.open:
+                return 200, self.link.info()
+            link = Link(self.r, HOST_EMAIL, **(self.saved() or {"relay": self.relay}))
+            why = link.start()
+            if why != "up":
+                return 502, {"error": f"couldn't link the room through {urllib.parse.urlsplit(link.relay).netloc}: {why_not(why)}", "linked": False}
+            self.link = link
+            link.changed = lambda: self.save(link)  # a guest came in, or the host changed what guests may do
+            self.save(link)
+            return 200, link.info()
+
+    def off(self):
+        """Unlink: nobody outside gets in from here on, and the address is gone for good. The room stays as it is."""
+        with self.lock:
+            link, self.link = self.link, None
+            if link:
+                link.stop()
+            with self.filing:
+                (self.data / LINK).unlink(missing_ok=True)
+            return 200, self.info()
+
+    def close(self):  # the room is closing: the connection goes, a kept room's link stays for its next run
+        with self.filing:  # nothing is saved from here on: stop() below throws the link's secrets away
+            link, self.link = self.link, None
+        if link:
+            link.stop()
+
+
+def announce(data, port, token):
+    """Say where this room listens, for `shellphone link` and `unlink` run on this computer by the same user."""
+    with private(data / RUN) as f:
+        json.dump({"pid": os.getpid(), "port": port, "token": token}, f)
+    if (data / THROWAWAY).is_file():
+        return  # found by its folder's name
+    try:  # a kept room can be anywhere: leave a note (no key in it) saying where, for as long as it's open
+        with private(Path(tempfile.gettempdir()) / f"{POINTER}{os.getpid()}.json") as f:
+            json.dump({"dir": str(data)}, f)
+    except OSError:
+        pass  # then `shellphone link --keep DIR` still finds it
+
+
+def linked_words(info):
+    return f"""  Open it from anywhere:   {info['link']}
+  Invite people:           {info['invite']}
+
+The first link is yours alone: it is the key to the room as its host. The second lets someone in as a guest.
+Unlink it with: {me()} unlink   (the room stays open on this computer, and both links stop working for good)"""
+
+
 def room(a):
     r, data, url, token, code, server = start(a)
-    run(a, r, data, server, f"""shellphone room is open, on this computer only.
+    relay = (getattr(a, "relay", None) or os.environ.get("SHELLPHONE_RELAY") or default_relay()).rstrip("/")
+    r.LINKER = linker = Linker(r, data, bool(a.keep), relay)
+    announce(data, server.server_address[1], token)
+    more = ""
+    if a.link or linker.saved():  # asked for, or a kept room that was linked when it last closed
+        status, info = linker.on()
+        more = "\nIt is linked:\n\n" + linked_words(info) + "\n" if status == 200 else f"\n{info['error']}. The room is open on this computer; link it later with: {me()} link\n"
+    run(a, r, data, server, f"""shellphone room is open, on this computer{"" if more.startswith(chr(10) + "It is") else " only"}.
 
   Open the chat:    {url}/?k={token}
   Bring an agent:   uvx shellphone join '{url}/#{code}' --name NAME
 
 Both links are keys to this room: share them only with your own agents.
-Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "Everything in it is deleted."))
+{more}Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "Everything in it is deleted."), linker.close)
 
 
-SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt"), ("GET", "/api/page"), ("POST", "/api/page"), ("POST", "/api/thread-who"), ("POST", "/api/main")}  # what a page may ask through the relay, for now: text chat, pausing or removing an agent (the room refuses guests), and pages
-MAX_GUESTS = 50  # people who may come in through one run's invite link
-# What an agent may ask through the relay (experimental): sign up with a person's one-time code, then hear the room and
-# answer in it. No files, pages or voice yet, and nothing that changes who else is in the room.
-AGENT_SHARED = {("GET", "/lodge/messages"), ("GET", "/lodge/thread"), ("GET", "/lodge/history"), ("POST", "/lodge/messages"),
-                ("POST", "/lodge/working"), ("POST", "/lodge/reach"), ("POST", "/lodge/state"), ("POST", "/lodge/thread-who")}
-AGENT_STEPS = """Please join my shellphone room: a group chat where people and their coding agents talk together. I'm {name} there.
+def default_relay():
+    from .link import RELAY
+    return RELAY
 
-Run this (it signs you up and keeps your room key in ./shellphone/lodge.json):
 
-uvx shellphone@latest join '{link}' --name YOUR-NAME
+def running(keep=None, port=None):
+    """The room open on this computer that `link` and `unlink` mean: the kept one named, the one on that port, or the
+    only one open. A room's run file counts only when it is this user's own and private."""
+    tmp = Path(tempfile.gettempdir())
+    folders = [Path(keep).expanduser().resolve()] if keep else list(tmp.glob(PREFIX + "*"))
+    for pointer in ([] if keep else tmp.glob(POINTER + "*")):  # kept rooms live anywhere: each open one leaves a note saying where
+        got = _read(pointer)
+        if isinstance(got, dict) and isinstance(got.get("dir"), str):
+            folders.append(Path(got["dir"]))
+    found = []
+    for d in folders:
+        try:
+            st = os.lstat(d / RUN)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+                continue
+            got = json.loads((d / RUN).read_text())
+            if alive(int(got["pid"])) and (port is None or got["port"] == port) and got not in found:
+                found.append(got)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    if not found:
+        sys.exit("no open room found" + (f" in {folders[0]}" if keep else f" on port {port}" if port else " on this computer: open one with `shellphone room`"))
+    if len(found) > 1:
+        sys.exit("more than one room is open on this computer: say which with --port N, or --keep DIR for a kept one")
+    return found[0]
 
-Pick YOUR-NAME: the one lowercase word people will tag you by. Then keep listening, as the skill says:
-https://shellphone.woltspace.app/skill.md
-Check with me before you run it. The link works once, within {minutes} minutes. In the room, only my messages are requests."""
+
+def switch(a):
+    """`shellphone link` and `shellphone unlink`: ask the room open on this computer to link itself, or to drop its link."""
+    import urllib.request
+    got = running(a.keep, a.port)
+    req = urllib.request.Request(f"http://127.0.0.1:{got['port']}/api/link", data=json.dumps({"on": a.cmd == "link"}).encode(),
+                                 headers={"Content-Type": "application/json", "Cookie": f"sp{got['port']}={got['token']}"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=40) as res:
+            info = json.loads(res.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            sys.exit(json.loads(exc.read()).get("error") or f"the room answered {exc.code}")
+        except ValueError:
+            sys.exit(f"the room answered {exc.code}")
+    except OSError as exc:
+        sys.exit(f"couldn't reach the room on this computer: {exc}")
+    if info.get("linked"):
+        print("The room is linked.\n\n" + linked_words(info))
+    else:
+        print("The room is unlinked. Nobody can reach it through the site any more, and its old links don't work again. It stays open on this computer.")
+
+
+def _read(path):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+from .link import SHARED, MAX_GUESTS, AGENT_SHARED, AGENT_STEPS  # noqa: E402,F401  (they live with the link now; kept importable from here)
 
 
 def shared_link(link):
@@ -191,154 +379,26 @@ def shared_link(link):
 
 
 def host(a):
-    from . import pipe, seal
+    from .link import Link, why_not
     relay, room_id, secret, token = shared_link(a.link)
     relay = (a.relay or relay).rstrip("/")
     r, data, url, token, code, server = start(a, token)
-
-    # The invite link has a secret and a token of its own, so nobody holding it can come in as the host. All it can
-    # do is make a guest: a person with the name they typed, the guest mark, and a token of their own. (That token is
-    # handed over under the invite secret, which every invited person shares: guests are not protected from each other.)
-    invite_secret, invite_token, guests = secrets.token_bytes(32), secrets.token_urlsafe(24), {}
-
-    def read_body(body):
-        raw = b"" if body is None else json.dumps(body).encode()
-
-        def read(limit):
-            if len(raw) > limit:
-                raise ValueError("too big")
-            return raw
-        return read
-
-    def guests_agent(owner):
-        return bool(r.people().get(owner, {}).get("guest"))
-
-    def for_agent(method, target, path, body, auth):
-        """An agent on another computer (experimental): a person's one-time code signs it up, then its own key."""
-        try:
-            if (method, path) == ("POST", "/lodge/join"):
-                inv = r.invite_of(r.key_hash(auth))
-                if inv and guests_agent(inv["owner"]) and not allow["guest_agents"]:
-                    return 403, {"error": "the host has turned off agents from guests in this room"}
-                status, out, _, _ = r.join_wolt(r.key_hash(auth), body)
-                return status, out
-            l = r.wolt_by_key(auth)
-            if not l:
-                return 401, {"error": "unknown agent key: join again with a fresh link from your human"}
-            if (method, path) not in AGENT_SHARED:
-                return 404, {"error": "not available through the relay yet"}
-            if guests_agent(l["owner"]) and not allow["guest_agents"]:
-                return 403, {"error": "the host has turned off agents from guests in this room"}
-            status, out, _, _ = r.for_wolt(r.Request(method, target, read_body(body)), l)
-        except (ValueError, json.JSONDecodeError) as exc:
-            return 400, {"error": str(exc)}
-        return (status, out) if isinstance(out, (dict, list)) else (415, {"error": "not available through the relay yet"})
-
-    allow = {"guest_agents": True}  # the host can turn agents from guests off (and on) from the room's menu
-
-    def answer(kind, method, target, body, auth):
-        path = urllib.parse.urlsplit(target).path
-        if path.startswith("/lodge/"):  # an agent's call: who it is is in its own key, whichever link it came in by
-            return for_agent(method, target, path, body, auth)
-        if kind == "h":  # the host's link: only the host's own token counts
-            email = HOST_EMAIL if hmac.compare_digest(token, auth) else None
-            if email and (method, path) == ("GET", "/api/invite"):
-                return 200, {"key": f"i.{seal.b64e(invite_secret)}.{invite_token}"}
-        elif hmac.compare_digest(invite_token, auth):  # the invite link itself: it can ask for a place in the room, nothing else
-            if (method, path) != ("POST", "/api/guest"):
-                return 403, {"error": "tell the room your name first"}
-            if len(guests) >= MAX_GUESTS:
-                return 429, {"error": "this room is full"}
-            try:
-                email = r.add_guest(body.get("name") if isinstance(body, dict) else None)
-            except ValueError as exc:
-                return 400, {"error": str(exc)}
-            mine = secrets.token_urlsafe(24)
-            guests[mine] = email
-            return 200, {"token": mine}
-        else:  # a guest's own token
-            email = next((e for t, e in guests.items() if hmac.compare_digest(t, auth)), None)
-        if not email:
-            return 403, {"error": "not on this room's list"}
-        if (method, path) == ("POST", "/api/agent-invite"):  # a message for one of this person's agents, on any computer
-            if guests_agent(email) and not allow["guest_agents"]:
-                return 403, {"error": "the host has turned off agents from guests in this room"}
-            code = r.agent_code(email)
-            link = f"{relay}/r/{seal.b64e(room_id)}#a.{seal.b64e(invite_secret)}.{code}"
-            name = r.people().get(email, {}).get("name") or "your human"
-            return 200, {"text": AGENT_STEPS.format(name=name, link=link, minutes=r.JOIN_MINUTES), "minutes": r.JOIN_MINUTES}
-        if (method, path) == ("POST", "/api/guest-agents"):  # the host turns agents from guests on or off, for this run
-            if email != HOST_EMAIL:
-                return 403, {"error": "only the room's host can do that"}
-            allow["guest_agents"] = bool(body.get("on")) if isinstance(body, dict) else allow["guest_agents"]
-            return 200, {"guest_agents": allow["guest_agents"]}
-        if (method, path) not in SHARED:
-            return 404, {"error": "not found"}
-        try:
-            status, out, _, _ = r.for_person(r.Request(method, target, read_body(body)), email)
-        except (ValueError, json.JSONDecodeError) as exc:
-            return 400, {"error": str(exc)}
-        if (method, path) == ("GET", "/api/state") and status == 200 and isinstance(out, dict):
-            out = {**out, "news": True, "guest_agents": allow["guest_agents"]}  # news: this host says when something changes (pipe.py), so a page needn't keep asking
-        return (status, out) if isinstance(out, (dict, list)) else (415, {"error": "not available through the relay yet"})
-
-    stop, state, news = threading.Event(), {"now": None, "first": threading.Event()}, threading.Event()
-
-    def snapshot():
-        return json.dumps([r.q("select coalesce(max(n), 0) as n from messages")[0]["n"], r.title(), r.members(), r.working_in_now(), r.unreachable_now(), r.receipts(), r.pages_now(), r.who_now()], sort_keys=True, default=str)
-
-    # Establish the baseline before any relay client can read the room.
-    try:
-        initial_snapshot = snapshot()
-    except Exception:  # A busy database must not prevent the host from starting.
-        initial_snapshot = None  # The watcher retries and announces its first good snapshot.
-
-    def watch():  # anything a page would be shown differently is news: messages, who is working, who has read, who is here
-        seen = initial_snapshot
-        while not stop.wait(0.25):
-            try:
-                now = snapshot()
-            except Exception:  # the room is closing, or busy for a moment: look again next time
-                continue
-            if now != seen:
-                news.set()
-            seen = now
-
-    def on_state(now):
-        if now != state["now"] and state["first"].is_set():
-            print({"up": "Connected to the relay again.",
-                   "down": "The relay isn't reachable: the room is offline for others until it is. Trying again…",
-                   "full": "The relay has no place for this room right now: it is offline for others. Asking again every two minutes…"}.get(now, now), flush=True)
-        state["now"] = now
-        state["first"].set()
-    ws = relay.replace("http", "ws", 1) + f"/r/{seal.b64e(room_id)}/host"
-    link = threading.Thread(target=pipe.serve, daemon=True, kwargs=dict(
-        url=ws, key=os.environ.get("SHELLPHONE_RELAY_KEY", ""), stop=stop, on_state=on_state, news=news,
-        # only the host's link holds all three, and the hash gives none of them away: the relay keeps it to know its room's host again
-        claim=seal.b64e(hashlib.sha256(b"shellphone-claim\0" + room_id + secret + token.encode()).digest()),
-        new_pipe=lambda: pipe.HostPipe(room_id, {"h": secret, "i": invite_secret}, answer)))
-    link.start()
-    threading.Thread(target=watch, daemon=True).start()
-    state["first"].wait(20)
-    if state["now"] != "up":
-        why = state["now"]  # as it stood: stopping the link below changes it
-        state["first"].clear()  # and nothing more is printed about a room that never came up
-        stop.set()
+    link = Link(r, HOST_EMAIL, relay, room_id, secret, token)
+    why = link.start()
+    if why != "up":
         server.server_close()
         if not a.keep:
             shutil.rmtree(data, ignore_errors=True)
-        sys.exit(f"couldn't bring the room up through {relay}: " + {"down": "it isn't reachable", "full": "the relay has no place for another room right now: try again later"}.get(why, (why or "no answer").replace("refused: ", "")))
-
-    def closing():
-        stop.set()
-        link.join(5)
+        sys.exit(f"couldn't bring the room up through {relay}: {why_not(why)}")
+    r.LINKER = linker = Linker(r, data, False, relay, link)  # the Start page's link is this run's: it isn't kept for the next
+    announce(data, server.server_address[1], token)
     run(a, r, data, server, f"""shellphone room is up, reachable through {urllib.parse.urlsplit(relay).netloc}.
 
   Your human's page opens the room by itself.
   Join it yourself:   uvx shellphone join '{url}/#{code}' --name NAME
 
 Keep this running: the room lives in this process, on this computer.
-Stop it (Ctrl-C) and the room is closed""" + (f". It's kept in {data}." if a.keep else " and deleted."), closing)
+Stop it (Ctrl-C) and the room is closed""" + (f". It's kept in {data}." if a.keep else " and deleted."), linker.close)
 
 
 def join_away(a, parts):
@@ -424,6 +484,12 @@ def main():
     s.add_argument("--name", default=os.environ.get("USER") or "you", help="your name in the room")
     s.add_argument("--port", type=int, default=4090, help="default 4090; if it's taken, a free one is picked and printed")
     s.add_argument("--keep", metavar="DIR", help="keep the room in DIR instead of deleting it on close")
+    s.add_argument("--link", action="store_true", help="link the room right away, so it can be opened from anywhere and shared")
+    s.add_argument("--relay", help=argparse.SUPPRESS)  # link through another relay than the usual one (testing)
+    for cmd, words in (("link", "make the room open on this computer reachable from anywhere, and get its links"), ("unlink", "take that away again: the room stays open on this computer only")):
+        s = sub.add_parser(cmd, help=words)
+        s.add_argument("--keep", metavar="DIR", help="the kept room in DIR (when more than one room is open)")
+        s.add_argument("--port", type=int, help="the room on this port (when more than one room is open)")
     s = sub.add_parser("host", help="open a room that others reach through a relay, with the link from the Start a room page")
     s.add_argument("link")
     s.add_argument("--name", default=os.environ.get("USER") or "you", help="your human's name in the room")
@@ -436,7 +502,7 @@ def main():
     s.add_argument("--dir", default="shellphone", help="where your room key is kept (default: ./shellphone)")
     s.add_argument("--creature", default="raccoon"); s.add_argument("--voice")
     a = ap.parse_args()
-    {"room": room, "host": host, "join": join}[a.cmd](a)
+    {"room": room, "host": host, "join": join, "link": switch, "unlink": switch}[a.cmd](a)
 
 
 if __name__ == "__main__":

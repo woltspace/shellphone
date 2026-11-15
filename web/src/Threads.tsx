@@ -2,10 +2,10 @@
 // Each thread gets a short title and its own color, so with many of them you can still tell them apart at a glance.
 import { useCallback, useState } from "react";
 import { ChevronLeft, ChevronRight, MessagesSquare } from "lucide-react";
-import type { Ctx } from "./Message";
+import { mix, woltColor, type Ctx, woltFace } from "./Message";
 import type { Msg, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
-import { worn } from "./hats";
+import { HATS, hatSize, hatSrc, worn } from "./hats";
 
 export function ago(at: number) {
   const s = Math.max(0, Date.now() / 1000 - at);
@@ -17,25 +17,53 @@ export function ago(at: number) {
 
 const COLORS = ["#c4531e", "#2e7d9d", "#7a4fb5", "#2e9d57", "#b58a1f", "#c2417a"];
 export const threadColor = (id: string) => COLORS[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % COLORS.length];
+// and a bit of nature, so a thread is "the mushroom one" before you've read a word of it
+const EMOJI = ["🌲", "🍄", "🌿", "🌾", "🌻", "🍁", "🌊", "🪨", "🌙", "⭐", "🔥", "🌵", "🐚", "🪶", "🌸", "🍂", "❄️", "🌈", "🌰", "🪵", "💧", "☀️", "⛰️", "🍀", "🌷", "🪺"];
+export const threadEmoji = (id: string) => EMOJI[[...id].reduce((h, c) => (h * 131 + c.charCodeAt(0)) >>> 0, 11) % EMOJI.length];
+// Behind a thread, like Instagram's emoji wallpaper: its one emoji scattered and tilted, faint, over a wash of its color.
+// The sheet stays see-through.
+// each thread wears one of the Hat Shop's pixel hats: the wallpaper is that hat, scattered and tilted
+export const threadHat = (id: string) => HATS[[...id].reduce((h, c) => (h * 131 + c.charCodeAt(0)) >>> 0, 11) % HATS.length].id;
+export function threadWallpaper(id: string, wash = true, strong = false) {  // no wash on a bubble: it keeps its own color; strong on home's rows
+  const hat = threadHat(id), src = hatSrc(hat)!, { w, h } = hatSize(hat), color = threadColor(id);
+  const k = 30 / Math.max(w, h), iw = Math.round(w * k), ih = Math.round(h * k);
+  const spots: [number, number, number][] = [[24, 34, -18], [104, 22, 14], [64, 88, 8], [150, 78, -12], [22, 146, 20], [116, 150, -8]];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><g opacity="${strong ? ".42" : ".26"}" style="image-rendering:pixelated">${
+    spots.map(([x, y, r]) => `<image href="${src}" x="${x - iw / 2}" y="${y - ih / 2}" width="${iw}" height="${ih}" transform="rotate(${r} ${x} ${y})"/>`).join("")}</g></svg>`;
+  const tile = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  return wash ? { backgroundImage: `${tile}, linear-gradient(${color}${strong ? "24" : "12"}, ${color}${strong ? "24" : "12"})`, backgroundSize: "180px 180px, auto" } : { backgroundImage: tile, backgroundSize: "180px 180px" };
+}
+// the thread's hat, small, as its badge in the header
+export function ThreadHat({ id, className = "" }: { id: string; className?: string }) {
+  return <img src={hatSrc(threadHat(id))} alt="" className={`pixel inline-block align-[-3px] object-contain ${className}`} />;
+}
+// chats renamed after they started, from the room's state (App fills it on every update, like the hats)
+export const named: Record<string, string> = {};
+export function nameChats(names: Record<string, string> = {}) { for (const k in named) delete named[k]; Object.assign(named, names); }
 // the first few words of the message it hangs off, without the @tags in front
 export function threadTitle(m?: Msg) {
   if (!m) return "thread";
+  if (named[m.id]) return named[m.id];  // renamed since
+  if (m.title) return m.title;  // named when it was started
   const words = (m.text || "").replace(/\s+/g, " ").replace(/^(@[\w-]+[\s,:]*)+/, "").trim().split(" ").filter(Boolean);
   if (!words.length) return m.files?.length ? m.files[0].name : "Voice note";
   return words.slice(0, 6).join(" ") + (words.length > 6 ? "…" : "");
 }
 
 // who replied, latest first, one face each
-function faces(list: Msg[], ctx: Ctx) {
+function faces(list: Msg[], ctx: Ctx, most = 3) {
   const out: { key: string; src: string }[] = [];
   for (const m of [...list].reverse()) {
     const key = m.kind === "human" ? m.email! : "wolt:" + m.wolt;
     if (out.some((f) => f.key === key)) continue;
     const who = ctx.person(m.kind === "human" ? m.email : m.owner);
-    out.push({ key, src: m.kind === "human" ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", who.color, worn.wolts[m.wolt!]) });
+    out.push({ key, src: m.kind === "human" ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltFace(m.wolt, m.creature) });
   }
-  return out.slice(0, 3);
+  return out.slice(0, most);
 }
+
+// Home is the list of chats: there is no main chat to talk in (the old one is the lobby, one row on home).
+export const useChatsHome = () => true;
 
 // What you've read in each thread lives on this phone only: the last message number you saw there.
 export function useSeen() {
@@ -56,19 +84,19 @@ export const unread = (list: Msg[], seen: number | undefined, me: string) => lis
 export function Busy({ wolts, ctx }: { wolts?: Wolt[]; ctx: Ctx }) {
   if (!wolts?.length) return null;
   return <span className="flex flex-none items-center gap-1 font-mono text-[11px] text-acc" aria-label={`${wolts.map((w) => w.wolt).join(", ")} working here`}>
-    {wolts.slice(0, 3).map((w) => <img key={w.wolt} src={woltAvatar(w.creature || "raccoon", ctx.person(w.owner).color, worn.wolts[w.wolt])} alt="" className="gnaw-img pixel w-5 h-5" />)}
+    {wolts.slice(0, 3).map((w) => <img key={w.wolt} src={woltFace(w.wolt, w.creature)} alt="" className="gnaw-img pixel w-5 h-5" />)}
     working…</span>;
 }
 
-export function ThreadFooter({ list, fresh, ctx, onOpen, busy }: { list: Msg[]; fresh: boolean; ctx: Ctx; onOpen: () => void; busy?: Wolt[] }) {
+export function ThreadFooter({ id, list, fresh, ctx, onOpen, busy }: { id: string; list: Msg[]; fresh: boolean; ctx: Ctx; onOpen: () => void; busy?: Wolt[] }) {
   const faces: Msg[] = [];
   for (const m of [...list].reverse()) if (faces.length < 3 && !faces.some((f) => (f.wolt || f.email) === (m.wolt || m.email))) faces.push(m);
   const face = (m: Msg) => { const p = ctx.person(m.kind === "human" ? m.email : m.owner);
-    return m.kind === "human" ? personAvatar(p.name, p.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", p.color, worn.wolts[m.wolt!]); };
+    return m.kind === "human" ? personAvatar(p.name, p.color, worn.people[m.email!]) : woltFace(m.wolt, m.creature); };
   return <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={`Open the thread, ${list.length} ${list.length === 1 ? "reply" : "replies"}`}
     className={`flex w-[calc(100%+20px)] -mx-2.5 -mb-1.5 mt-1.5 items-center gap-2 border-0 border-t border-line rounded-b-xl px-2.5 py-1.5 cursor-pointer text-left active:opacity-60 ${fresh ? "bg-[#c4531e14]" : "bg-[#18100a06]"}`}>
     <span className="flex flex-none">{faces.map((m, i) => <img key={m.id} src={face(m)} alt="" className={`pixel w-5 h-5 rounded-full border-2 border-panel bg-panel ${i ? "-ml-1.5" : ""}`} />)}</span>
-    <b className={`text-[13.5px] ${fresh ? "text-acc" : "text-ink"}`}>{list.length} {list.length === 1 ? "reply" : "replies"}</b>
+    <b className="text-[13.5px]" style={{ color: threadColor(id) }}>{list.length} {list.length === 1 ? "reply" : "replies"}</b>
     {fresh && <i className="flex-none w-[7px] h-[7px] rounded-full bg-acc" aria-label="new replies" />}
     <span className="flex-1" />
     {busy?.length ? <Busy wolts={busy} ctx={ctx} /> : <span className="flex-none font-mono text-[11px] text-dim">{ago(list.at(-1)!.at)}</span>}
@@ -76,13 +104,13 @@ export function ThreadFooter({ list, fresh, ctx, onOpen, busy }: { list: Msg[]; 
   </button>;
 }
 
-const preview = (m: Msg) => (m.text || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
+const preview = (m: Msg) => ((m.text && m.text.replace(/\*\*|`/g, "")) || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
 
 // Every thread in the room: ones with replies you haven't seen first, then the most recently active.
 export function ThreadList({ roots, replies, ctx, seen, onOpen, onClose }: {
   roots: Msg[]; replies: Map<string, Msg[]>; ctx: Ctx; seen: Record<string, number>; onOpen: (id: string) => void; onClose: () => void;
 }) {
-  const items = roots.map((r) => { const list = replies.get(r.id)!; return { r, list, last: list.at(-1)!, fresh: unread(list, seen[r.id], ctx.me) }; })
+  const items = roots.map((r) => { const list = replies.get(r.id) || []; return { r, list, last: list.at(-1) || r, fresh: unread(list, seen[r.id], ctx.me) }; })
     .sort((a, b) => Number(b.fresh) - Number(a.fresh) || b.last.at - a.last.at);
   const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
   const freshCount = items.filter((i) => i.fresh).length;
@@ -114,30 +142,61 @@ export function ThreadList({ roots, replies, ctx, seen, onOpen, onClose }: {
   </div>;
 }
 
-// One inbox for the room: new main-chat messages and threads with new replies on top, then earlier threads.
+// One inbox for the room: every thread, one row each, the one that moved last on top. A row is the thread's title, its
+// latest message, and who's in it. What you haven't seen shows as a count; it never reorders the list.
 // It slides up over wherever you are; tap a row to go there, tap outside (or swipe it down) to stay.
-export function InboxSheet({ top, main, roots, replies, ctx, seen, current, onMain, onOpen, onClose }: {
-  top: number; main: Msg[]; roots: Msg[]; replies: Map<string, Msg[]>; ctx: Ctx; seen: Record<string, number>; current: string;
-  onMain: () => void; onOpen: (id: string) => void; onClose: () => void;
-}) {
-  const items = roots.map((r) => { const list = replies.get(r.id)!; return { r, list, last: list.at(-1)!, fresh: unread(list, seen[r.id], ctx.me) }; })
-    .sort((a, b) => b.last.at - a.last.at);
-  const fresh = items.filter((i) => i.fresh), earlier = items.filter((i) => !i.fresh);
-  const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
-  const count = (n: number) => <span className="flex-none min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{n}</span>;
+// The rows of every chat (thread), the one that moved last on top, and the main chat as one more row ("lobby" when home is
+// the chats). Used by the inbox sheet and by home in the chats layout.
+type RowsProps = { main: Msg[]; all: Msg[]; roots: Msg[]; replies: Map<string, Msg[]>; ctx: Ctx; seen: Record<string, number>; current: string;
+  onMain: () => void; onOpen: (id: string) => void; lobby?: boolean };
+export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain, onOpen, lobby }: RowsProps) {
   const newCount = (list: Msg[], id: string) => list.filter((m) => m.n > (seen[id] || 0) && !(m.kind === "human" && m.email === ctx.me)).length;
-  const busyAt = (key: string) => ctx.busy?.(key === "main" || key === "main-back" ? "" : key) || [];
-  const sec = "px-4 pt-3.5 pb-1.5 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
-  const row = (key: string, color: string, title: React.ReactNode, line: string, when: number, n: number, here: boolean, go: () => void) =>
-    <button key={key} type="button" onClick={go} style={{ borderLeft: `4px solid ${color}` }}
-      className={`block w-[calc(100%-20px)] mx-2.5 mb-2 text-left bg-panel border border-line rounded-[10px] px-3 py-2.5 cursor-pointer active:opacity-70 ${here ? "ring-2 ring-[#c4531e44]" : ""}`}>
-      <div className="flex items-center gap-2 font-mono text-[13px] font-semibold">
-        <span className="flex-1 min-w-0 truncate" style={{ color }}>{title}</span>
-        {n > 0 && count(n)}
-        {busyAt(key).length ? <Busy wolts={busyAt(key)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(when)}</span>}
-      </div>
-      <div className={`mt-0.5 text-sm truncate ${n ? "text-ink font-semibold" : "text-dim"}`}>{line}</div>
+  const items = roots.map((r) => { const rs = replies.get(r.id) || [], list = [r, ...rs]; return { id: r.id, r, list, last: list.at(-1)!, n: newCount(rs, r.id) }; });
+  if (all.length) items.push({ id: "", r: all[0], list: all, last: all.at(-1)!, n: main.length });
+  items.sort((a, b) => b.last.at - a.last.at);
+  const unreadRows = items.filter((i) => i.n).length;
+  const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
+  // the latest message's bubble is in the colour of whoever said it, as in the chat
+  const voice = (m: Msg) => m.kind === "human" ? ctx.person(m.email).color : woltColor(m.wolt, ctx.wolts);
+  const ink = (m: Msg) => m.kind === "human" ? mix(ctx.person(m.email).color, "#ffffff", 0.82) : mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9);
+  const count = (n: number) => <span className="flex-none min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{n}</span>;
+  const busyAt = (key: string) => ctx.busy?.(key) || [];
+  const row = ({ id, r, list, last, n }: typeof items[number]) => {
+    const color = id ? threadColor(id) : "#c4531e", who = faces(list, ctx, 6), here = id === current;
+    const names = [...new Set([...list].reverse().map(name))];
+    return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())} style={id ? threadWallpaper(id, true, true) : undefined}
+      className={`flex w-full text-left bg-transparent border-0 border-b-2 border-line px-3 py-4 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
+      {/* the wallpaper shows around it; what you read sits on solid ground: the title in its own band, then the latest message
+          in the colour of whoever said it */}
+      <span className="flex-1 min-w-0 rounded-2xl border-2 overflow-hidden shadow-[0_2px_8px_#18100a24]" style={{ borderColor: color + "99" }}>
+        <span className="flex items-center gap-2 px-3.5 py-2 border-b-2 font-mono text-[14px] font-bold" style={{ borderColor: color + "55", background: mix(color, "#ffffff", 0.9) }}>
+          <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : lobby ? "# lobby" : "# main chat"}</span>
+          {n > 0 && count(n)}
+          {busyAt(id).length ? <Busy wolts={busyAt(id)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(last.at)}</span>}
+        </span>
+        <span className="block px-3.5 pt-2.5 pb-2.5 bg-[#fffdf8]">
+          {/* who spoke last, up front: their face and name in their colour, then what they said in a bubble of that colour */}
+          <span className={`flex items-start gap-2.5 text-[15px] leading-snug ${n ? "text-ink" : "text-[#4a4038]"}`}>
+            <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-12 h-12 -mt-1" />{/* the face draws its own circle, with the hat over it */}
+            <span className="flex-1 min-w-0">
+              <b className="block font-mono text-[13px] font-bold mb-1" style={{ color: voice(last) }}>{name(last)}</b>
+              <span className="block rounded-xl rounded-tl-sm border px-2.5 py-1.5" style={{ background: ink(last), borderColor: mix(voice(last), "#ffffff", 0.6) }}><span className="line-clamp-2">{preview(last)}</span></span>
+            </span></span>
+        </span>
+        <span className="flex items-center gap-2 px-3.5 py-1.5 border-t-2 bg-white font-mono text-[11px] text-dim" style={{ borderColor: color + "44" }}>
+            <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-6 h-6" />)}</span>
+            <span className="flex-1 min-w-0 truncate">{names.slice(0, 4).join(", ")}{names.length > 4 ? ` +${names.length - 4}` : ""}</span>
+            <span className="flex-none">{list.length} msgs</span>
+        </span>
+      </span>
     </button>;
+  };
+  return { count: items.length, unreadRows, rows: items.map(row) };
+}
+
+// The inbox: those rows in a sheet that slides up over wherever you are; tap a row to go there, tap outside (or swipe it down) to stay.
+export function InboxSheet({ onClose, ...p }: RowsProps & { top: number; onClose: () => void }) {
+  const { count: n, unreadRows, rows } = chatRows(p);
   const from = useState<{ y: number; dy: number } | null>(null), [drag, setDrag] = from;
   return <div className="absolute inset-x-0 bottom-0 z-[1600]" style={{ top: 0 }}>
     <div onClick={onClose} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
@@ -150,18 +209,12 @@ export function InboxSheet({ top, main, roots, replies, ctx, seen, current, onMa
         <div className="w-10 h-[5px] rounded-full bg-line mx-auto mt-2 mb-1.5" />
         <div className="flex items-baseline gap-2 px-4 pb-2.5 border-b border-line">
           <b className="font-mono font-semibold text-acc text-base">inbox</b>
-          <span className="font-mono text-[11px] text-dim">{main.length + fresh.length ? `${main.length + fresh.length} unread` : "all caught up 👍"}</span>
+          <span className="font-mono text-[11px] text-dim">{n} {n === 1 ? "thread" : "threads"} · {unreadRows ? `${unreadRows} with new` : "all caught up 👍"}</span>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto overscroll-contain pb-[calc(16px+env(safe-area-inset-bottom))]">
-        {(main.length > 0 || fresh.length > 0) && <div className={sec}>New</div>}
-        {main.length > 0 && row("main", "#c4531e", "# main chat", `${name(main.at(-1)!)}: ${preview(main.at(-1)!)}`, main.at(-1)!.at, main.length, false, onMain)}
-        {fresh.map(({ r, list, last }) => row(r.id, threadColor(r.id), threadTitle(r), `${name(last)}: ${preview(last)}`, last.at, newCount(list, r.id), r.id === current, () => onOpen(r.id)))}
-        {!main.length && !fresh.length && <p className="text-center text-dim font-mono text-xs my-5 px-6">Nothing new. You're all caught up.</p>}
-        {current && row("main-back", "#c4531e", "# main chat", "back to the main chat", Date.now() / 1000, 0, false, onMain)}
-        {earlier.length > 0 && <div className={sec}>Earlier threads</div>}
-        {earlier.map(({ r, last }) => row(r.id, threadColor(r.id), threadTitle(r), `${name(last)}: ${preview(last)}`, last.at, 0, r.id === current, () => onOpen(r.id)))}
-        {!items.length && <p className="text-center text-dim font-mono text-xs mt-2 px-6">No threads yet. Tap any message to start one.</p>}
+        {rows}
+        {!p.roots.length && <p className="text-center text-dim font-mono text-xs mt-4 px-6">No threads yet. Tap any message to start one.</p>}
       </div>
     </div>
   </div>;

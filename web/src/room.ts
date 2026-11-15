@@ -9,7 +9,7 @@ export type CardNode = { type: string; props?: Record<string, any>; children?: C
 export type PageRef = { id: string; title: string; line?: string; v: number };  // a page an agent posted (Page.tsx)
 export type Activity = { page: string; title: string; by: { kind: string; name: string; count: number }[]; from: number; to: number };
 export type Msg = {
-  n: number; id: string; cid?: string; at: number; kind: "human" | "wolt" | "patch" | "activity";  // activity: "maya made 3 changes to …", said by the room
+  n: number; id: string; cid?: string; title?: string; at: number; kind: "human" | "wolt" | "patch" | "activity";  // activity: "maya made 3 changes to …", said by the room
   email?: string; wolt?: string; owner?: string; creature?: string;
   text?: string; audio?: string; seconds?: number; files?: FileInfo[]; file?: FileInfo; card?: CardNode; of?: string; page?: PageRef; activity?: Activity;
   localUrl?: string; pending?: boolean; failed?: boolean; thread?: string; progress?: string;  // progress: a note on its way ("sending 40%")
@@ -25,6 +25,7 @@ export type State = {
   who_default?: "in" | "out";
   working_in?: Record<string, string[]>;
   looks?: Record<string, Record<string, string>>;  // each wolt's look, by name: {"hat": id} (hats.ts)
+  names?: Record<string, string>;  // chats renamed after they started: {thread: name}
   faces?: Record<string, string>;  // what each person wears, by email: "hat-<id>"
   main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it
 };
