@@ -789,6 +789,13 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertFalse((Path(keep) / "link.json").exists())
 
 
+def entered(test, manager):
+    """TestCase.enterContext, which only exists from Python 3.11: enter now, leave when the test is over."""
+    value = manager.__enter__()
+    test.addCleanup(manager.__exit__, None, None, None)
+    return value
+
+
 @E2E
 class RoomCap(unittest.TestCase):
     """The relay's desk: only so many rooms at once and per day, and counts for whoever holds the host key."""
@@ -838,7 +845,7 @@ class RoomCap(unittest.TestCase):
                 host(claim)
             return no.exception.response.status_code
         mine, other = "m" * 43, "o" * 43
-        first = self.enterContext(host(mine))
+        first = entered(self, host(mine))
         self.assertTrue(up())
         self.assertEqual(refused(mine), 409)  # just let in: nobody takes its place
         for _ in range(4):  # it says it's here, and the relay answers by itself, for longer than the silence allowed
@@ -851,7 +858,7 @@ class RoomCap(unittest.TestCase):
         self.assertFalse(up())
         self.assertEqual(refused(other), 409)
         self.assertEqual(refused(), 409)
-        second = self.enterContext(host(mine))  # the room's own host, on a new connection
+        second = entered(self, host(mine))  # the room's own host, on a new connection
         self.assertTrue(up())
         with self.assertRaises(ConnectionClosed) as closed:
             first.recv(timeout=5)
@@ -860,7 +867,7 @@ class RoomCap(unittest.TestCase):
         self.assertEqual(second.recv(timeout=5), '{"pong":1}')
         second.close()
         # a host that shows no claim is the host of before: silent for as long, it is still the room, and stays
-        old = self.enterContext(host())
+        old = entered(self, host())
         time.sleep(2.5)
         self.assertTrue(up())
         self.assertEqual(refused(mine), 409)
