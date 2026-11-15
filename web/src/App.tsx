@@ -11,6 +11,7 @@ import { wear, worn } from "./hats";
 import { WoltStrip, usePullDown } from "./WoltStrip";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
+import { NewChatSheet } from "./NewChat";
 import { InboxSheet, ThreadFooter, chatRows, threadColor, threadEmoji, threadTitle, threadWallpaper, useChatsHome, unread, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
@@ -461,7 +462,7 @@ export function App() {
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
   // Home as the chats: no main chat to talk in. Every thread is a chat, and so is anything someone just said in the main chat
   // (it starts one, the wolts answer under it). The rest of the old main chat is one more chat, the lobby.
-  const chatsHome = useChatsHome(), [lobby, setLobby] = useState(false);
+  const chatsHome = useChatsHome(), [lobby, setLobby] = useState(false), [starting, setStarting] = useState(false);
   const since = Date.now() / 1000 - 86400;
   const roots = main.filter((m) => replies.has(m.id) || (chatsHome && m.kind === "human" && m.at > since));
   const lobbyList = chatsHome ? main.filter((m) => !roots.includes(m)) : main;
@@ -664,6 +665,21 @@ export function App() {
     settle(o.cid, await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: o.text, cid: o.cid, ...(o.thread ? { thread: o.thread } : {}) }) }));
   }
 
+  // a chat started from the new-chat sheet: the first message, then who's in, once the room has given it its id
+  async function startChat(t: string, agents: Record<string, boolean>) {
+    setStarting(false);
+    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t };
+    setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true }]);
+    setThread(o.cid);
+    await sendTyped(o);
+    let real: Msg | undefined;  // the room's copy reaches the page a render later
+    for (let i = 0; i < 20 && !(real = msgsNow.current.find((x) => x.cid === o.cid && x.id !== o.cid)); i++) await new Promise((ok) => setTimeout(ok, 250));
+    if (!real) return;
+    for (const w of state.members.wolts) {
+      const was = w.wolt === state.main || state.who_default === "in", want = !!agents[w.wolt];
+      if (want !== was) report(await say("/api/thread-who", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread: real.id, wolt: w.wolt, state: want ? "in" : "paused" }) }));
+    }
+  }
   const me = state.members.wolts.find((w) => w.owner === state.me);
   const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? (chatsHome ? "$ message this chat" : "$ reply in thread") : chatsHome && !lobby ? "$ start a new chat…" : undefined} />;
   // on the desk: the wolts of the open thread (or every wolt that isn't paused, in the main chat)
@@ -698,7 +714,11 @@ export function App() {
           <ChevronLeft size={16} /> chats <span className="text-dim">· lobby: the old main chat. Anything you say here starts a chat.</span></button>}
         <Feed list={lobbyList} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
       </>}
-      {!thread && composer}
+      {!thread && (chatsHome && !lobby
+        ? <div className="flex-none px-3 pt-2 pb-[calc(10px+env(safe-area-inset-bottom))] border-t border-line bg-paper">
+          <button type="button" onClick={() => setStarting(true)} className="w-full rounded-2xl border-0 bg-acc text-white font-mono font-bold text-[15px] py-3.5 cursor-pointer active:opacity-80">＋ New chat</button></div>
+        : composer)}
+      {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} onStart={startChat} onClose={() => setStarting(false)} />}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} all={main.filter((m) => m.kind === "human" || m.kind === "wolt")} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
       {thread && <ThreadSheet key={thread} startFull={chatsHome} chat={chatsHome} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={`${threadEmoji(thread)} ${threadTitle(root)}`} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
@@ -707,7 +727,7 @@ export function App() {
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />
         {/* a chat just started: who will pick it up, and how to bring someone else in */}
         {chatsHome && root && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
-          New chat started{state.main ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
+          New chat started{state.main && state.who?.[thread]?.[state.main] !== "paused" ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
         {composer}
       </ThreadSheet>}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
