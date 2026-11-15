@@ -151,6 +151,7 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
   const unreadRows = items.filter((i) => i.n).length;
   const name = (m: Msg) => (m.kind === "human" ? ctx.person(m.email).name : m.wolt!);
   // the latest message's bubble is in the colour of whoever said it, as in the chat
+  const voice = (m: Msg) => m.kind === "human" ? ctx.person(m.email).color : woltColor(m.wolt, ctx.wolts);
   const ink = (m: Msg) => m.kind === "human" ? mix(ctx.person(m.email).color, "#ffffff", 0.82) : mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9);
   const count = (n: number) => <span className="flex-none min-w-[18px] h-[18px] px-1.5 rounded-full bg-acc text-white font-mono font-semibold text-[10.5px] leading-[18px] text-center">{n}</span>;
   const busyAt = (key: string) => ctx.busy?.(key) || [];
@@ -158,22 +159,25 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
     const color = id ? threadColor(id) : "#c4531e", who = faces(list, ctx, 6), here = id === current;
     const names = [...new Set([...list].reverse().map(name))];
     return <button key={id || "main"} type="button" onClick={() => (id ? onOpen(id) : onMain())} style={id ? threadWallpaper(id, true, true) : undefined}
-      className={`flex w-full text-left bg-transparent border-0 border-b border-line px-3 py-3 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
+      className={`flex w-full text-left bg-transparent border-0 border-b-2 border-line px-3 py-4 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
       {/* the wallpaper shows around it; what you read sits on solid ground: the title in its own band, then the latest message
           in the colour of whoever said it */}
-      <span className="flex-1 min-w-0 rounded-2xl border overflow-hidden shadow-[0_1px_4px_#18100a1a]" style={{ borderColor: color + "77" }}>
-        <span className="flex items-center gap-2 px-3.5 py-2 border-b font-mono text-[14px] font-bold bg-[#fffdf8]" style={{ borderColor: color + "55" }}>
+      <span className="flex-1 min-w-0 rounded-2xl border-2 overflow-hidden shadow-[0_2px_8px_#18100a24]" style={{ borderColor: color + "99" }}>
+        <span className="flex items-center gap-2 px-3.5 py-2 border-b-2 font-mono text-[14px] font-bold" style={{ borderColor: color + "55", background: mix(color, "#ffffff", 0.9) }}>
           <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : lobby ? "# lobby" : "# main chat"}</span>
           {n > 0 && count(n)}
           {busyAt(id).length ? <Busy wolts={busyAt(id)} ctx={ctx} /> : <span className="flex-none text-[11px] font-normal text-dim">{ago(last.at)}</span>}
         </span>
         <span className="block px-3.5 pt-2.5 pb-2.5 bg-[#fffdf8]">
-          <span className={`flex items-end gap-2 text-[15px] leading-snug ${n ? "text-ink" : "text-[#4a4038]"}`}>
-            <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-7 h-7 rounded-full ring-2 ring-paper bg-panel" />
-            {/* the latest message as a speech bubble in its speaker's colour, apart from the card */}
-            <span className="min-w-0 rounded-xl rounded-bl-sm border border-line px-2.5 py-1.5" style={{ background: ink(last) }}><span className="line-clamp-2"><b className="font-semibold text-ink">{name(last)}:</b> {preview(last)}</span></span></span>
+          {/* who spoke last, up front: their face and name in their colour, then what they said in a bubble of that colour */}
+          <span className={`flex items-start gap-2.5 text-[15px] leading-snug ${n ? "text-ink" : "text-[#4a4038]"}`}>
+            <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-10 h-10 rounded-full ring-2 bg-panel" style={{ ["--tw-ring-color" as string]: voice(last) }} />
+            <span className="flex-1 min-w-0">
+              <b className="block font-mono text-[13px] font-bold mb-1" style={{ color: voice(last) }}>{name(last)}</b>
+              <span className="block rounded-xl rounded-tl-sm border px-2.5 py-1.5" style={{ background: ink(last), borderColor: mix(voice(last), "#ffffff", 0.6) }}><span className="line-clamp-2">{preview(last)}</span></span>
+            </span></span>
         </span>
-        <span className="flex items-center gap-2 px-3.5 py-1.5 border-t bg-white font-mono text-[11px] text-dim" style={{ borderColor: color + "44" }}>
+        <span className="flex items-center gap-2 px-3.5 py-1.5 border-t-2 bg-white font-mono text-[11px] text-dim" style={{ borderColor: color + "44" }}>
             <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-5 h-5 rounded-full ring-2 ring-paper bg-panel" />)}</span>
             <span className="flex-1 min-w-0 truncate">{names.slice(0, 4).join(", ")}{names.length > 4 ? ` +${names.length - 4}` : ""}</span>
             <span className="flex-none">{list.length} msgs</span>
