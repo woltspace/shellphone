@@ -39,6 +39,8 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 .lore.new { animation: cook 2.4s linear infinite, step .25s ease-out; }
 .gnaw-row { animation: fadein .25s ease-out, glow 2.4s ease-in-out infinite; }
 .gnaw-img { animation: chew .35s steps(2) infinite, bob .9s ease-in-out infinite; }
+.idle-bob { animation: bob 2.8s ease-in-out infinite; }
+.snooze { animation: pulse-soft 2s ease-in-out infinite; }
 .cursor::after { content: "_"; color: var(--color-acc); animation: blink 1s steps(1) infinite; }
 .wave.quiet i { animation: quiet 1.4s ease-in-out infinite alternate; }
-@media (prefers-reduced-motion: reduce) { .gnaw-img, .gnaw-row, .lore, .wave-in, .wave-out { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .gnaw-img, .gnaw-row, .idle-bob, .snooze, .lore, .wave-in, .wave-out { animation: none; } }

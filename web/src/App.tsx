@@ -8,7 +8,8 @@ import { say, send, sendWithProgress, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
 import { wear, worn } from "./hats";
-import { WoltStrip, usePullDown } from "./WoltStrip";
+import { WoltStrip, usePullDown, type Who } from "./WoltStrip";
+import { Profile } from "./Profile";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
@@ -473,6 +474,8 @@ export function App() {
   const [menu, setMenu] = useState(false);
   const [strip, setStrip] = useState(false);  // every wolt, gnawing or not: pulled down from the top of the chat
   const pull = usePullDown(strip, setStrip);
+  const chatList = useRef<HTMLDivElement>(null), pullChats = usePullDown(strip, setStrip, () => (chatList.current?.scrollTop ?? 0) <= 0);  // the chats, pulled down at their top, show everyone too
+  const [who, setWho] = useState<Who>("");  // someone's card, opened from the strip
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
@@ -732,8 +735,8 @@ export function App() {
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>}
       </header>
-      <WoltStrip state={state} person={person} open={strip} onClose={() => setStrip(false)} />
-      {chatsHome && !lobby ? <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
+      <WoltStrip state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />
+      {chatsHome && !lobby ? <div ref={chatList} {...pullChats} className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
         {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
           onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
@@ -768,6 +771,8 @@ export function App() {
       {listening !== false && <Listening sprite={woltFace(me?.wolt, me?.creature)} audio={listening} onSend={voiceStart} onDone={voice} onBlocked={() => setMicBlocked(true)} />}
       {/* An app on the home screen can lose the mic and never ask again until it starts over. A tap asks again;
           if the phone still says no, reloading starts the page over, which brings its question back without quitting the app. */}
+      {who && <Profile who={who} state={state} person={person} msgs={msgs} onPick={setWho} onClose={() => setWho("")}
+        onOpen={(t) => { setWho(""); setStrip(false); setLobby(false); setThread(t); }} />}
       {micBlocked && <div role="alert" className="absolute inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] max-w-[480px] mx-auto rounded-xl border-2 border-acc bg-panel p-3 shadow-[0_4px_14px_#18100a33]">
         <div className="font-mono text-[13px] font-semibold text-acc">The mic isn't allowed right now</div>
         <div className="text-[13px] text-dim mt-0.5">Ask again, or reload the app so your phone asks you. If it still says no, allow the microphone for this site in your phone's settings.</div>
