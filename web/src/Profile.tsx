@@ -25,12 +25,12 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
   const panel = useRef<HTMLDivElement>(null), body = useRef<HTMLDivElement>(null);
   const [tall, setTall] = useState(false);
   const short = () => Math.max(340, window.innerHeight * 0.46), full = () => window.innerHeight * 0.92;
-  const drag = useRef<{ y: number; t: number; dy: number; on: boolean; inBody: boolean; base: number } | null>(null);
+  const drag = useRef<{ y: number; t: number; dy: number; on: boolean; inBody: boolean; base: number; down: boolean; ly: number; lt: number; v: number } | null>(null);
   const bye = () => { const p = panel.current; if (p) { p.style.transition = "transform .2s cubic-bezier(.2,.8,.2,1)"; p.style.transform = "translateY(100%)"; } setTimeout(onClose, 180); };
   const settle = (toTall: boolean) => { const p = panel.current; if (!p) return;
     p.style.transition = "transform .3s cubic-bezier(.25,1.3,.45,1), height .35s cubic-bezier(.25,1.2,.45,1)"; p.style.transform = ""; p.style.height = `${toTall ? full() : short()}px`; setTall(toTall); };
   const swipe = {
-    onTouchStart: (e: React.TouchEvent) => { drag.current = { y: e.touches[0].clientY, t: performance.now(), dy: 0, on: false, base: tall ? full() : short(), inBody: !!body.current?.contains(e.target as Node) }; },
+    onTouchStart: (e: React.TouchEvent) => { drag.current = { y: e.touches[0].clientY, t: performance.now(), dy: 0, on: false, base: tall ? full() : short(), down: false, ly: e.touches[0].clientY, lt: performance.now(), v: 0, inBody: !!body.current?.contains(e.target as Node) }; },
     onTouchMove: (e: React.TouchEvent) => {
       const d = drag.current, p = panel.current; if (!d || !p) return;
       d.dy = e.touches[0].clientY - d.y;
@@ -39,8 +39,9 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
         const b = body.current, canScroll = !!b && b.scrollHeight > b.clientHeight;
         // tall: the list scrolls as usual, and only a pull down from its top moves the card. Half height: up grows it first.
         if (d.inBody && ((d.dy > 0 && (b?.scrollTop || 0) > 0) || (tall && d.dy < 0 && canScroll))) { drag.current = null; return; }
-        d.on = true; d.y = e.touches[0].clientY; d.dy = 0;
+        d.on = true; d.down = d.dy > 0; d.y = e.touches[0].clientY; d.dy = 0;
       }
+      const now = performance.now(), y = e.touches[0].clientY; d.v = (y - d.ly) / Math.max(1, now - d.lt); d.ly = y; d.lt = now;  // speed at the end, for a flick
       p.style.transition = "none";
       const h = d.base - d.dy, top = full();
       if (h >= short() || tall) { p.style.transform = ""; p.style.height = `${h > top ? top + (h - top) * 0.3 : Math.max(short(), h)}px`; }  // past tall it gets heavier
@@ -48,9 +49,10 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
     },
     onTouchEnd: () => {
       const d = drag.current; drag.current = null; if (!d?.on) return;
-      const v = d.dy / Math.max(1, performance.now() - d.t);
-      if (!tall) { if (d.dy < -60 || v < -0.5) settle(true); else if (d.dy > 90 || v > 0.5) bye(); else settle(false); }
-      else settle(!(d.dy > 80 || v > 0.5));
+      // a swipe that started down never grows the card: down and back up just settles where it was
+      const v = d.v, flickDown = v > 0.5 && d.dy > 20, flickUp = v < -0.5 && d.dy < -20;
+      if (!tall) { if (!d.down && (d.dy < -60 || flickUp)) settle(true); else if (d.dy > 90 || flickDown) bye(); else settle(false); }
+      else settle(!(d.dy > 80 || flickDown));
     },
   };
   const [tick, setTick] = useState(0);  // a busy wolt's line of lore changes every few seconds, like in the chats
