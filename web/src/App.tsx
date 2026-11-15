@@ -10,6 +10,7 @@ import { LORE, woltAvatar } from "./sprites";
 import { wear, worn } from "./hats";
 import { WoltStrip, usePullDown, type Who } from "./WoltStrip";
 import { Profile } from "./Profile";
+import { UPPER } from "./Sky";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
@@ -475,7 +476,7 @@ export function App() {
   // everyone, people and wolts, pulled down from the top: on the chats, the app opens with it down, and scrolling folds it away
   const [strip, setStrip] = useState(true);
   const stripEl = useRef<HTMLDivElement>(null), pull = usePullDown(strip, setStrip, stripEl);
-  const chatList = useRef<HTMLDivElement>(null), pullChats = usePullDown(strip, setStrip, stripEl, () => (chatList.current?.scrollTop ?? 0) <= 0);  // the chats, pulled down at their top, show everyone too
+  const chatList = useRef<HTMLDivElement>(null);  // on the chats, everyone is the top of the list: scroll up to see them
   const [who, setWho] = useState<Who>("");  // someone's card, opened from the strip
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
@@ -484,6 +485,27 @@ export function App() {
   // Home as the chats: no main chat to talk in. Every thread is a chat, and so is anything someone just said in the main chat
   // (it starts one, the wolts answer under it). The rest of the old main chat is one more chat, the lobby.
   const chatsHome = useChatsHome(), [lobby, setLobby] = useState(false), [starting, setStarting] = useState(false);
+  // the sky above the scene stays hidden until you pull down for it: the chats open scrolled just past it
+  // (once per time the list appears, as soon as it's tall enough to scroll that far)
+  const skyTucked = useRef(false);
+  // the sky up there is a peek, not a place: let go (or let a fling come to rest) and home springs back over it
+  const touching = useRef(false), springing = useRef(0);
+  const tuckSky = () => {  // straight away, with a quick ease-out of our own (the browser's smooth scroll lingers)
+    const l = chatList.current; if (!l || touching.current || springing.current || l.scrollTop >= UPPER) return;
+    l.style.overflowY = "hidden";  // stops a fling's momentum where it is
+    const from = l.scrollTop, t0 = performance.now(), ms = 260;
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      l.scrollTop = from + (UPPER - from) * e;
+      if (k < 1) springing.current = requestAnimationFrame(step); else { springing.current = 0; l.style.overflowY = ""; }
+    };
+    springing.current = requestAnimationFrame(step);
+  };
+  useLayoutEffect(() => {
+    const l = chatList.current;
+    if (!l) { skyTucked.current = false; return; }
+    if (!skyTucked.current && l.scrollHeight - l.clientHeight >= UPPER) { l.scrollTop = UPPER; skyTucked.current = true; }
+  });
   const since = Date.now() / 1000 - 86400;
   const roots = main.filter((m) => replies.has(m.id) || (chatsHome && m.kind === "human" && m.at > since));
   const lobbyList = chatsHome ? main.filter((m) => !roots.includes(m)) : main;
@@ -728,7 +750,7 @@ export function App() {
         <span className="relative flex-none w-12 h-12 rounded-full bg-[#f5f1e8] ring-1 ring-line"><img src="/room-icon.png" alt="" className="absolute inset-1 w-10 h-10 rounded-full" /><Live link={link === "open" ? line : link === "connecting" ? "retry" : "down"} /></span>
         <div className="min-w-0 flex-1">
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
-          <button type="button" aria-expanded={strip} onClick={() => setStrip(!strip)} className="block max-w-full p-0 border-0 bg-transparent text-left font-mono text-[11px] text-dim truncate cursor-pointer">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</button>
+          <button type="button" aria-expanded={strip} onClick={() => { if (chatsHome && !lobby) chatList.current?.scrollTo({ top: UPPER, behavior: "smooth" }); else setStrip(!strip); }} className="block max-w-full p-0 border-0 bg-transparent text-left font-mono text-[11px] text-dim truncate cursor-pointer">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</button>
         </div>
         {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
           className={`flex-none w-10 h-10 grid place-items-center border-0 cursor-pointer rounded-[10px] ${desk ? "bg-acc text-white" : "bg-transparent text-acc"}`}><Monitor size={20} /></button>}
@@ -736,8 +758,10 @@ export function App() {
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>}
       </header>
-      <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />
-      {chatsHome && !lobby ? <div ref={chatList} {...pullChats} onScroll={(e) => { if (strip && e.currentTarget.scrollTop > 12) setStrip(false); }} className="flex-1 min-h-0 overflow-y-auto overscroll-y-none pb-24">
+      {!(chatsHome && !lobby) && <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />}
+      {chatsHome && !lobby ? <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
+        <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
         {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
           onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}

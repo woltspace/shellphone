@@ -4,7 +4,7 @@ import { mix, woltColor } from "./Message";
 import { useEffect, useRef, useState } from "react";
 import type { State, Wolt } from "./room";
 import { personAvatar, verbs, woltAvatar } from "./sprites";
-import { Backdrop, GROUND, Mushroom, ROWS, useSky } from "./Sky";
+import { Backdrop, GROUND, Mushroom, ROWS, UpperSky, useSky } from "./Sky";
 import { worn } from "./hats";
 
 type Person = (email: string) => { name: string; color: string };
@@ -19,7 +19,9 @@ export function mood(w: Wolt, state: State): { awake: boolean; busy: boolean; wo
 // Who's who in the strip: a person or a wolt, by the key a profile opens with ("p:email" or "w:name").
 export type Who = string;
 
-export function WoltStrip({ state, person, open, onClose, onPick, el }: { state: State; person: Person; open: boolean; onClose: () => void; onPick?: (who: Who) => void; el: React.RefObject<HTMLDivElement | null> }) {
+// inline: the top of the chats list itself, so scrolling the chats carries it away under your finger, nothing animating
+// against you; otherwise it's pulled down over a view (the lobby) and springs open or shut.
+export function WoltStrip({ state, person, open, onClose, onPick, el, inline }: { state: State; person: Person; open: boolean; onClose: () => void; onPick?: (who: Who) => void; el?: React.RefObject<HTMLDivElement | null>; inline?: boolean }) {
   const wolts = [...state.members.wolts].sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)
     || Number(mood(b, state).busy) - Number(mood(a, state).busy));
   const people = state.members.people;
@@ -48,8 +50,8 @@ export function WoltStrip({ state, person, open, onClose, onPick, el }: { state:
         : <span className="mt-1 max-w-full truncate font-mono font-semibold text-[10.5px] px-1.5 rounded-md bg-[#1a3a18aa] text-[#e8f1dc]">{m.word}</span>}
     </button>;
   // its height is the pull's: the hook below moves it with your finger and lets it spring open or shut
-  return <div ref={el} aria-hidden={!open} onClick={onClose}
-    className={`relative flex-none overflow-hidden ${open ? "border-b border-line" : ""}`} style={{ height: 0, background: "#ede7df", ["--p" as string]: 0 }}>
+  return <>{inline && <UpperSky sky={sky} />}<div ref={inline ? undefined : el} aria-hidden={!open} onClick={inline ? undefined : onClose}
+    className={`relative flex-none overflow-hidden ${open ? "border-b border-line" : ""}`} style={{ height: inline ? STRIP : 0, background: "#ede7df", ["--p" as string]: inline ? 1 : 0 }}>
     {/* Lauren's sky, by day or night, drifting a little slower than everyone standing in it */}
     <div aria-hidden className="absolute inset-x-0 bottom-0 pointer-events-none" style={{ height: STRIP, transform: "translateY(calc((1 - var(--p)) * -40px))" }}>
       <Backdrop sky={sky} height={STRIP} /></div>
@@ -65,7 +67,7 @@ export function WoltStrip({ state, person, open, onClose, onPick, el }: { state:
       {wolts.length === 0 && people.length === 0 && <div className="py-6 w-full text-center text-sm text-dim">Nobody here yet</div>}
       </div>
     </div>
-  </div>;
+  </div></>;
 }
 
 // Pull down on an element (the header, or the chats when they're at their top): the strip follows your finger,
