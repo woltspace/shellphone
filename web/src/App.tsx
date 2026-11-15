@@ -8,7 +8,8 @@ import { say, send, sendWithProgress, useRoom, type Msg } from "./room";
 import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
 import { wear, worn } from "./hats";
-import { WoltStrip, usePullDown } from "./WoltStrip";
+import { WoltStrip, usePullDown, type Who } from "./WoltStrip";
+import { Profile } from "./Profile";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
@@ -443,6 +444,7 @@ export function App() {
   const [link, setLink] = useState<PipeState>("open");  // through the relay: is the room's computer there?
   useEffect(() => (relayRoom ? onRelayState(setLink) : undefined), []);
   const [listening, setListening] = useState<AudioContext | null | false>(false);
+  const [micBlocked, setMicBlocked] = useState(false);  // the phone said no to the mic: offer to ask again, or reload
   const [viewing, setViewing] = useState<{ urls: string[]; names?: string[]; at: number } | null>(null);
   const [paging, setPaging] = useState("");  // the page open full screen, by id
   // the desk: on a wide screen, your wolts' terminals beside the chat (Desk.tsx). Remembered on this computer.
@@ -470,8 +472,11 @@ export function App() {
   const root = thread ? msgs.find((m) => m.id === thread) : undefined;
   const [listOpen, setListOpen] = useState(false);  // the inbox sheet; home is always the main chat
   const [menu, setMenu] = useState(false);
-  const [strip, setStrip] = useState(false);  // every wolt, gnawing or not: pulled down from the top of the chat
-  const pull = usePullDown(strip, setStrip);
+  // everyone, people and wolts, pulled down from the top: on the chats, the app opens with it down, and scrolling folds it away
+  const [strip, setStrip] = useState(true);
+  const stripEl = useRef<HTMLDivElement>(null), pull = usePullDown(strip, setStrip, stripEl);
+  const chatList = useRef<HTMLDivElement>(null), pullChats = usePullDown(strip, setStrip, stripEl, () => (chatList.current?.scrollTop ?? 0) <= 0);  // the chats, pulled down at their top, show everyone too
+  const [who, setWho] = useState<Who>("");  // someone's card, opened from the strip
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
@@ -664,6 +669,7 @@ export function App() {
   }
   function mic() {
     if (!navigator.mediaDevices || !window.MediaRecorder) return setError("This browser can't record here.");
+    setMicBlocked(false);
     setListening(null);
   }
   // what you type shows at once, then becomes the room's copy as soon as the room has it (no wait for the next poll)
@@ -730,8 +736,8 @@ export function App() {
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>}
       </header>
-      <WoltStrip state={state} person={person} open={strip} onClose={() => setStrip(false)} />
-      {chatsHome && !lobby ? <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
+      <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />
+      {chatsHome && !lobby ? <div ref={chatList} {...pullChats} onScroll={(e) => { if (strip && e.currentTarget.scrollTop > 12) setStrip(false); }} className="flex-1 min-h-0 overflow-y-auto overscroll-y-none pb-24">
         {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
           onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
@@ -757,13 +763,26 @@ export function App() {
           New chat started{state.main && state.who?.[thread]?.[state.main] !== "paused" ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
         {composer}
       </ThreadSheet>}
-      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
+      <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} onEveryone={() => { setThread(""); setLobby(false); setStrip(true); }} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}
       {relayRoom && (relayKeyMissing || (link !== "open" && !(naming && link === "connecting"))) && <Offline missing={relayKeyMissing} state={link} />}
       {error && <div onClick={() => setError("")} className="absolute left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] font-mono text-xs bg-panel text-acc border border-acc px-3 py-1.5 rounded-lg cursor-pointer shadow-[0_2px_10px_#18100a1f]">&gt; {error}</div>}
-      {listening !== false && <Listening sprite={woltFace(me?.wolt, me?.creature)} audio={listening} onSend={voiceStart} onDone={voice} />}
+      {listening !== false && <Listening sprite={woltFace(me?.wolt, me?.creature)} audio={listening} onSend={voiceStart} onDone={voice} onBlocked={() => setMicBlocked(true)} />}
+      {/* An app on the home screen can lose the mic and never ask again until it starts over. A tap asks again;
+          if the phone still says no, reloading starts the page over, which brings its question back without quitting the app. */}
+      {who && <Profile who={who} state={state} person={person} msgs={msgs} onPick={setWho} onClose={() => setWho("")}
+        onOpen={(t) => { setWho(""); setStrip(false); setLobby(false); setThread(t); }} />}
+      {micBlocked && <div role="alert" className="absolute inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] max-w-[480px] mx-auto rounded-xl border-2 border-acc bg-panel p-3 shadow-[0_4px_14px_#18100a33]">
+        <div className="font-mono text-[13px] font-semibold text-acc">The mic isn't allowed right now</div>
+        <div className="text-[13px] text-dim mt-0.5">Ask again, or reload the app so your phone asks you. If it still says no, allow the microphone for this site in your phone's settings.</div>
+        <div className="flex gap-2 mt-2.5">
+          <button type="button" onClick={mic} className="flex-1 rounded-lg border-0 bg-acc text-white font-mono font-semibold text-[13px] py-2 cursor-pointer">Ask again</button>
+          <button type="button" onClick={() => location.reload()} className="flex-1 rounded-lg border border-acc bg-transparent text-acc font-mono font-semibold text-[13px] py-2 cursor-pointer">Reload app</button>
+          <button type="button" aria-label="Close" onClick={() => setMicBlocked(false)} className="w-9 rounded-lg border border-line bg-transparent text-dim cursor-pointer">✕</button>
+        </div>
+      </div>}
       {viewing && <Viewer urls={viewing.urls} names={viewing.names} at={viewing.at} close={() => setViewing(null)} />}
       {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>

@@ -9,11 +9,11 @@ import { woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { HatGrid, putLook } from "./HatShop";
 
-const set = (wolt: string, state: "on" | "paused" | "removed") =>
+export const setWolt = (wolt: string, state: "on" | "paused" | "removed") =>
   say("/api/wolt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt, state }) });
 
 // The main agent (main): in every thread, and the one you can ask to bring others in or out. Only the host picks it.
-const crown = (wolt: string | null) =>
+export const crown = (wolt: string | null) =>
   say("/api/main", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wolt }) });
 
 export function Agents({ wolts, people, me, host, sec, main, looks = {} }: { wolts: Wolt[]; people: Person[]; me: string; host?: string; sec: string; main?: string | null; looks?: Record<string, Record<string, string>> }) {
@@ -26,7 +26,7 @@ export function Agents({ wolts, people, me, host, sec, main, looks = {} }: { wol
   const may = (w: Wolt) => !guest && (me === host || w.owner === me);  // the room decides; this only hides what it would refuse
   const go = async (wolt: string, state: "on" | "paused" | "removed") => {
     setBusy(wolt); setAsking("");
-    setNote((await set(wolt, state)) || "");
+    setNote((await setWolt(wolt, state)) || "");
     setBusy("");
   };
   const btn = "flex-none h-8 px-2.5 grid place-items-center rounded-lg border font-mono text-xs cursor-pointer disabled:opacity-50", plain = `${btn} border-line bg-transparent`;
