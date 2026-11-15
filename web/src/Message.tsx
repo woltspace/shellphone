@@ -1,6 +1,6 @@
 // One bubble: who said it, the words (with @tags), a voice note with its words, a file or picture, a card.
 import { relayRoom } from "./relay";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
 import { PageTile } from "./Page";
@@ -125,19 +125,22 @@ function Activity({ m, ctx }: { m: Msg; ctx: Ctx }) {
   </div>;
 }
 
-export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firstOfRun: boolean; footer?: ReactNode }) {
+export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx: Ctx; firstOfRun: boolean; footer?: ReactNode; wallpaper?: CSSProperties }) {
   if (m.kind === "activity" && m.activity) return <Activity m={m} ctx={ctx} />;
   const human = m.kind === "human", mine = human && m.email === ctx.me;
   const owner = human ? m.email : m.owner, who = ctx.person(owner);
   const name = human ? who.name : `${m.wolt} · ${owner === ctx.me ? "yours" : who.name + "'s"}`;
-  const avatar = human ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltAvatar(m.creature || "raccoon", who.color, worn.wolts[m.wolt!]);
+  const avatar = human ? personAvatar(who.name, who.color, worn.people[m.email!]) : woltFace(m.wolt, m.creature);
   const readers = mine ? ctx.seen[m.id] || [] : [];
+  const solid: CSSProperties = mine ? { backgroundColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
+    : !human ? { backgroundColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : {};
   return (
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
       <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
-      <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border px-2.5 py-1.5 ${mine ? "border-line" : "bg-panel border-line"}`}
-        style={mine ? { background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
-          : !human ? { background: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : undefined}>
+      {/* a message with a thread sits in a frame of the thread's wallpaper; the message itself stays on its own solid color */}
+      <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border ${wallpaper ? "px-2.5 pt-2.5 pb-1.5 bg-paper" : `px-2.5 py-1.5 ${solid.backgroundColor ? "" : "bg-panel"}`} border-line`}
+        style={wallpaper ? { ...wallpaper } : solid}>
+        <div className={wallpaper ? `rounded-lg border px-2.5 py-1.5 ${solid.backgroundColor ? "" : "bg-panel"} border-line` : ""} style={wallpaper ? solid : undefined}>
         {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5" style={!human ? { color: woltColor(m.wolt, ctx.wolts) } : undefined}>[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
         {m.files?.length ? relayRoom ? <div className="font-mono text-xs text-dim mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
         {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
@@ -150,8 +153,9 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
         <div className="flex justify-end items-center gap-1 mt-0.5 font-mono text-[10px] text-dim">
           {time(m.at)}
           {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
-            {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltAvatar(w?.creature || "raccoon", ctx.person(w?.owner).color, worn.wolts[r])} />; })}
+            {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltFace(r, w?.creature)} />; })}
           </span>}
+        </div>
         </div>
         {footer}
       </div>
@@ -162,6 +166,10 @@ export function Message({ m, ctx, firstOfRun, footer }: { m: Msg; ctx: Ctx; firs
 // Each agent its own colour, so two agents of one person don't look alike: by its place in the room's list (the same on
 // every phone, and no two alike for the first eight), or from its name if it has left the room.
 const HUES = ["#2f6fa3", "#7a4fb0", "#2f7d6d", "#b0427a", "#8a6d1c", "#5b5bb5", "#3f8a3a", "#c4531e"];
+// the room's wolts, as of the last update (App fills it, like the hats), so a wolt's face is drawn in its own colour anywhere
+export const roomWolts: Wolt[] = [];
+export const woltFace = (name = "", creature?: string) => woltAvatar(creature || roomWolts.find((w) => w.wolt === name)?.creature || "raccoon", woltColor(name, roomWolts), worn.wolts[name]);
+
 export function woltColor(name = "", wolts: Wolt[] = []) {
   const i = wolts.findIndex((w) => w.wolt === name);
   if (i >= 0) return HUES[i % HUES.length];

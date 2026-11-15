@@ -220,6 +220,22 @@ class FrontDoor(unittest.TestCase):
         page("/api/look", {"wolt": "helper", "look": {"hat": ""}})
         self.assertEqual(r.state()["looks"], {})
 
+    def test_a_chat_can_be_named_when_it_starts(self):
+        r = self.room()
+        r.browser.open(r.open)
+        def page(body):
+            return json.load(r.browser.open(urllib.request.Request(r.url + "/api/messages", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+        start = page({"text": "can we plan the onboarding?", "title": "  Onboarding\nplan  "})
+        self.assertEqual(start["title"], "Onboarding plan")  # one line, trimmed
+        reply = page({"text": "sure", "thread": start["id"], "title": "not for a reply"})
+        self.assertNotIn("title", reply)  # only the message that starts a chat names it
+        self.assertNotIn("title", page({"text": "no name given"}))
+        rename = lambda body: json.load(r.browser.open(urllib.request.Request(r.url + "/api/rename", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+        rename({"thread": reply["id"], "name": "Onboarding, step by step"})  # a reply names its whole chat
+        self.assertEqual(r.state()["names"], {start["id"]: "Onboarding, step by step"})
+        rename({"thread": start["id"], "name": " "})
+        self.assertEqual(r.state()["names"], {})  # back to the title it started with
+
     def test_a_thread_reaches_the_agents_in_it(self):
         r = self.room()
         work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
