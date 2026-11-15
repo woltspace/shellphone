@@ -171,14 +171,14 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
         <span className="block px-3.5 pt-2.5 pb-2.5 bg-[#fffdf8]">
           {/* who spoke last, up front: their face and name in their colour, then what they said in a bubble of that colour */}
           <span className={`flex items-start gap-2.5 text-[15px] leading-snug ${n ? "text-ink" : "text-[#4a4038]"}`}>
-            <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-10 h-10 rounded-full ring-2 bg-panel" style={{ ["--tw-ring-color" as string]: voice(last) }} />
+            <img src={faces([last], ctx)[0].src} alt="" className="pixel flex-none w-12 h-12 -mt-1" />{/* the face draws its own circle, with the hat over it */}
             <span className="flex-1 min-w-0">
               <b className="block font-mono text-[13px] font-bold mb-1" style={{ color: voice(last) }}>{name(last)}</b>
               <span className="block rounded-xl rounded-tl-sm border px-2.5 py-1.5" style={{ background: ink(last), borderColor: mix(voice(last), "#ffffff", 0.6) }}><span className="line-clamp-2">{preview(last)}</span></span>
             </span></span>
         </span>
         <span className="flex items-center gap-2 px-3.5 py-1.5 border-t-2 bg-white font-mono text-[11px] text-dim" style={{ borderColor: color + "44" }}>
-            <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-5 h-5 rounded-full ring-2 ring-paper bg-panel" />)}</span>
+            <span className="flex-none inline-flex -space-x-1.5">{who.slice(0, 5).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-6 h-6" />)}</span>
             <span className="flex-1 min-w-0 truncate">{names.slice(0, 4).join(", ")}{names.length > 4 ? ` +${names.length - 4}` : ""}</span>
             <span className="flex-none">{list.length} msgs</span>
         </span>
