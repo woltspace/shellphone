@@ -3,7 +3,7 @@
     uv run --with cryptography --with websockets python -m unittest tests.test_pipe
     RELAY_E2E=1 …   also starts the relay with `npx wrangler dev --local` and a shared room, and talks through them
 """
-import base64, http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
+import base64, contextlib, io, http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -258,6 +258,30 @@ class HostSide(unittest.TestCase):
         states, waits = run(["up"] + ["taken"] * 50, 1, stop_at=3)
         self.assertEqual((states[-1], len(waits)), ("down", 3))
         self.assertFalse([s for s in states if s.startswith("refused")])
+
+    def test_a_host_replaced_by_another_copy_of_its_room_stops(self):
+        class Replaced(Exception):
+            rcvd = type("Close", (), {"code": pipe.REPLACED})
+
+        class Closed:  # up, then the relay closes it: the same room connected again from somewhere else
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def recv(self, timeout=None): raise Replaced()
+        states, knocks, waits = [], [], []
+
+        class Stop:
+            def is_set(self): return False
+            def wait(self, seconds):
+                waits.append(seconds)
+                return len(waits) >= 3
+
+        def connect(*a, **k):
+            knocks.append(1)
+            return Closed()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            pipe.serve("ws://relay.test/r/x/host", "", lambda: None, Stop(), on_state=states.append, connect=connect)
+        self.assertEqual((states, len(knocks), waits), (["up", "refused: this room was opened again somewhere else"], 1, []))
+        self.assertRegex(out.getvalue(), r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d .*opened again somewhere else")  # said in the log, with the time
 
     def test_the_host_shows_its_claim_and_says_it_is_here_every_twenty_seconds(self):
         sent, seen, clock, stop = [], {}, [0.0], threading.Event()

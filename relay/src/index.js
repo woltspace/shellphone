@@ -306,12 +306,15 @@ export class Room extends DurableObject {
     // A host that proves the room is its own shows a claim: a hash of the room, its secret and the host's token,
     // which only the host's link holds (the relay can't turn it back into any of them, and a guest's link has
     // other secrets). The room keeps the claim of the host it let in. A host arriving while one is listed is
-    // let in only in its place: same claim, and the listed one gone quiet. That is the room's own process
-    // coming back after its connection died. Anything else is turned away, as before.
+    // let in only in its place, and only with the same claim: that is the room's own process coming back on a new
+    // connection. It is let in at once, without waiting for the listed one to go quiet: a connection cut without a
+    // goodbye looks alive here for up to QUIET_SECONDS, and the room would be offline all that time. The one it
+    // replaces is closed with 4409, and a host told 4409 stops, so two copies of one room don't take turns.
+    // Anything else is turned away, as before.
     const shown = (request.headers && request.headers.get("X-Shellphone-Claim")) || "", claim = CLAIM.test(shown) ? shown : "";
     if (role === "host" && listed) {
       const was = listed.deserializeAttachment().claim;
-      if (!(was && claim && same(was, claim) && this.quiet(listed))) return new Response("this room already has a host", { status: 409 });
+      if (!(was && claim && same(was, claim))) return new Response("this room already has a host", { status: 409 });
     }
     if (role === "client" && !here) return new Response("room is offline", { status: 404 });
     if (role === "client") for (const c of this.clients()) if (this.quiet(c)) this.drop(c);  // pages that went without a goodbye don't hold a place
