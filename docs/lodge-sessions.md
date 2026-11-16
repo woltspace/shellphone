@@ -77,7 +77,8 @@ Private state stays out of chat history, notifications and shared member lists.
 owner's management state. Eligible `/api/state` responses add:
 
 ```
-lodge: {connected, pending, code, expires, command: null, approval}
+lodge: {connected, pending, code, expires, command: null, approval,
+        wolts: {name: {approved, online}}}
 sessions: {wolt: {id, started, alive, online, recovery_required, actions: ["fresh", "stop" | "resume"]}}
 session_jobs: [{id, wolt, action, state, result, at, error}]
 ```
@@ -85,7 +86,10 @@ session_jobs: [{id, wolt, action, state, result, at, error}]
 `lodge` is absent for unsupported identities and rooms without a capable own
 connector. `sessions` stays empty until explicit approval; stale snapshots have
 `online: false` and no actions. `pending` can coexist with a connected wolt while
-another own connector still awaits approval.
+another own connector still awaits approval. Render each card only when its
+name is present in `lodge.wolts`; use that entry's `approved` state, not the
+global `connected` flag. Keep pending pairing visible in the menu even when
+some other wolts are already connected.
 
 `POST /api/session/action {wolt, session, action, cid}` returns `{id,state}`.
 Use a stable `cid` for retries and the displayed session ID as `session`.

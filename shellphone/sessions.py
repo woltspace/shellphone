@@ -60,6 +60,7 @@ class Controls:
         jobs = self.r.q('select id,wolt,action,state,result,created as at from session_jobs where owner=? order by created desc limit 10', owner)
         jobs = [{**j, 'error': j['result'] if j['state'] in ('failed','uncertain') else None} for j in jobs]
         return {'lodge': {'connected': any(d['grant_id'] for d in ds), 'pending': bool(p),
+                          'wolts': {d['wolt']: {'approved': bool(d['grant_id']), 'online': d['seen'] > now-FRESH_FOR} for d in ds},
                           'code': p[0]['code'] if p else None, 'expires': p[0]['expires'] if p else None,
                           'command': None, 'approval': 'On your lodge, run shellphone sessions pending --config PATH, then approve the matching code.'},
                 'sessions': sessions, 'session_jobs': jobs}

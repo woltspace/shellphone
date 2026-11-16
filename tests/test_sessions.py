@@ -302,5 +302,20 @@ class Sessions(unittest.TestCase):
             self.assertEqual(request.call_count,1)
             self.assertEqual(request.call_args.args[0],'GET')
 
+    def test_mixed_plain_agents_and_partially_approved_wolts(self):
+        with self.r.tx() as c:
+            for name in ('plain','second'):
+                c.execute('insert into wolts(wolt,owner,key_hash) values (?,?,?)', (name,self.owner,'key-'+name))
+        self.agent('/lodge/session/state',wolt='second')
+        self.pair()
+        state=self.state()
+        self.assertTrue(state['lodge']['connected'])
+        self.assertTrue(state['lodge']['pending'])
+        self.assertNotIn('plain',state['lodge']['wolts'])
+        self.assertTrue(state['lodge']['wolts']['bot']['approved'])
+        self.assertFalse(state['lodge']['wolts']['second']['approved'])
+        self.assertNotIn('second',state['sessions'])
+        self.assertNotIn('lodge',self.state('other@example.test'))
+
 
 if __name__=='__main__': unittest.main()
