@@ -17,11 +17,11 @@ and never printed. A wolt hears every message people send and decides whether to
 tagged (@name) or its own human says its name. Other wolts' messages reach it only when they tag it, so two wolts
 can't keep answering each other.
 """
-import argparse, json, os, re, secrets, shlex, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
+import argparse, contextlib, json, os, re, secrets, shlex, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.15.1"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.16"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
 PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
@@ -293,42 +293,67 @@ def run(config_path, interval):
     print(f"{cfg['wolt']} is in the room, watching from message {cfg['after']}", flush=True)
     history = [m for m in me["messages"] if m["kind"] in ("human", "wolt")][-500:]
     retry_at, fails, key = 0, 0, keyed()
+    control = None
+    try:
+        from shellphone.session_agent import Controller
+        control = Controller(config_path, call, load, store)
+    except (ImportError, ValueError):
+        pass  # standalone connector/unsupported lodge: ordinary messaging still works
+    control_retry = 0
+    control_unsafe = False
+    context_binding = (cfg["session"], cfg.get("session_generation"))
     told = None  # what the room last heard about whether we reach the wolt (None: not yet, so say it once)
     while True:
-        try:
-            got = call(cfg, "GET", f"/lodge/messages?after={cfg['after']}")
-            version, note = newer(cfg, got)
-            if note and time.time() >= retry_at:  # counts as told only once it reached the wolt; if not, try again in a while
-                sent = subprocess.run(["woltspace", "session", "send", cfg["session"], "--from", "shellphone"], input=note, text=True, capture_output=True)
-                if sent.returncode == 0:
-                    cfg["noticed"] = version
-                else:
-                    retry_at = time.time() + 600
-            for m in got["messages"]:
-                # the marker only moves past a message once Woltspace took it: one that didn't get through is tried
-                # again, in order, waiting longer each time; after 5 tries the room shows the wolt can't be reached
-                if relevant(cfg, m):
-                    # the prompt is saved before its first send, so a retry (even after a restart) sends the very same one
-                    if cfg.get("held", {}).get("id") != m["id"]:
-                        cfg["held"] = {"id": m["id"], "text": prompt(cfg, config_path, m, context(m, history, cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]))}
-                        store(config_path, cfg)
-                    if not deliver(cfg, cfg["held"]["text"], m, key):
-                        fails += 1
-                        break
-                    cfg.pop("held")
-                    fails = 0
-                cfg["after"] = m["n"]
-                if m["kind"] in ("human", "wolt"):
-                    history = (history + [m])[-500:]
-            store(config_path, cfg)
-        except Exception as exc:
-            print(f"room unreachable, trying again: {exc}", flush=True)
-        try:  # the room's "can't reach" sign follows the failures, and is set right again after a restart or a lost report
-            if told != (fails < 5):
-                call(cfg, "POST", "/lodge/reach", {"ok": fails < 5})
-                told = fails < 5
-        except Exception as exc:
-            print(f"couldn't tell the room: {exc}", flush=True)
+        with control.locked() if control else contextlib.nullcontext():
+            if control and time.time() >= control_retry:
+                try:
+                    if control.step(cfg):
+                        history = []
+                    control_unsafe = False
+                except Exception:
+                    control_retry = time.time() + 30  # no private API diagnostics in shared chat
+                    control_unsafe = Path(control.local).exists()  # an approved controller fails closed
+            binding = (cfg["session"], cfg.get("session_generation"))
+            if binding != context_binding:
+                history = []
+                context_binding = binding
+            if cfg.get("session_stopped") or control_unsafe:
+                time.sleep(interval)
+                continue  # ending a session must not be undone by automatic message delivery
+            try:
+                got = call(cfg, "GET", f"/lodge/messages?after={cfg['after']}")
+                version, note = newer(cfg, got)
+                if note and time.time() >= retry_at:  # counts as told only once it reached the wolt; if not, try again in a while
+                    sent = subprocess.run(["woltspace", "session", "send", cfg["session"], "--from", "shellphone"], input=note, text=True, capture_output=True)
+                    if sent.returncode == 0:
+                        cfg["noticed"] = version
+                    else:
+                        retry_at = time.time() + 600
+                for m in got["messages"]:
+                    # the marker only moves past a message once Woltspace took it: one that didn't get through is tried
+                    # again, in order, waiting longer each time; after 5 tries the room shows the wolt can't be reached
+                    if relevant(cfg, m):
+                        # the prompt is saved before its first send, so a retry (even after a restart) sends the very same one
+                        if cfg.get("held", {}).get("id") != m["id"]:
+                            cfg["held"] = {"id": m["id"], "text": prompt(cfg, config_path, m, context(m, history, cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]))}
+                            store(config_path, cfg)
+                        if not deliver(cfg, cfg["held"]["text"], m, key):
+                            fails += 1
+                            break
+                        cfg.pop("held")
+                        fails = 0
+                    cfg["after"] = m["n"]
+                    if m["kind"] in ("human", "wolt"):
+                        history = (history + [m])[-500:]
+                store(config_path, cfg)
+            except Exception as exc:
+                print(f"room unreachable, trying again: {exc}", flush=True)
+            try:  # the room's "can't reach" sign follows the failures, and is set right again after a restart or a lost report
+                if told != (fails < 5):
+                    call(cfg, "POST", "/lodge/reach", {"ok": fails < 5})
+                    told = fails < 5
+            except Exception as exc:
+                print(f"couldn't tell the room: {exc}", flush=True)
         time.sleep(min(60, interval * 2 ** min(fails, 6)))
 
 
@@ -358,8 +383,17 @@ def main():
     s = sub.add_parser("page", help="a page in the room: get ID [--out FILE] | put ID FILE (a new version) | changes ID [--after N] | change ID (the change, as JSON, on stdin)")
     s.add_argument("--config", default="lodge.json"); s.add_argument("what", choices=("get", "put", "changes", "change")); s.add_argument("id")
     s.add_argument("file", nargs="?"); s.add_argument("--out"); s.add_argument("--after", type=int, default=0)
+    s = sub.add_parser("sessions", help="local lodge approval: pending | approve --code CODE | revoke; never approve from a room message alone")
+    s.add_argument("what", choices=("pending", "approve", "revoke", "reconcile"))
+    s.add_argument("--config", default="lodge.json"); s.add_argument("--code"); s.add_argument("--session")
     sub.add_parser("version")
     a = ap.parse_args()
+    if a.cmd == "sessions":
+        from shellphone.session_agent import Controller
+        try:
+            return print(Controller(a.config, call, load, store).command(a.what, a.code, a.session))
+        except (ValueError, OSError) as exc:
+            sys.exit(str(exc))
     if a.cmd == "version":
         return print(VERSION)
     if a.cmd == "join":

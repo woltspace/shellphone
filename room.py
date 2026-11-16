@@ -17,6 +17,8 @@ A wolt's message becomes a voice note from this computer's speech server when th
 """
 import argparse, base64, contextlib, shutil, getpass, hashlib, http.server, json, mimetypes, os, re, secrets, sqlite3, subprocess, sys, threading, time, urllib.parse, urllib.request, uuid
 from pathlib import Path
+from types import SimpleNamespace
+from shellphone.sessions import Controls, SCHEMA as SESSION_SCHEMA
 
 HERE = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("SHELLPHONE_DATA", HERE / "data"))
@@ -92,6 +94,7 @@ create table if not exists looks(wolt text primary key, look text not null);
 create table if not exists faces(email text primary key, face text not null);
 create table if not exists chat_names(thread text primary key, name text not null, by text not null, at real not null);
 """
+SCHEMA += SESSION_SCHEMA
 CON = None
 
 
@@ -890,7 +893,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def call(self, method):
         """Hand a call that passed the door (a known person, or a wolt's key) to the room, and send back its answer."""
-        return Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0])
+        return Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0],
+                       trusted_person=bool(not DEV and ((LOCAL and self.local_host()) or (ACCESS_TEAM and ACCESS_AUD))))
 
     def link_call(self, email, body):
         """Link or unlink the room, or say which it is. Only for the host, on this computer, from the room's own page or
@@ -974,9 +978,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 # Each returns (status, body, content type, options for sending): JSON bodies as dicts, media as bytes.
 
 class Request:  # whoever builds one (the web server, the relay) has checked who is calling and the route; read() enforces the size
-    def __init__(self, method, target, read, kind=""):
+    def __init__(self, method, target, read, kind="", trusted_person=False):
         split = urllib.parse.urlsplit(target)
         self.method, self.path, self.q, self.kind = method, split.path, urllib.parse.parse_qs(split.query), kind
+        self.trusted_person = trusted_person
         self.read = read  # read(limit) -> the body's bytes; refuses a body over the limit
 
 
@@ -1019,8 +1024,14 @@ def join_wolt(code_hash, data):
     return reply(200, {"key": key, "wolt": wolt, "owner": inv["owner"], "voice": voice})
 
 
+def session_controls():
+    return Controls(SimpleNamespace(q=q, tx=tx, people=people, reply=reply))
+
+
 def for_wolt(req, l):
     path, q = req.path, req.q
+    if path == "/lodge/session" or path.startswith("/lodge/session/"):
+        return session_controls().agent(req, l)
     if req.method not in ("GET", "POST"):
         return reply(405, {"error": "only GET and POST"})
     if l.get("paused") and (req.method, path) not in (("GET", "/lodge/messages"), ("POST", "/lodge/reach")):
@@ -1147,6 +1158,8 @@ def for_wolt(req, l):
 
 def for_person(req, email):
     path, q = req.path, req.q
+    if path.startswith("/api/lodge/") or path == "/api/session/action":
+        return session_controls().person(req, email)
     if req.method not in ("GET", "POST"):
         return reply(405, {"error": "only GET and POST"})
     if req.method == "GET":
@@ -1156,7 +1169,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "messages": messages(after), **session_controls().state(req, email)})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})

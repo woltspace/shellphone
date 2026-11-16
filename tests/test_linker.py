@@ -106,7 +106,7 @@ class SlowRoom:
     def __init__(self):
         self.started, self.go, self.done = threading.Event(), threading.Event(), []
 
-    def Request(self, method, target, body):
+    def Request(self, method, target, body, trusted_person=False):
         return (method, target, body)
 
     def for_person(self, request, email):
