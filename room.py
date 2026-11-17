@@ -236,7 +236,8 @@ def append(who=None, **fields):
     if fields.get("text") and fields.get("kind") in ("human", "patch"):
         email = fields.get("email") or (message(fields.get("of")) or {}).get("email")
         if email:
-            mark_asked(fields["text"], email, fields.get("thread") or (message(fields.get("of")) or {}).get("thread"))
+            mark_asked(fields["text"], email, fields.get("thread") or (message(fields.get("of")) or {}).get("thread"),
+                       m if fields["kind"] == "human" and not fields.get("thread") else None)
     return m
 
 
@@ -277,13 +278,14 @@ def stop_working(c, wolt, tid=None):
         c.execute("delete from working_in where wolt = ? and thread = ?", (wolt, tid))
 
 
-def mark_asked(text, email, tid=None):
-    """Tagged wolts light up the moment the message lands, even before their connector picks it up."""
+def mark_asked(text, email, tid=None, start=None):
+    """Tagged wolts light up the moment the message lands, even before their connector picks it up. start: a main-chat
+    message, which starts a chat of its own: they light up in that chat, where the person now is."""
     with tx() as c:
         for l in wolts():
-            m = {"kind": "human", "email": email, "text": text}
+            m = {**(start or {}), "kind": "human", "email": email, "text": text}
             if not l["paused"] and asks(m, l["wolt"], l["owner"]) and (hears(tid, l["wolt"]) if tid else hears_main(m, l["wolt"])):
-                set_working(c, l["wolt"], ASKED_FOR, tid)
+                set_working(c, l["wolt"], ASKED_FOR, tid or (start or {}).get("id"))
 
 
 # The main agent. A room's host can name one agent its main one. It is in every thread, so it hears a person wherever they
@@ -1224,7 +1226,7 @@ def for_wolt(req, l):
             read = [m["id"] for m in new if m["kind"] == "human"]
             with tx() as c:  # the wolt is reading these now: a read receipt each, and it's working on them
                 for m in fresh:
-                    set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR, m.get("thread"))
+                    set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR, m.get("thread") or m["id"])  # a main-chat message starts its own chat: working there
                 c.executemany("insert or ignore into seen values (?, ?, ?)", [(i, l["wolt"], time.time()) for i in read])
             return reply(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
                                "connector": connector_version()})

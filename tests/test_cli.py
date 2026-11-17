@@ -341,12 +341,12 @@ class FrontDoor(unittest.TestCase):
         page("/api/messages", {"text": "@second one more look, please", "thread": top})
         self.assertEqual(r.state()["working_in"], {"second": [top]})  # lit the moment it is tagged, in that thread
         self.assertEqual(r.state()["working"], {"second": True})  # older pages still see who is working
-        page("/api/messages", {"text": "@second and a word in the main chat"})
-        self.assertEqual(r.state()["working_in"], {"second": [top, ""]})
+        word = page("/api/messages", {"text": "@second and a word in the main chat"})["id"]
+        self.assertEqual(r.state()["working_in"], {"second": [top, word]})  # a main-chat message starts its own chat: lit there
         self.assertEqual(agent(other, "/lodge/messages", {"text": "looked", "thread": top}), 200)
-        self.assertEqual(r.state()["working_in"], {"second": [""]})  # answering in the thread ends it there only
+        self.assertEqual(r.state()["working_in"], {"second": [word]})  # answering in the thread ends it there only
         self.assertEqual(agent(other, "/lodge/working", {"working": True}), 200)
-        self.assertEqual(r.state()["working_in"], {"second": [""]})  # "still at it" keeps what is lit, and adds nothing
+        self.assertEqual(r.state()["working_in"], {"second": [word]})  # "still at it" keeps what is lit, and adds nothing
         self.assertEqual(agent(other, "/lodge/working", {"working": False}), 200)
         self.assertEqual(r.state()["working_in"], {})
         hear(other, 3)
