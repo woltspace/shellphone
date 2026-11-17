@@ -10,6 +10,7 @@ The room also tells its clients when something changed, with a sealed {"t":"news
 asking every other second. A room where nothing happens sends nothing, and the relay can let it sleep.
 """
 import base64, json, threading, time
+from secrets import token_urlsafe
 
 from . import seal
 
@@ -142,10 +143,11 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
     the pings below, the relay lets us back in when our old connection died without it being told."""
     if connect is None:
         from websockets.sync.client import connect  # only a shared room needs it
+    instance = token_urlsafe(16)  # names this process to the relay: its own reconnect is let in at once, another copy of the room waits
     tries, was_up, taken = 0, False, None  # taken: when a room that had been up was first told it has a host, until it is up again
     while not stop.is_set():
         try:
-            headers = {**({"Authorization": f"Bearer {key}"} if key else {}), **({"X-Shellphone-Claim": claim} if claim else {})}
+            headers = {**({"Authorization": f"Bearer {key}"} if key else {}), **({"X-Shellphone-Claim": claim, "X-Shellphone-Instance": instance} if claim else {})}
             with connect(url, additional_headers=headers, open_timeout=15, max_size=256 * 1024) as ws:
                 tries, pipes, told, was_up, taken = 0, {}, 0.0, True, None
                 pinged = time.monotonic()

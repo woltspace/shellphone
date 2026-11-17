@@ -24,6 +24,7 @@ const REOPEN = 10 * 60 * 1000;         // a host back within this long is the sa
 const quietFor = (env) => number(env.QUIET_SECONDS, 60) * 1000;  // a socket that says it's here every 20 s, and hasn't for this long, has gone without a goodbye
 const PING = '{"ping":1}', PONG = '{"pong":1}';
 const CLAIM = /^[A-Za-z0-9_-]{43}$/;   // what a host shows to prove a room is its own: a hash only the host's link can make (see Room.fetch)
+const INSTANCE = /^[A-Za-z0-9_-]{22}$/;  // names the host's process: its own reconnect is let in at once
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
 const TAPS = ["more", "mic", "file"];  // "more" is the paperclip that opens the list; "mic" and "file" are its "coming soon" lines. A tap on one is counted, to learn what people want
@@ -310,11 +311,17 @@ export class Room extends DurableObject {
     // connection. It is let in at once, without waiting for the listed one to go quiet: a connection cut without a
     // goodbye looks alive here for up to QUIET_SECONDS, and the room would be offline all that time. The one it
     // replaces is closed with 4409, and a host told 4409 stops, so two copies of one room don't take turns.
+    // At once only for the same process: a host names its process with X-Shellphone-Instance, and only a host showing
+    // the listed host's instance takes over without the wait. Another copy of the room (same link, other process), or
+    // a host from before that names none, still waits for the listed one to go quiet, as before: so two copies, old or
+    // new, never put each other out every second.
     // Anything else is turned away, as before.
     const shown = (request.headers && request.headers.get("X-Shellphone-Claim")) || "", claim = CLAIM.test(shown) ? shown : "";
+    const named = (request.headers && request.headers.get("X-Shellphone-Instance")) || "", instance = INSTANCE.test(named) ? named : "";
     if (role === "host" && listed) {
-      const was = listed.deserializeAttachment().claim;
-      if (!(was && claim && same(was, claim))) return new Response("this room already has a host", { status: 409 });
+      const was = listed.deserializeAttachment();
+      const now = !!(instance && was.instance && same(was.instance, instance));
+      if (!(was.claim && claim && same(was.claim, claim) && (now || this.quiet(listed)))) return new Response("this room already has a host", { status: 409 });
     }
     if (role === "client" && !here) return new Response("room is offline", { status: 404 });
     if (role === "client") for (const c of this.clients()) if (this.quiet(c)) this.drop(c);  // pages that went without a goodbye don't hold a place
@@ -335,7 +342,7 @@ export class Room extends DurableObject {
     const pair = new WebSocketPair();
     const id = role === "host" ? "host" : crypto.randomUUID().replaceAll("-", "").slice(0, 16);  // the relay names clients; they can't
     this.ctx.acceptWebSocket(pair[1], [role]);
-    pair[1].serializeAttachment(role === "host" ? { role, id, at: 0, n: 0, gen: place.gen, lease: Date.now(), since: Date.now(), ...(claim ? { claim } : {}) }
+    pair[1].serializeAttachment(role === "host" ? { role, id, at: 0, n: 0, gen: place.gen, lease: Date.now(), since: Date.now(), ...(claim ? { claim } : {}), ...(instance ? { instance } : {}) }
       : { role, id, at: 0, n: 0, since: Date.now() });
     if (role === "client") {
       const host = this.host(), who = host.deserializeAttachment();
