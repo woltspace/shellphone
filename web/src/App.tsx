@@ -14,7 +14,7 @@ import { UPPER } from "./Sky";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
-import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWallpaper, ThreadHat, nameChats, named, useChatsHome, unread, useSeen } from "./Threads";
+import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWallpaper, ThreadHat, nameChats, named, useChatsHome, unread, rootFresh, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
@@ -464,8 +464,12 @@ export function App() {
   // Threads the Matrix way: a reply carries the id of the message its thread hangs off. The main chat shows only the rest.
   const { main, replies } = useMemo(() => {
     const replies = new Map<string, Msg[]>(), main: Msg[] = [];
+    // a change to a page posted in the main chat goes under that page's message: it's a chat of its own now
+    const pageAt = new Map<string, string>();
+    for (const m of msgs) if (m.page && !m.thread) pageAt.set(m.page.id, m.id);
     for (const m of msgs) {
-      if (m.thread) replies.set(m.thread, [...(replies.get(m.thread) || []), m]);
+      const under = m.thread || (m.kind === "activity" && m.activity ? pageAt.get(m.activity.page) : undefined);
+      if (under) replies.set(under, [...(replies.get(under) || []), m]);
       else main.push(m);
     }
     return { main, replies };
@@ -481,7 +485,7 @@ export function App() {
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
-  useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
+  useEffect(() => { const r = replies.get(thread), first = msgs.find((m) => m.id === thread); const last = r?.length ? r.at(-1) : first; if (thread && last) mark(thread, last.n); }, [thread, replies, msgs]);
   // Home as the chats: no main chat to talk in. Every thread is a chat, and so is every message said in the main chat, by a
   // person or a wolt: it starts one, and the answers go under it. There is no lobby.
   const chatsHome = useChatsHome(), [lobby, setLobby] = useState(false), [starting, setStarting] = useState(false);
@@ -514,11 +518,11 @@ export function App() {
   const settled = useRef(false);
   const threadsSeen = useRef(false); threadsSeen.current = replies.size > 0;
   useEffect(() => { if (!settled.current && state.me) { settled.current = true; if (!replies.size) setListOpen(false); } }, [state.me]);
-  const freshCount = roots.filter((r) => unread(replies.get(r.id) || [], seen[r.id], state.me)).length;
+  const freshCount = roots.filter((r) => unread(replies.get(r.id) || [], seen[r.id], state.me) || (chatsHome && rootFresh(r, seen, state.me))).length;
   // the main chat counts as read while it's on screen; what arrives while you're in a thread waits in the inbox
   const mainFresh = main.filter((m) => m.n > (seen.main || 0) && !(m.kind === "human" && m.email === state.me));
   useEffect(() => { if (!thread && (!chatsHome || lobby) && main.length) mark("main", main.at(-1)!.n); }, [thread, main, chatsHome, lobby]);
-  const inboxCount = freshCount + mainFresh.length;
+  const inboxCount = freshCount + (chatsHome ? 0 : mainFresh.length);  // on the chats, main-chat messages are chats: counted above
   const hdr = useRef<HTMLElement>(null), [hdrH, setHdrH] = useState(0);
   useLayoutEffect(() => { const el = hdr.current; if (!el) return; const ro = new ResizeObserver(() => setHdrH(el.offsetHeight)); ro.observe(el); return () => ro.disconnect(); }, []);
   const swipe = useSwipeBack(() => setThread(""));

@@ -77,6 +77,8 @@ export function useSeen() {
   return { seen, mark };
 }
 export const unread = (list: Msg[], seen: number | undefined, me: string) => list.some((m) => m.n > (seen || 0) && !(m.kind === "human" && m.email === me));
+// A chat's first message is new too, until you open the chat (or, from before chats, read it in the main chat).
+export const rootFresh = (r: Msg, seen: Record<string, number>, me: string) => r.n > Math.max(seen[r.id] || 0, seen.main || 0) && !(r.kind === "human" && r.email === me);
 
 // A message's thread, as a bar along the bottom of its bubble: who replied, how many, a dot when there's something new.
 // It's part of the message, so it reads as "tap to open".
@@ -151,7 +153,7 @@ type RowsProps = { main: Msg[]; all: Msg[]; roots: Msg[]; replies: Map<string, M
   onMain: () => void; onOpen: (id: string) => void; lobby?: boolean };
 export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain, onOpen, lobby }: RowsProps) {
   const newCount = (list: Msg[], id: string) => list.filter((m) => m.n > (seen[id] || 0) && !(m.kind === "human" && m.email === ctx.me)).length;
-  const items = roots.map((r) => { const rs = replies.get(r.id) || [], list = [r, ...rs]; return { id: r.id, r, list, last: list.at(-1)!, n: newCount(rs, r.id) }; });
+  const items = roots.map((r) => { const rs = replies.get(r.id) || [], list = [r, ...rs]; return { id: r.id, r, list, last: list.at(-1)!, n: newCount(rs, r.id) + (rootFresh(r, seen, ctx.me) ? 1 : 0) }; });
   if (all.length) items.push({ id: "", r: all[0], list: all, last: all.at(-1)!, n: main.length });
   items.sort((a, b) => b.last.at - a.last.at);
   const unreadRows = items.filter((i) => i.n).length;
