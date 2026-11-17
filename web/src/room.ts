@@ -23,6 +23,7 @@ export type State = {
   pages?: Record<string, { v: number; n: number }>;  // where each page stands: its version and its last change
   who?: Record<string, Record<string, "in" | "paused">>;  // per thread, the agents switched in or paused there (ThreadWho.tsx)
   who_default?: "in" | "out";
+  desk?: string;  // the host only: where this room's desk bridge is, so its hint is a command that runs from any folder
   working_in?: Record<string, string[]>;
   looks?: Record<string, Record<string, string>>;  // each wolt's look, by name: {"hat": id} (hats.ts)
   names?: Record<string, string>;  // chats renamed after they started: {thread: name}

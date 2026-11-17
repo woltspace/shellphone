@@ -220,6 +220,15 @@ class FrontDoor(unittest.TestCase):
         page("/api/look", {"wolt": "helper", "look": {"hat": ""}})
         self.assertEqual(r.state()["looks"], {})
 
+    def test_the_host_page_learns_where_the_desk_bridge_is(self):
+        r = self.room()
+        r.browser.open(r.open)
+        bridge = REPO / "desk" / "bridge.mjs"
+        if INSTALLED or not bridge.is_file():  # an installed package has no desk: the page says how to get one
+            self.assertNotIn("desk", r.state())
+        else:
+            self.assertEqual(r.state()["desk"], str(bridge.resolve()))
+
     def test_a_chat_can_be_named_when_it_starts(self):
         r = self.room()
         r.browser.open(r.open)
