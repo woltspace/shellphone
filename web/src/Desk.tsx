@@ -62,7 +62,8 @@ function Tile({ w, ctx, sessions, big, flash, busy, toggle }: { w: Wolt; ctx: Ct
   </div>;
 }
 
-export default function Desk({ ctx, wolts, working, focus }: { ctx: Ctx; wolts: Wolt[]; working: Set<string>; focus: { wolt: string; at: number } | null }) {
+export default function Desk({ ctx, wolts, working, focus, bridge }: { ctx: Ctx; wolts: Wolt[]; working: Set<string>; focus: { wolt: string; at: number } | null; bridge?: string }) {
+  const [copied, setCopied] = useState(false);
   const [sessions, setSessions] = useState<Session[] | null>(null), [down, setDown] = useState(false);
   const [big, setBig] = useState(""), [flash, setFlash] = useState("");
   useEffect(() => {
@@ -79,10 +80,17 @@ export default function Desk({ ctx, wolts, working, focus }: { ctx: Ctx; wolts: 
     setBig(focus.wolt); setFlash(focus.wolt); const t = setTimeout(() => setFlash(""), 900); return () => clearTimeout(t);
   }, [focus?.at]);
 
-  if (down) return <div className="flex-1 grid place-items-center bg-[#2a231c] text-[#e8e0d4] font-mono text-sm p-8 text-center">
-    <div>Your wolts' terminals show here, from your own lodge.<br />Start the desk bridge on this computer:<br />
-      <code className="inline-block mt-3 px-3 py-2 rounded bg-[#14110e] text-[#7ec27e]">node desk/bridge.mjs {location.origin}</code><br />
-      <span className="text-[#a89f92] text-xs">(in the room's folder; it only shows terminals, it never types into them)</span></div></div>;
+  if (down) {
+    const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+    const cmd = bridge ? `node ${q(bridge)} ${location.origin}`
+      : `git clone https://github.com/woltspace/shellphone && node shellphone/desk/bridge.mjs ${location.origin}`;
+    const copy = () => { navigator.clipboard?.writeText(cmd).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {}); };
+    return <div className="flex-1 grid place-items-center bg-[#2a231c] text-[#e8e0d4] font-mono text-sm p-8 text-center">
+      <div>Your wolts' terminals show here, from your own lodge.<br />Start the desk bridge on this computer, in a terminal:<br />
+        <code className="inline-block mt-3 px-3 py-2 rounded bg-[#14110e] text-[#7ec27e] break-all select-all max-w-full">{cmd}</code><br />
+        <button type="button" onClick={copy} className="mt-2 px-3 py-1 rounded border border-[#7ec27e] text-[#7ec27e] text-xs">{copied ? "Copied" : "Copy"}</button><br />
+        <span className="text-[#a89f92] text-xs">(it only shows terminals, it never types into them)</span></div></div>;
+  }
   const shown = big ? wolts.filter((w) => w.wolt === big) : wolts;
   const cols = shown.length <= 1 ? 1 : 2;
   return <div className="flex-1 min-w-0 grid gap-2.5 p-3 bg-[#2a231c]" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "minmax(0, 1fr)" }}>

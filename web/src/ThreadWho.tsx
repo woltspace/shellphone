@@ -40,8 +40,8 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
     ? { ...Object.fromEntries(ctx.wolts.map((w) => [w.wolt, (fallback || "out") as Mark])), ...room, ...sent }
     : { ...guess(list, ctx.wolts), ...(mock[thread] || {}) };
   const guest = !!ctx.people.find((p) => p.email === ctx.me)?.guest;
-  // same rights as a room pause: the host on every agent, otherwise your own (the room decides; this only hides what it would refuse)
-  const may = (w: Wolt) => !real || (!guest && (ctx.me === host || w.owner === ctx.me));
+  // same rights as a room pause: the host on every agent, otherwise your own, a guest's too (the room decides; this only hides what it would refuse)
+  const may = (w: Wolt) => !real || (!guest && ctx.me === host) || w.owner === ctx.me;
 
   const flip = async (wolt: string, m: Mark) => {
     if (!real) { const next = { ...mock, [thread]: { ...(mock[thread] || {}), [wolt]: m } }; setMock(next); save(next); return; }
