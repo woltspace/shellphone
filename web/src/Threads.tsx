@@ -62,7 +62,7 @@ function faces(list: Msg[], ctx: Ctx, most = 3) {
   return out.slice(0, most);
 }
 
-// Home is the list of chats: there is no main chat to talk in (the old one is the lobby, one row on home).
+// Home is the list of chats: there is no main chat to talk in (every message said there is a chat of its own).
 export const useChatsHome = () => true;
 
 // What you've read in each thread lives on this phone only: the last message number you saw there.

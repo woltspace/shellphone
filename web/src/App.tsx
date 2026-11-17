@@ -482,8 +482,8 @@ export function App() {
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
   useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
-  // Home as the chats: no main chat to talk in. Every thread is a chat, and so is anything someone just said in the main chat
-  // (it starts one, the wolts answer under it). The rest of the old main chat is one more chat, the lobby.
+  // Home as the chats: no main chat to talk in. Every thread is a chat, and so is every message said in the main chat, by a
+  // person or a wolt: it starts one, and the answers go under it. There is no lobby.
   const chatsHome = useChatsHome(), [lobby, setLobby] = useState(false), [starting, setStarting] = useState(false);
   // the sky above the scene stays hidden until you pull down for it: the chats open scrolled just past it
   // (once per time the list appears, as soon as it's tall enough to scroll that far)
@@ -506,8 +506,7 @@ export function App() {
     if (!l) { skyTucked.current = false; return; }
     if (!skyTucked.current && l.scrollHeight - l.clientHeight >= UPPER) { l.scrollTop = UPPER; skyTucked.current = true; }
   });
-  const since = Date.now() / 1000 - 86400;
-  const roots = main.filter((m) => replies.has(m.id) || (chatsHome && m.kind === "human" && m.at > since));
+  const roots = main.filter((m) => replies.has(m.id) || (chatsHome && (m.kind === "human" || m.kind === "wolt")));
   const lobbyList = chatsHome ? main.filter((m) => !roots.includes(m)) : main;
   // a chat you just started opens under the name your phone gave it, then follows it to the room's own id
   useEffect(() => { if (!thread || msgs.some((m) => m.id === thread)) return; const real = msgs.find((m) => m.cid === thread); if (real) setThread(real.id); }, [msgs, thread]);
@@ -762,8 +761,8 @@ export function App() {
       {chatsHome && !lobby ? <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
         <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
-        {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
-          onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
+        {chatRows({ main: [], all: [], roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread,
+          onMain: () => {}, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
       </div> : <>
         {chatsHome && <button type="button" onClick={() => setLobby(false)} className="flex-none flex items-center gap-1 px-3 py-2 border-0 border-b border-line bg-panel font-mono text-[12px] text-acc text-left cursor-pointer">

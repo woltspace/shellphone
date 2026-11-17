@@ -126,7 +126,7 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
           <div className={sec}>Working on it now</div>
           {working.map((t) => { const r = byId.get(t); return <button type="button" key={t || "main"} onClick={() => t && onOpen(t)}
             className="w-full flex items-center gap-2 py-2 px-2.5 mb-1 rounded-xl border border-line bg-[#fffdf6] gnaw-row text-left cursor-pointer">
-            {t && <ThreadHat id={t} className="w-5 h-5" />}<span className="flex-1 min-w-0 truncate font-mono text-[13px] font-semibold">{t ? threadTitle(r) : "the lobby"}</span><span className="lore font-mono text-[11px] font-semibold">gnawing…</span></button>; })}
+            {t && <ThreadHat id={t} className="w-5 h-5" />}<span className="flex-1 min-w-0 truncate font-mono text-[13px] font-semibold">{t ? threadTitle(r) : "a new chat"}</span><span className="lore font-mono text-[11px] font-semibold">gnawing…</span></button>; })}
         </>}
         {wolts.length > 0 && <>
           <div className={sec}>Their wolts</div>
