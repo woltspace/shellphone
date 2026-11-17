@@ -248,6 +248,35 @@ class FrontDoor(unittest.TestCase):
         rename({"thread": start["id"], "name": " "})
         self.assertEqual(r.state()["names"], {})  # back to the title it started with
 
+    def test_the_agents_picked_for_a_new_chat_hear_its_first_message(self):
+        r = self.room()
+        work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
+        work.mkdir(), other.mkdir()
+        self.assertEqual(run("join", r.agent, "--name", "helper", cwd=work).returncode, 0)
+        self.assertEqual(run("join", r.agent, "--name", "second", cwd=other).returncode, 0)
+        run("wait", "--timeout", "1", cwd=work), run("wait", "--timeout", "1", cwd=other)
+        r.browser.open(r.open)
+
+        def page(body):
+            try:
+                return json.load(r.browser.open(urllib.request.Request(r.url + "/api/messages", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+            except urllib.error.HTTPError as e:
+                return e.code
+        hear = lambda folder, seconds=2: run("wait", "--timeout", str(seconds), cwd=folder).stdout
+        self.assertEqual(r.state()["main"], "helper")  # the host's first wolt: untagged main-chat messages reach only it
+        start = page({"text": "a chat for the release notes", "who": {"second": "in", "helper": "paused"}})
+        self.assertIn("release notes", hear(other, 5))  # picked: it hears the very first message, untagged
+        self.assertNotIn("release notes", hear(work))  # the main agent left out of this chat doesn't
+        self.assertEqual(r.state()["who"][start["id"]], {"second": "in", "helper": "paused"})
+        page({"text": "and the changelog", "thread": start["id"]})
+        self.assertIn("changelog", hear(other, 5))
+        self.assertEqual(page({"text": "x", "who": {"nobody": "in"}}), 400)
+        self.assertEqual(page({"text": "x", "who": {"second": "maybe"}}), 400)
+        plain = page({"text": "an ordinary message"})  # no who: as before, only the main agent hears it
+        self.assertIn("ordinary message", hear(work, 5))
+        self.assertNotIn("ordinary message", hear(other))
+        self.assertNotIn(plain["id"], r.state()["who"])
+
     def test_a_thread_reaches_the_agents_in_it(self):
         r = self.room()
         work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
