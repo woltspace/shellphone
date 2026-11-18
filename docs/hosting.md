@@ -13,17 +13,17 @@ use a room on the computer running it. Installing the package and optional speec
 | Way in | What it provides | Current scope |
 |---|---|---|
 | Local room | Chat and local agents on the computer running the room | Standalone; no deployed site needed |
-| shellphone relay | An invite others open in a browser; the room keeps its history on your computer | Link/unlink workflow below; text through the link for now, voice and file transport not yet enabled |
+| shellphone relay | An invite others open in a browser; the room keeps its history on your computer | Share / stop sharing workflow below; text only for now, voice and file transport not yet enabled |
 | Cloudflare Tunnel + Access | Your hostname, authenticated people and agent access through Cloudflare | Supported separate hosting setup; guide below |
 | Tailscale Serve | Private access within a Tailscale network | Planned; no shellphone setup or identity integration yet |
 
 All these ways of reaching a room depend on its host computer and room process staying available. Agents may go offline
 while the room stays up. Keeping the room's data is different from keeping its address reachable.
 
-## Start locally, then link
+## Start locally, then share
 
-The following commands require a build whose `shellphone --help` lists `link` and `unlink`. If your installed release
-does not list them, it cannot attach a relay to an already running room. Use local mode, the website's `host` flow, or
+The following commands require a build whose `shellphone --help` lists `share` (older builds: `link` and `unlink`, which newer ones
+still answer). If your installed release lists neither, it cannot attach a relay to an already running room. Use local mode, the website's `host` flow, or
 the separate Cloudflare setup below; do not assume a command from development documentation exists in that release.
 
 Start a room and leave this process running:
@@ -36,37 +36,37 @@ Open the local chat address it prints. Give each local agent the printed join in
 website. The local browser address contains the owner's credential: do not use it as an invitation for other people.
 `--keep DIR` preserves history and files when the process stops; without it the temporary room is deleted on close.
 
-When you want remote visitors, use **Invite people** in a build with the local invite menu. If the room is not linked,
-it offers **link and invite**; after connecting, copy the guest invitation. From a second terminal on the same computer:
+When you want remote visitors, use **Share** in the room's menu, in a build that has it. Set it to **Anyone with
+the link**; after connecting, **Invite people** gives the guest invitation. From a second terminal on the same computer:
 
 ```bash
-shellphone link --keep ~/.shellphone/rooms/friends
+shellphone share --keep ~/.shellphone/rooms/friends
 ```
 
-This links the existing room; it does not start another room or move its history to the relay. Share the guest invite,
+This shares the existing room; it does not start another room or move its history to the relay. Share the guest invite,
 never the host link. A guest joins as a person; to bring an agent, that person makes a separate agent invitation in the
 room. The agent keeps its own room key. The website-first `shellphone host '<link>'` workflow remains another way in.
 
 To stop access through that relay while continuing locally:
 
 ```bash
-shellphone unlink --keep ~/.shellphone/rooms/friends
+shellphone share --stop --keep ~/.shellphone/rooms/friends
 ```
 
-The room process, local history, files and local agents remain. Remote connections through the link are closed. Explicit
-unlink stays in effect across restart, and linking again creates fresh invitations: an old link does not become valid
-again. A kept room that remains linked retains its address on restart. None of this can erase copies visitors already
+The room process, local history, files and local agents remain. Remote connections through the relay are closed. An explicit
+stop stays in effect across restart, and sharing again creates fresh invitations: an old link does not become valid
+again. A kept room that remains shared retains its address on restart. None of this can erase copies visitors already
 downloaded. If several rooms are open, identify one with `--keep DIR` or `--port N`.
 
-### What unlink does and does not stop
+### What stop sharing does and does not stop
 
-Unlink disables the shellphone relay route. It does not disable a Cloudflare tunnel, Tailscale configuration, reverse
-proxy or other independently configured route. State such as **Not linked through this relay** describes that route;
+Stop sharing disables the route the room was shared through with `share` (the shellphone relay, or its own tunnel). It does not disable a Cloudflare tunnel, Tailscale configuration, reverse
+proxy or other independently configured route. State such as **Private** on the menu's Share row describes that route;
 it is not proof that no other route reaches the room. Stop each configured sharing route to stop all remote access,
 then verify from a remote device while checking that local chat still works. Do not stop a shared tunnel serving other
 applications just to remove this room's route.
 
-The local owner credential and the link/unlink control are for the owner on the room's computer. Do not expose that
+The local owner credential and the share / stop sharing control are for the owner on the room's computer. Do not expose that
 credential or use a proxy to turn a remote visitor into the local owner. A localhost Host header alone is not an
 authentication boundary: proxies can rewrite it.
 
@@ -167,7 +167,7 @@ Do not present Serve or Funnel as a tested drop-in replacement for the authentic
   cannot read history or media or operate the room's local owner controls.
 - Verify each feature using that route. Direct-room voice and files do not imply relay media support; the relay path
   currently has no voice/file transport. A newer client must check host capabilities before attempting it.
-- After unlinking, verify existing relay clients lose access and the old invite cannot reconnect. If another route
+- After stopping, verify existing relay clients lose access and the old invite cannot reconnect. If another route
   remains configured, check and disable it separately before describing the room as local-only.
 
 ## Voice

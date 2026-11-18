@@ -1,18 +1,45 @@
-// The small print under "Invite people" while a room isn't linked, and what a tap on the switch leaves behind.
+// The small print under "Invite people" while a room isn't shared (inside the code: "linked"), and what a tap on the switch leaves behind.
 // Kept apart from LinkRoom.tsx so it can be tested without a browser: node --test web/tests/linkroom.test.mjs
 
 // What the row says: that it's working, else why the last try failed (the room's own reason, or that the room
-// couldn't be reached at all), else what linking does. `warn` marks a failure, so the row can show it as one.
+// couldn't be reached at all), else what the room says is still unfinished about a stop (info.note: the site
+// hasn't been told yet), else what sharing does. `warn` marks a failure or a warning, so the row can show it as one.
 export function unlinkedWords(info, note, busy) {
-  if (busy) return { text: "Linking the room…", warn: false };
-  const failed = info.error || note;
+  if (busy) return { text: "Sharing the room…", warn: false };
+  const failed = info.error || note || info.note;
   if (failed) return { text: failed, warn: true };
-  return { text: `To invite someone, the room is linked to ${info.relay || "the site"} first. You can unlink it any time.`, warn: false };
+  return { text: `To invite someone, the room is shared through ${info.relay || "the site"} first. You can stop sharing any time.`, warn: false };
 }
 
-// After asking the room to link or unlink: the state to show, and a note when the room didn't answer.
+// After asking the room to share itself or to stop: the state to show, and a note when the room didn't answer.
 // A room that didn't answer changes nothing, so the same button is still there to try again.
 export function after(info, got) {
   if (!got) return { info: { ...info, error: undefined }, note: "Couldn't reach the room. Try again." };
-  return { info: got.error ? { ...info, error: got.error } : got, note: "" };
+  if (!got.error) return { info: got, note: "" };
+  // it failed: what the room says it is now (when it says), with its reason. A stop that failed is never shown as done.
+  return { info: { ...info, ...(typeof got.linked === "boolean" ? { linked: got.linked } : {}), error: got.error }, note: "" };
+}
+
+// After a switch that didn't plainly work (no answer, or a failure): the room was asked again what it is now (fresh).
+// What it says is shown, with the reason. If that can't be established either, the row says so and offers no switch:
+// a room is never shown as Private, or as shared, on a guess.
+export function settled(info, got, fresh) {
+  if (got && !got.error) return { info: got, note: "" };
+  const why = got ? got.error : "Couldn't reach the room. Try again.";
+  if (!fresh || fresh.unknown) return { info: { linked: false, unknown: true, error: why }, note: "" };
+  return { info: { ...fresh, error: why }, note: "" };
+}
+
+// What a call to /api/link came to. Reading (GET): null when the room refuses (not its host here: nothing is drawn);
+// its answer only when it succeeded and says plainly whether the room is shared; anything else is "unknown", never
+// "Private". Switching (POST): the room's own words, a refusal or a failure included; null when there were none.
+export function answered(read, status, body) {
+  const said = body !== null && typeof body === "object" && !Array.isArray(body);
+  if (read) {
+    if (status === 403 || status === 404) return null;
+    return status === 200 && said && typeof body.linked === "boolean" ? body : { linked: false, unknown: true };
+  }
+  if (said && status === 200 && typeof body.linked === "boolean") return body;
+  if (said && typeof body.error === "string" && body.error) return body;
+  return null;
 }

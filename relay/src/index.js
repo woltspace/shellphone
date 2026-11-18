@@ -27,6 +27,85 @@ const CLAIM = /^[A-Za-z0-9_-]{43}$/;   // what a host shows to prove a room is i
 const INSTANCE = /^[A-Za-z0-9_-]{22}$/;  // names the host's process: its own reconnect is let in at once
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
+// A signpost: a lasting address (/t/ID) for a room that is reached through a tunnel of its own, whose address changes
+// at every start. The room says where it is now; a visitor is sent on. Nothing of the chat passes through here.
+const SIGN = /^\/t\/([A-Za-z0-9_-]{16,64})(\/where)?$/;
+const SIGN_SECRET = /^Bearer ([A-Za-z0-9_-]{32,128})$/;
+const TUNNEL = /^https:\/\/[a-z0-9]+(-[a-z0-9]+)*\.trycloudflare\.com$/;  // the only place a signpost may point: a Cloudflare quick tunnel
+const LOCAL_ROOM = /^http:\/\/127\.0\.0\.1:\d{2,5}$/;                      // and, only where SIGN_LOCAL is "1" (tests on one computer), a room on that computer
+const pointable = (env, to) => typeof to === "string" && (TUNNEL.test(to) || (env.SIGN_LOCAL === "1" && LOCAL_ROOM.test(to)));
+
+// At the most `max` bytes of a body, as text; null if there is more. Read piece by piece, so a body that never ends,
+// or is far too big, is dropped as soon as that shows, not after it was all taken in.
+async function shortText(body, max) {
+  if (!body) return "";
+  const reader = body.getReader(), parts = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.length;
+    if (n > max) { try { await reader.cancel(); } catch { /* gone already */ } return null; }
+    parts.push(value);
+  }
+  const all = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) { all.set(p, at); at += p.length; }
+  return new TextDecoder().decode(all);
+}
+
+async function hash(text) {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+// Is it this room that answers at that address, right now? Asked before anyone is sent there, and before an address
+// is taken down: an address can become somebody else's, and a visitor's link carries their key to the room. So the
+// room proves itself: it signs a number picked here with a key only it and this site hold (check, made from its
+// secret). No redirect is followed, the wait and the answer are short, and anything unexpected counts as "no".
+async function roomAt(to, id, check) {
+  try {
+    const n = hex(crypto.getRandomValues(new Uint8Array(16)));
+    const answer = await fetch(`${to}/api/up?n=${n}`, { redirect: "manual", signal: AbortSignal.timeout(4000), headers: { "user-agent": "shellphone-site/1" } });
+    if (answer.status !== 200) return false;
+    const text = await shortText(answer.body, 2000);
+    if (text === null) return false;
+    const got = JSON.parse(text);
+    if (!got || got.shellphone !== true || got.room !== id || typeof got.proof !== "string") return false;
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(check), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    return same(got.proof, hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(n))));
+  } catch { return false; }
+}
+
+async function signpost(request, env, id, where, page) {
+  if (request.method === "GET" && !where) return page("/go.html");  // the page that asks where the room is, then goes there
+  if (request.method === "GET") {
+    const known = await desk(env).where(id);
+    const to = known.url && pointable(env, known.url) && (await roomAt(known.url, id, known.check)) ? known.url : null;
+    return json(200, { known: known.known, url: to });
+  }
+  if (request.method !== "POST" || where) return new Response("not found", { status: 404 });
+  const shown = (request.headers.get("Authorization") || "").match(SIGN_SECRET);
+  if (!shown) return json(401, { error: "a room proves itself with its secret" });
+  let body;
+  try {
+    const text = await shortText(request.body, 2000);
+    if (text === null) return json(413, { error: "too big" });
+    body = JSON.parse(text);
+  } catch { return json(400, { error: "not json" }); }
+  const to = body && typeof body.url === "string" ? body.url : null, gone = !!(body && body.gone === true);
+  const seq = body && Number.isSafeInteger(body.seq) && body.seq > 0 ? body.seq : null;
+  if (seq === null) return json(400, { error: "say which message this is (seq)" });
+  if (to === null || (to !== "" && !pointable(env, to))) return json(400, { error: "a room can only be reached through a Cloudflare quick tunnel here" });
+  // The two hashes are all that's kept of the secret: claim tells this room again, check is what it proves itself
+  // with when asked. Neither is enough to speak for the room here.
+  const claim = await hash("shellphone-sign\0" + id + "\0" + shown[1]), check = await hash("shellphone-check\0" + id + "\0" + shown[1]);
+  if (to && !gone && !(await roomAt(to, id, check))) return json(400, { error: "the room doesn't answer at that address yet" });
+  const said = await desk(env).point(id, claim, check, gone ? "" : to, gone, seq);
+  return json(said.ok ? 200 : said.status, said.ok ? { ok: true } : { error: said.why });
+}
+
 const TAPS = ["more", "mic", "file"];  // "more" is the paperclip that opens the list; "mic" and "file" are its "coming soon" lines. A tap on one is counted, to learn what people want
 const TAPS_PER_DAY = 5000;      // of each, at the most: past that a day's taps aren't counted (or written) any more
 const TAPS_PER_SECOND = 20;     // and this many a second is all one copy of the Worker passes on to the desk
@@ -79,6 +158,8 @@ export default {
       if (!env.HOST_KEY || !same(request.headers.get("Authorization") || "", "Bearer " + env.HOST_KEY)) return new Response("not found", { status: 404 });
       return json(200, await desk(env).stats());
     }
+    const t = url.pathname.match(SIGN);
+    if (t) return signpost(request, env, t[1], !!t[2], page);
     if (!m) return PAGES[url.pathname] && request.method === "GET" ? page(PAGES[url.pathname]) : new Response("not found", { status: 404 });
     const [, room, , what] = m;
     if (!what) return page("/room.html");  // the chat page, at the room's own address: it reads the key from the link itself
@@ -115,6 +196,8 @@ export class Desk extends DurableObject {
     this.sql.exec("create table if not exists rooms (id text primary key, open integer not null, at integer not null, gen integer not null)");
     this.sql.exec("create table if not exists counters (name text primary key, n integer not null)");
     this.sql.exec("create table if not exists taps (day text not null, what text not null, n integer not null, primary key (day, what))");
+    this.sql.exec("create table if not exists signs (id text primary key, claim text not null, proof text not null, url text not null, at integer not null, seq integer not null, gone integer not null default 0)");
+    this.sql.exec("create table if not exists sign_days (day text primary key, made integer not null default 0, moved integer not null default 0, lookups integer not null default 0, refused integer not null default 0)");
     this.sql.exec("create table if not exists days (day text primary key, rooms_opened integer not null default 0, connections integer not null default 0, frames integer not null default 0, refused integer not null default 0)");
   }
 
@@ -178,6 +261,48 @@ export class Desk extends DurableObject {
     this.sql.exec("update rooms set open = 0, at = ? where id = ? and gen = ?", now, id, gen);
   }
 
+  // Signposts (see signpost above). Per day: made (new ones), moved (a room said it is somewhere new: about once per
+  // start), lookups (someone, or an agent, asked where a room is), refused (turned away by a cap).
+  signed(now, what) {
+    this.sql.exec(`insert into sign_days (day, ${what}) values (?, 1) on conflict (day) do update set ${what} = ${what} + 1`, this.day(now));
+  }
+
+  // A room says where it is now ("" = closed for now), or that it is unlinked. The first to point an id owns it:
+  // only the same secret (its hash, claim) may point it again. Unlinked is for good, and so is an id: once taken it
+  // is never given to anyone else, however long ago that was, so nobody can take one over and collect the keys that
+  // old links still carry. (A room that unlinks before the site ever heard of it is written down as unlinked all
+  // the same: its first message may still be on its way.) Each message has a number (seq) that only goes up, so one
+  // that arrives late changes nothing.
+  point(id, claim, check, url, gone, seq) {
+    const now = Date.now();
+    this.sql.exec("delete from sign_days where day < ?", this.day(now - 90 * 86400 * 1000));
+    const known = this.sql.exec("select claim, url, seq, gone from signs where id = ?", id).toArray()[0];
+    if (known && !same(known.claim, claim)) return { ok: false, status: 403, why: "this address belongs to another room" };
+    if (known && known.gone) return gone ? { ok: true } : { ok: false, status: 410, why: "this room was unlinked: its address is closed for good" };
+    if (known && seq <= known.seq) return { ok: false, status: 409, why: "a later message from this room was already taken" };
+    if (!known) {
+      if (!url && !gone) return { ok: true };  // closed before it was ever open: nothing to keep
+      const today = this.sql.exec("select made as n from sign_days where day = ?", this.day(now)).toArray()[0];
+      const all = this.sql.exec("select count(*) as n from signs where gone = 0").one().n;
+      if ((today ? today.n : 0) >= number(this.env.MAX_SIGNS_PER_DAY, 1000) || all >= number(this.env.MAX_SIGNS, 5000)) {
+        this.signed(now, "refused");
+        return { ok: false, status: 429, why: "the site has given out all the room addresses it may for now: try again tomorrow" };
+      }
+      this.sql.exec("insert into signs (id, claim, proof, url, at, seq, gone) values (?, ?, ?, ?, ?, ?, ?)", id, claim, check, url, now, seq, gone ? 1 : 0);
+      this.signed(now, "made");
+      return { ok: true };
+    }
+    if (url && url !== known.url) this.signed(now, "moved");
+    this.sql.exec("update signs set url = ?, at = ?, seq = ?, gone = ? where id = ?", url, now, seq, gone ? 1 : 0, id);
+    return { ok: true };
+  }
+
+  where(id) {
+    const row = this.sql.exec("select url, proof, gone from signs where id = ?", id).toArray()[0];
+    this.signed(Date.now(), "lookups");
+    return { known: !!row && !row.gone, url: row ? row.url : "", check: row ? row.proof : "" };
+  }
+
   tap(what) {  // one more tap on a "coming soon" button, up to a day's limit
     if (!TAPS.includes(what)) return;
     const day = this.day(Date.now()), had = this.sql.exec("select n from taps where day = ? and what = ?", day, what).toArray()[0];
@@ -193,7 +318,9 @@ export class Desk extends DurableObject {
     this.tidy(Date.now());
     return { open_rooms: this.count(), max_rooms: number(this.env.MAX_ROOMS, 20), max_rooms_per_day: number(this.env.MAX_ROOMS_PER_DAY, 200),
       days: this.sql.exec("select * from days order by day desc limit 30").toArray(),
-      taps: this.sql.exec("select day, what, n from taps order by day desc, what limit 60").toArray() };
+      taps: this.sql.exec("select day, what, n from taps order by day desc, what limit 60").toArray(),
+      signs: this.sql.exec("select count(*) as n from signs where gone = 0").one().n, signs_unlinked: this.sql.exec("select count(*) as n from signs where gone = 1").one().n, signs_open: this.sql.exec("select count(*) as n from signs where url != ''").one().n,
+      sign_days: this.sql.exec("select * from sign_days order by day desc limit 30").toArray() };
   }
 }
 

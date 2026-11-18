@@ -1,5 +1,5 @@
-// "Add an agent" as a sheet in the app, like the inbox, instead of a separate page. The room still renders /join
-// (it mints a fresh one-time code on each visit), so the sheet asks for that page and takes the message out of it.
+// "Add an agent" as a sheet in the app, like the inbox, instead of a separate page. The sheet asks the room for a
+// fresh message (POST /api/agent-invite: a one-time code is made only when asked for this way).
 import { useEffect, useState } from "react";
 import { Check, Copy, Share, Squirrel, X } from "lucide-react";
 import { call, relayRoom } from "./relay";
@@ -9,19 +9,12 @@ export function AddAgentSheet({ me, onClose }: { me: string; onClose: () => void
   const [copied, setCopied] = useState(false), [show, setShow] = useState(false);
   const [drag, setDrag] = useState<{ y: number; dy: number } | null>(null);
   useEffect(() => {
-    if (relayRoom) {  // through the relay (experimental): the room makes the message, for an agent on any computer
-      call("/api/agent-invite", { method: "POST", body: "{}" }).then((r) => r.json().then((got) => {
-        if (!r.ok || !got?.text) { setError(got?.error || ""); throw 0; }
-        setText(got.text); setMinutes(String(got.minutes || ""));
-      })).catch(() => setProblem(true));
-      return;
-    }
-    fetch("/join", { cache: "no-store" }).then((r) => (r.ok ? r.text() : Promise.reject())).then((html) => {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const t = doc.getElementById("text")?.textContent || "";
-      if (!t) throw 0;
-      setText(t); setMinutes(html.match(/within (\d+) minutes/)?.[1] || "");
-    }).catch(() => setProblem(true));
+    // the room makes the message: through the relay (experimental) for an agent on any computer, else at its own door
+    const init = { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" };
+    (relayRoom ? call("/api/agent-invite", init) : fetch("/api/agent-invite", init)).then((r) => r.json().then((got) => {
+      if (!r.ok || !got?.text) { setError(got?.error || ""); throw 0; }
+      setText(got.text); setMinutes(String(got.minutes || ""));
+    })).catch(() => setProblem(true));
   }, []);
   const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { setShow(true); } };
   const share = () => navigator.share({ text }).catch(() => {});
