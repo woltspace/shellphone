@@ -908,6 +908,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def own_origins(self):
+        """The origins this room's page is served from, at the door this call came to. Told from what the room itself
+        knows (its port, its tunnel, the address it was set up with), never from a header that says where a call was
+        passed on from."""
+        name = (self.headers.get("Host") or "").rsplit(":", 1)[0]
+        here = {f"http://{name}:{self.server.server_address[1]}"} if self.local_host() else set()  # this computer's own name, as it was called, and the port the room really listens on
+        if LOCAL:
+            return here or ({f"https://{OUTSIDE.host}"} if self.outside_host() else set())
+        got = urllib.parse.urlsplit(os.environ.get("SHELLPHONE_URL") or "")  # a room behind a login: the address it was set up with (docs/hosting.md)
+        return ({f"{got.scheme}://{got.netloc}"} if got.scheme in ("http", "https") and got.netloc else set()) | (here if DEV else set())
+
+    def not_ours(self):
+        """Why this POST isn't taken, or None. It is taken from the room's own page: its Origin is exactly the room's
+        own. Or, with no Origin at all (not a page: the host's own command), from a call that carries its person's key
+        in a header as well as in the cookie: no other site can add that header to a call it sets off in someone's
+        browser. Anything else is refused, key or no key. Agents' calls don't come here: they carry a key of their
+        own and no cookie counts for them."""
+        no = "only the room's own page can post"
+        site = self.headers.get("Sec-Fetch-Site")
+        if site is not None and site not in ("same-origin", "none"):
+            return no
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            return None if origin in self.own_origins() else no
+        key = self.headers.get("X-Shellphone-Key") or ""
+        cookie = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+        held = cookie.get(f"sp{self.server.server_address[1]}", "") if self.local_host() else self.outside_token() if self.outside_host() else ""
+        if not (LOCAL and key and held and secrets.compare_digest(key.encode(), held.encode())):
+            return no
+        return None if (LOCAL.get(held) if self.local_host() else OUTSIDE.who(held)) else no  # the same key twice proves nothing: it must be someone's, at this door, now
+
     def local_token(self):
         """The token from the link (?k=), or from the cookie the first visit left. One cookie per port: rooms don't mix."""
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -1039,8 +1070,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not l:
                     return self.send(401, {"error": "unknown lodge key"})
                 return self.send(*for_wolt(self.call("POST"), l))
-            if self.headers.get("Origin") == "null" or self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
-                return self.send(403, {"error": "only the room's own page can post"})  # e.g. a shared web page, which runs sandboxed
+            no = self.not_ours()  # e.g. a shared web page, which runs sandboxed; or another site altogether
+            if no:
+                return self.send(403, {"error": no})
+            kind = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if path not in MEDIA_POSTS and int(self.headers.get("Content-Length") or 0) and kind != "application/json":
+                return self.send(415, {"error": "send JSON, as application/json"})  # what a page of another kind (a form, plain text) can't be made to send here
             if path == "/api/enter" and self.outside_host():
                 return self.enter()
             email, p = self.person()
@@ -1056,6 +1091,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 # The room's own answers, the same however a call arrives: the web server above today, the relay next. Who is calling was
 # settled at the door before these run: a person on the room's list (for_person), or a wolt by its key (for_wolt).
 # Each returns (status, body, content type, options for sending): JSON bodies as dicts, media as bytes.
+
+MEDIA_POSTS = ("/api/voice", "/api/files")  # the POSTs whose body isn't JSON: a recording, files
+
 
 class Request:  # whoever builds one (the web server, the relay) has checked who is calling and the route; read() enforces the size
     def __init__(self, method, target, read, kind=""):
@@ -1572,6 +1610,9 @@ def main():
 
     if a.cmd == "serve":
         DEV = a.dev
+        if not DEV and not os.environ.get("SHELLPHONE_URL"):
+            print("WARNING: SHELLPHONE_URL isn't set, so the room doesn't know its own address and takes no POST from any page. "
+                  "Set it to the address people open (see docs/hosting.md).", flush=True)
         try:
             rules()  # who may do what: one file for every door, and no room opens without it
         except ImportError as exc:

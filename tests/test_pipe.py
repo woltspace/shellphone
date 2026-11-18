@@ -4,6 +4,9 @@
     RELAY_E2E=1 …   also starts the relay with `npx wrangler dev --local` and a shared room, and talks through them
 """
 import base64, contextlib, io, http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+from aspage import as_page  # noqa: E402
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -518,7 +521,7 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(again["body"]["id"], said["body"]["id"])  # the room knows this message by its name: not doubled
         # the room has it, seen from this computer's own door
         local = re.search(r"join '(http://127[^#']+)/#", banner).group(1)
-        browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        browser = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         browser.open(f"{local}/?k={self.token}")
         texts = [m.get("text") for m in json.load(browser.open(local + "/api/state"))["messages"] if m["kind"] == "human"]
         self.assertEqual(texts, ["through the relay 🐚"])
@@ -550,7 +553,7 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(ask(cmd="news", atLeast=1, ms=300)["news"], 0)
         # someone says something at the room's own door: the page hears there is news, and finds it when it asks
         local = re.search(r"join '(http://127[^#']+)/#", banner).group(1)
-        browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        browser = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         browser.open(f"{local}/?k={self.token}")
         browser.open(urllib.request.Request(local + "/api/messages", data=json.dumps({"text": "said at home", "cid": "home0001"}).encode(), headers={"Content-Type": "application/json"}))
         self.assertGreaterEqual(ask(cmd="news", atLeast=1)["news"], 1)
@@ -575,7 +578,7 @@ class ThroughTheRelay(unittest.TestCase):
         link = self.link()
         _, banner = self.host(link)
         local = re.search(r"join '(http://127[^#']+)/#", banner).group(1)
-        door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        door = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         door.open(f"{local}/?k={self.token}")
         # 170 messages of nothing but quotes: the worst text for sizes, and well over a megabyte once it's an answer
         for i in range(170):
@@ -691,7 +694,7 @@ class ThroughTheRelay(unittest.TestCase):
                 self.fail("the room didn't start:\n" + seen)
             seen += line
         local = re.search(r"Open the chat:\s+(\S+)", seen).group(1)
-        door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        door = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         door.open(local)
         return p, seen, local.split("/?")[0], door
 
@@ -775,7 +778,7 @@ class ThroughTheRelay(unittest.TestCase):
             seen += line
         self.assertIn("couldn't share the room", seen)
         local = re.search(r"Open the chat:\s+(\S+)", seen).group(1)
-        door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        door = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         door.open(local)
         self.assertEqual(json.load(door.open(local.split("/?")[0] + "/api/state"))["me"], "host@shellphone.local")
 

@@ -80,6 +80,39 @@ class Doors(unittest.TestCase):
             self.assertIn("complete checkout", p.stderr)
             self.assertNotIn("shellphone room on http", p.stdout)  # it never got as far as listening
 
+    def test_a_post_is_taken_from_the_rooms_own_page_and_from_nowhere_else(self):
+        g = self.got["gate"]
+        for ok in ("page", "page_fetch_metadata", "by_its_other_name", "json_with_charset"):
+            self.assertEqual(g[ok], 200, ok)
+        for no in ("name_mismatch", "other_port", "no_port", "https", "null", "empty", "elsewhere", "lookalike", "cross_site_metadata", "same_site_metadata", "forwarded_claims"):
+            self.assertEqual(g[no], 403, no)
+
+    def test_with_no_origin_only_the_hosts_own_command_gets_in_and_a_key_never_excuses_a_foreign_one(self):
+        g = self.got["gate"]
+        self.assertEqual(g["no_origin_with_key"], 200)
+        for no in ("no_origin", "key_without_cookie", "wrong_key", "same_nonsense_twice", "key_and_foreign_origin", "key_and_null_origin", "key_and_cross_site"):
+            self.assertEqual(g[no], 403, no)
+
+    def test_what_isnt_sent_as_json_isnt_read_as_json(self):
+        g = self.got["gate"]
+        self.assertEqual((g["as_text"], g["as_form"], g["no_type"], g["enter_as_text"]), (415, 415, 415, 415))
+
+    def test_an_agents_call_is_judged_by_its_own_key_and_no_cookie_counts_there(self):
+        g = self.got["gate"]
+        self.assertEqual((g["agent_no_origin"], g["agent_path_with_a_persons_cookie"]), (401, 401))
+
+    def test_the_tunnels_door_takes_posts_from_the_tunnels_page_only(self):
+        g = self.got["gate"]
+        self.assertEqual((g["tunnel_page"], g["tunnel_no_origin_with_key"], g["enter_page"]), (200, 200, 200))
+        for no in ("tunnel_from_this_computers_page", "tunnel_http", "tunnel_another_tunnel", "tunnel_no_origin", "tunnel_key_of_this_computer", "enter_from_elsewhere", "enter_no_origin"):
+            self.assertEqual(g[no], 403, no)
+
+    def test_a_room_behind_a_login_takes_posts_from_the_address_it_was_set_up_with(self):
+        g = self.got["gate"]
+        self.assertEqual((g["login_room_page"], g["login_room_page_whatever_host_says"], g["login_room_dev_this_computers_page"]), (200, 200, 200))
+        for no in ("login_room_address_not_set", "login_room_host_header_is_not_an_origin", "login_room_http", "login_room_no_origin", "login_room_no_origin_with_a_key", "login_room_this_computers_page", "login_room_dev_no_origin"):
+            self.assertEqual(g[no], 403, no)
+
     def test_a_full_room_stays_full_at_every_door(self):
         g = self.got
         self.assertEqual((g["tunnel_full"], g["tunnel_full_added"]), (429, 0))

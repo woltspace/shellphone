@@ -158,7 +158,7 @@ class AtTheDoor(unittest.TestCase):
 
     def post(self, body):
         port = self.server.server_address[1]
-        req = urllib.request.Request(f"{self.url}/api/link", data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "Cookie": f"sp{port}={self.token}"}, method="POST")
+        req = urllib.request.Request(f"{self.url}/api/link", data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "Cookie": f"sp{port}={self.token}", "Origin": f"http://127.0.0.1:{port}"}, method="POST")  # as the room's own page posts
         try:
             with urllib.request.urlopen(req, timeout=10) as res:
                 return res.status, json.loads(res.read())

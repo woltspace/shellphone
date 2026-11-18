@@ -28,7 +28,9 @@ class Door(unittest.TestCase):
 
     def ask(self, method, path, host=HOST, cookie=None, body=None, headers=None, raw=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.keys["port"], timeout=10)
-        h = {"Host": host, **({"Cookie": cookie} if cookie else {}), **({"Content-Type": "application/json"} if body is not None or raw is not None else {}), **(headers or {})}
+        page = method == "POST" and "Authorization" not in (headers or {})  # a page's POST says where it comes from; an agent's call carries its own key instead
+        h = {"Host": host, **({"Origin": f"https://{host}" if host == HOST else f"http://{host}:{self.keys['port']}"} if page else {}),
+             **({"Cookie": cookie} if cookie else {}), **({"Content-Type": "application/json"} if body is not None or raw is not None else {}), **(headers or {})}
         conn.request(method, path, body=raw if raw is not None else json.dumps(body) if body is not None else None, headers=h)
         res = conn.getresponse()
         raw = res.read()
@@ -149,7 +151,9 @@ class AfterUnlink(unittest.TestCase):
 
             def ask(method, path, host=HOST, headers=None, body=None):
                 conn = http.client.HTTPConnection("127.0.0.1", keys["port"], timeout=10)
-                conn.request(method, path, body=json.dumps(body) if body is not None else None, headers={"Host": host, **({"Content-Type": "application/json"} if body is not None else {}), **(headers or {})})
+                page = method == "POST" and "Authorization" not in (headers or {})
+                conn.request(method, path, body=json.dumps(body) if body is not None else None, headers={"Host": host, **({"Origin": f"https://{host}" if host == HOST else f"http://{host}:{keys['port']}"} if page else {}),
+                                                                                                         **({"Content-Type": "application/json"} if body is not None else {}), **(headers or {})})
                 res = conn.getresponse()
                 raw = res.read()
                 conn.close()
@@ -178,7 +182,9 @@ class AfterUnlink(unittest.TestCase):
 
             def ask(method, path, host=HOST, headers=None, body=None):
                 conn = http.client.HTTPConnection("127.0.0.1", keys["port"], timeout=10)
-                conn.request(method, path, body=json.dumps(body) if body is not None else None, headers={"Host": host, **({"Content-Type": "application/json"} if body is not None else {}), **(headers or {})})
+                page = method == "POST" and "Authorization" not in (headers or {})
+                conn.request(method, path, body=json.dumps(body) if body is not None else None, headers={"Host": host, **({"Origin": f"https://{host}" if host == HOST else f"http://{host}:{keys['port']}"} if page else {}),
+                                                                                                         **({"Content-Type": "application/json"} if body is not None else {}), **(headers or {})})
                 res = conn.getresponse()
                 raw = res.read()
                 conn.close()

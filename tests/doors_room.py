@@ -1,6 +1,6 @@
 """For tests/test_doors.py: one room on this computer and its doors (a tunnel's switch, relay links), driven in this
 process without any tunnel, relay or site. Runs the cases and prints what happened, as one line of JSON."""
-import argparse, json, re, sys
+import argparse, json, os, re, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shellphone import cli
@@ -132,11 +132,69 @@ def ask(method, path, host, cookie=None, bearer=None, body=None, headers=None):
 
 
 here = f"sp{PORT}={token}"
+
+# -- a POST is taken from the room's own page, or from its host's own command: at this computer's door
+MINE = f"http://127.0.0.1:{PORT}"
+
+
+def say(host="127.0.0.1", cookie=here, kind="application/json", raw='{"text": "hi"}', path="/api/messages", **headers):
+    c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=10)
+    h = {"Host": host, **({"Cookie": cookie} if cookie else {}), **({"Content-Type": kind} if kind else {}), **{k.replace("_", "-"): v for k, v in headers.items()}}
+    try:
+        c.request("POST", path, raw.encode(), h)
+        res = c.getresponse()
+        res.read()
+        return res.status
+    finally:
+        c.close()
+
+
+gate = out["gate"] = {}
+gate["page"] = say(Origin=MINE)
+gate["page_fetch_metadata"] = say(Origin=MINE, Sec_Fetch_Site="same-origin")
+gate["by_its_other_name"] = say(host=f"localhost:{PORT}", Origin=f"http://localhost:{PORT}")
+gate["name_mismatch"] = say(Origin=f"http://localhost:{PORT}")  # asked as 127.0.0.1, says it comes from localhost
+gate["other_port"] = say(Origin=f"http://127.0.0.1:{PORT + 1}")
+gate["no_port"] = say(Origin="http://127.0.0.1")
+gate["https"] = say(Origin=f"https://127.0.0.1:{PORT}")
+gate["null"] = say(Origin="null")
+gate["empty"] = say(Origin="")
+gate["elsewhere"] = say(Origin="https://evil.example")
+gate["lookalike"] = say(Origin=f"http://127.0.0.1:{PORT}.evil.example")
+gate["cross_site_metadata"] = say(Origin=MINE, Sec_Fetch_Site="cross-site")
+gate["same_site_metadata"] = say(Origin=MINE, Sec_Fetch_Site="same-site")
+gate["forwarded_claims"] = say(Origin="https://evil.example", X_Forwarded_Host=f"127.0.0.1:{PORT}", Forwarded=f"host=127.0.0.1:{PORT}", X_Forwarded_Proto="http")
+gate["no_origin"] = say()
+gate["no_origin_with_key"] = say(X_Shellphone_Key=token)  # the host's own command
+gate["key_without_cookie"] = say(cookie=None, X_Shellphone_Key=token)
+gate["wrong_key"] = say(X_Shellphone_Key="x" * len(token))
+gate["same_nonsense_twice"] = say(cookie=f"sp{PORT}=nonsense", X_Shellphone_Key="nonsense")  # equal, and nobody's
+gate["key_and_foreign_origin"] = say(Origin="https://evil.example", X_Shellphone_Key=token)
+gate["key_and_null_origin"] = say(Origin="null", X_Shellphone_Key=token)
+gate["key_and_cross_site"] = say(Sec_Fetch_Site="cross-site", X_Shellphone_Key=token)
+gate["as_text"] = say(Origin=MINE, kind="text/plain")
+gate["as_form"] = say(Origin=MINE, kind="application/x-www-form-urlencoded")
+gate["no_type"] = say(Origin=MINE, kind=None)
+gate["json_with_charset"] = say(Origin=MINE, kind="application/json; charset=utf-8")
+gate["agent_no_origin"] = say(cookie=None, path="/lodge/messages", Authorization="Bearer nobody")  # an agent's call: judged by its key, here an unknown one
+gate["agent_path_with_a_persons_cookie"] = say(path="/lodge/messages", Origin=MINE)  # a person's cookie counts for nothing there
 t = Outside(r, data, False, "https://site.example", PORT, HOST, say=lambda *a, **kw: None)
 t.room, t.secret, t.host_token, t.invite_token, t.host, t.open = "synthetic-room-3", "synthetic-secret", "t" * 32, "v" * 32, "door.trycloudflare.com", True
 t._tell, t._keep_telling = (lambda *a, **kw: None), (lambda: None)
 r.OUTSIDE = t
 visitor = t.enter({"i": "v" * 32, "name": "Visitor"})[2]
+THEIRS, key = f"https://{t.host}", "spo=" + "t" * 32
+gate["tunnel_page"] = say(host=t.host, cookie=key, Origin=THEIRS)
+gate["tunnel_from_this_computers_page"] = say(host=t.host, cookie=key, Origin=MINE)
+gate["tunnel_http"] = say(host=t.host, cookie=key, Origin=f"http://{t.host}")
+gate["tunnel_another_tunnel"] = say(host=t.host, cookie=key, Origin="https://other.trycloudflare.com")
+gate["tunnel_no_origin"] = say(host=t.host, cookie=key)
+gate["tunnel_no_origin_with_key"] = say(host=t.host, cookie=key, X_Shellphone_Key="t" * 32)
+gate["tunnel_key_of_this_computer"] = say(host=t.host, cookie=key, X_Shellphone_Key=token)
+gate["enter_page"] = say(host=t.host, cookie=None, path="/api/enter", raw='{"k": "' + "t" * 32 + '"}', Origin=THEIRS)
+gate["enter_from_elsewhere"] = say(host=t.host, cookie=None, path="/api/enter", raw='{"k": "' + "t" * 32 + '"}', Origin="https://evil.example")
+gate["enter_no_origin"] = say(host=t.host, cookie=None, path="/api/enter", raw='{"k": "' + "t" * 32 + '"}')
+gate["enter_as_text"] = say(host=t.host, cookie=None, path="/api/enter", raw='{"k": "' + "t" * 32 + '"}', Origin=THEIRS, kind="text/plain")
 out["join_page_here_host"] = ask("GET", "/join", "127.0.0.1", cookie=here)
 out["join_page_tunnel_host"] = ask("GET", "/join", t.host, cookie="spo=" + "t" * 32)
 out["join_page_tunnel_guest"] = ask("GET", "/join", t.host, cookie="spo=" + visitor)
@@ -166,7 +224,23 @@ signed["who"] = "stranger@example.com"
 out["access_join_page_stranger"] = ask("GET", "/join", "room.example", headers=login)
 out["access_agent_joins_with_a_code"] = ask("POST", "/lodge/join", "room.example", bearer=code, body={"wolt": "access-agent"}, headers=login)
 signed["who"] = HOST
-out["access_share_switch"] = ask("POST", "/api/link", "room.example", body={"on": True}, headers=login)
+signed["who"] = HOST
+os.environ.pop("SHELLPHONE_URL", None)
+gate["login_room_address_not_set"] = say(host="room.example", cookie=None, Origin="https://room.example", **{"Cf-Access-Jwt-Assertion": "synthetic"})
+os.environ["SHELLPHONE_URL"] = "https://room.example/"
+gate["login_room_page"] = say(host="room.example", cookie=None, Origin="https://room.example", **{"Cf-Access-Jwt-Assertion": "synthetic"})
+gate["login_room_page_whatever_host_says"] = say(host="other.example", cookie=None, Origin="https://room.example", **{"Cf-Access-Jwt-Assertion": "synthetic"})
+gate["login_room_host_header_is_not_an_origin"] = say(host="evil.example", cookie=None, Origin="https://evil.example", **{"Cf-Access-Jwt-Assertion": "synthetic"})
+gate["login_room_http"] = say(host="room.example", cookie=None, Origin="http://room.example", **{"Cf-Access-Jwt-Assertion": "synthetic"})
+gate["login_room_no_origin"] = say(host="room.example", cookie=None, **{"Cf-Access-Jwt-Assertion": "synthetic"})
+gate["login_room_no_origin_with_a_key"] = say(host="room.example", cookie=here, X_Shellphone_Key=token, **{"Cf-Access-Jwt-Assertion": "synthetic"})
+gate["login_room_this_computers_page"] = say(host=f"127.0.0.1:{PORT}", cookie=None, Origin=MINE, **{"Cf-Access-Jwt-Assertion": "synthetic"})
+r.DEV = True
+gate["login_room_dev_this_computers_page"] = say(host=f"127.0.0.1:{PORT}", cookie=None, Origin=MINE, **{"Cf-Access-Jwt-Assertion": "synthetic"})
+gate["login_room_dev_no_origin"] = say(host=f"127.0.0.1:{PORT}", cookie=None, **{"Cf-Access-Jwt-Assertion": "synthetic"})
+r.DEV = False
+os.environ["SHELLPHONE_URL"] = "https://room.example"
+out["access_share_switch"] = ask("POST", "/api/link", "room.example", body={"on": True}, headers={**login, "Origin": "https://room.example"})
 out["access_share_state"] = ask("GET", "/api/link", "room.example", headers=login)
 core.RULES["agent.invite"] = ({core.HOST}, False)
 signed["who"] = "member@example.com"

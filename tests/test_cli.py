@@ -4,6 +4,9 @@
     SHELLPHONE_CLI=/some/venv/bin/shellphone python3 -m unittest discover tests   # an installed package, e.g. a built wheel
 """
 import http.cookiejar, json, os, re, shlex, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.parse, urllib.request
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+from aspage import as_page  # noqa: E402
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -30,7 +33,7 @@ class Room:
         self.open = re.search(r"Open the chat:\s+(\S+)", self.banner).group(1)
         self.agent = re.search(r"join '([^']+)'", self.banner).group(1)
         self.url = self.open.split("/?")[0]
-        self.browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self.browser = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
     def close(self, sig=signal.SIGINT):
         self.proc.send_signal(sig)

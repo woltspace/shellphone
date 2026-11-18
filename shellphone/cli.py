@@ -473,9 +473,10 @@ def switch(a):
     if via and not on:
         sys.exit("--via says how to share a room: it doesn't go with --stop")
     req = urllib.request.Request(f"http://127.0.0.1:{got['port']}/api/link", data=json.dumps({"on": on, **({"via": via} if via else {})}).encode(),
-                                 headers={"Content-Type": "application/json", "Cookie": f"sp{got['port']}={got['token']}"}, method="POST")
+                                 headers={"Content-Type": "application/json", "Cookie": f"sp{got['port']}={got['token']}", "X-Shellphone-Key": got["token"]}, method="POST")  # the key in a header too: what tells the room this is its host's own command, not a page
     try:
-        with urllib.request.urlopen(req, timeout=120) as res:  # a tunnel takes its time to come up
+        from .outside import STAY
+        with STAY.open(req, timeout=120) as res:  # a tunnel takes its time to come up. STAY: the key is never sent on after a redirect
             info = json.loads(res.read())
     except urllib.error.HTTPError as exc:
         try:
