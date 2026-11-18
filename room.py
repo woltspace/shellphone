@@ -1115,6 +1115,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(*self.invites_call(email, path, json.loads(self.body() or b"{}"), True))
             if path == "/api/agent-invite":
                 return self.send(*self.agent_message(email))
+            if path == "/api/guests-invite":  # the host lets guests invite people, or stops that
+                body = json.loads(self.body() or b"{}")
+                if not (LOCAL and LINKER):
+                    return self.send(403, {"error": "people are added by this room's owner here"})
+                return self.send(*rules().set_guests_invite(email, self.via(), body.get("on") if isinstance(body, dict) else None))
             self.send(*for_person(self.call("POST"), email))
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})

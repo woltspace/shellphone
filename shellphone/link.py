@@ -210,8 +210,10 @@ class Link:
             email = self.person(kind, auth)
         if not email:
             return 403, {"error": "not on this room's list"}
-        if path in ("/api/invites", "/api/invites/end") and (method, path) != ("GET", "/api/invites/end"):  # the host's invites for people
+        if path in ("/api/invites", "/api/invites/end") and (method, path) != ("GET", "/api/invites/end"):  # invites for people: the host's, and guests' while the host lets them
             return self.invites(email, method, path, body)
+        if (method, path) == ("POST", "/api/guests-invite"):  # the host lets guests invite people, or stops that
+            return self.core.set_guests_invite(email, THROUGH_RELAY, body.get("on") if isinstance(body, dict) else None)
         if (method, path) == ("POST", "/api/agent-invite"):  # a message for one of this person's agents, on any computer
             return self.agent_invite(email)
         if (method, path) == ("POST", "/api/guest-agents"):  # the host turns agents from guests on or off, for this link

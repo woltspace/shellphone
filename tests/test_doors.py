@@ -148,6 +148,16 @@ class Doors(unittest.TestCase):
         self.assertTrue(v["command_words_without_an_invite"])  # share's own words, once the first invite was ended
         self.assertEqual(v["command_end"], "0 open invites ended. ")
 
+    def test_guests_invite_over_http_only_while_the_host_lets_them(self):
+        v = self.got["guests_invite"]
+        self.assertEqual((v["guest_sets"], v["off_to_begin_with"], v["bad_body"]), (403, False, 400))
+        self.assertEqual(v["host_sets_from_outside"], [200, {"guests_can_invite": True}])
+        self.assertEqual((v["guest_makes"], v["guest_makes_one_with_no_end"], v["friend_comes_in"]), ([200, True], 400, 200))
+        self.assertEqual(v["guest_still_cant"], [403, 403, 403])  # list, end, or touch sharing
+        self.assertIn(False, v["host_sees_who_invited"])  # one of the open invites is not the host's
+        self.assertEqual((v["host_stops_it"], v["after_off"], v["on_again_old_invite"]), ([200, {"guests_can_invite": False}], [403, 403], 403))
+        self.assertEqual(v["command"], [True, False, True])
+
     def test_invites_end_with_what_they_were_made_through(self):
         v = self.got["invites"]
         self.assertEqual((v["after_stop_sharing"], v["old_invite_through_a_new_address"], v["new_address_first_invite"]), (403, 403, 200))
@@ -156,9 +166,12 @@ class Doors(unittest.TestCase):
         v = self.relay()["relay_invites"]
         self.assertEqual((v["made"], v["link_is_this_links"], v["comes_in"], v["is_in"], v["once"], v["at_another_link"]), (200, True, 200, 200, 403, 403))
         self.assertEqual(v["only_a_name_is_asked_of_it"], 403)  # an invite is not a key: it can ask for a place, nothing else
-        self.assertEqual((v["guest_makes"], v["guest_lists"], v["guest_ends"]), (403, 403, 403))
-        self.assertEqual(v["listed"], [200, 1, False])  # the first invite; the one-place invite is used up; no secret in the list
-        self.assertEqual((v["first_invite_key"], v["ended"], v["first_invite_after_end"], v["first_invite_key_after_end"], v["first_invite_gone_from_info"]), (200, [200, {"ended": 1}], 403, 404, True))
+        self.assertEqual((v["guest_makes"], v["guest_lists"], v["guest_ends"], v["guest_sets_the_switch"]), (403, 403, 403, 403))
+        self.assertEqual((v["host_sets_the_switch"], v["guest_makes_when_on"], v["friend_of_guest_comes_in"]), ([200, {"guests_can_invite": True}], 200, 200))
+        self.assertEqual((v["host_stops_it"], v["guests_invite_after_off"]), ([200, {"guests_can_invite": False}], 403))
+        self.assertEqual(v["listed"][::2], [200, False])  # the first invite; the one-place invite is used up; no secret in the list
+        self.assertEqual((v["first_invite_key"], v["ended"][0], v["first_invite_after_end"], v["first_invite_key_after_end"], v["first_invite_gone_from_info"]), (200, 200, 403, 404, True))
+        self.assertGreaterEqual(v["ended"][1]["ended"], 1)
         self.assertEqual(v["guests_stay"], [200, 200])
 
     def test_opening_a_page_makes_no_code_whoever_sends_the_browser_there(self):

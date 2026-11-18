@@ -62,7 +62,8 @@ ALLOWED = {
     "invite.see": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "guest_agents.set": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "agent.invite": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}, MEMBER: {LOCAL, TUNNEL, RELAY, ACCESS}, GUEST: {LOCAL, TUNNEL, RELAY, ACCESS}},
-    "invite.make": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
+    "invite.make": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},  # guests too, while the host lets them: see GuestsInvite
+    "guests_invite.set": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "invite.end": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "invite.list": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
 }
@@ -142,7 +143,7 @@ class Invites(unittest.TestCase):
             self.assertEqual(self.core.end_invites(email, TUNNEL, MARK)[0], 403)
             self.assertEqual(self.core.list_invites(email, TUNNEL, MARK)[0], 403)
         self.assertEqual(self.core.make_invite("host@x", LOCAL, None)[0], 409)  # not shared: no link to make
-        self.assertEqual(self.core.list_invites("host@x", LOCAL, MARK), (200, {"invites": []}))  # none of that left a record
+        self.assertEqual(self.core.list_invites("host@x", LOCAL, MARK), (200, {"guests_can_invite": False, "invites": []}))  # none of that left a record
 
     def test_what_an_invite_can_be(self):
         for bad in ({"ends_in": 5}, {"ends_in": core.LONGEST + 1}, {"ends_in": "tomorrow"}, {"ends_in": True}, {"uses": 0}, {"uses": core.MAX_GUESTS + 1}, {"uses": 1.5}, {"uses": True}, {"for_name": "  "}, {"for_name": 7}):
@@ -205,6 +206,8 @@ class Invites(unittest.TestCase):
     def test_an_invite_whose_maker_may_no_longer_invite_opens_nothing(self):
         made = self.make()
         self.room.con.execute("update people_invites set made_by = 'guest@x' where id = ?", (made["id"],))
+        self.assertEqual(self.come_in(made["token"])[0], 403)  # a guest's, and the host doesn't let guests invite
+        self.room.con.execute("update people_invites set made_by = 'member@x' where id = ?", (made["id"],))
         self.assertEqual(self.come_in(made["token"])[0], 403)
         self.room.con.execute("update people_invites set made_by = 'gone@x' where id = ?", (made["id"],))
         self.assertEqual(self.come_in(made["token"])[0], 403)
@@ -268,6 +271,128 @@ class Invites(unittest.TestCase):
         self.assertIsNone(self.core.guest_of(MARK, key))  # and the keys of who came in that way
         status, out, other = self.core.redeem("another-mark", theirs["token"], "Bob")
         self.assertEqual((status, self.core.guest_of("another-mark", other)), (200, out["email"]))
+
+
+class GuestsInvite(unittest.TestCase):
+    """The host may let guests invite people. Off to begin with; within limits; and off again means off for good."""
+
+    def setUp(self):
+        self.room = Room()
+        self.core = Core(self.room)
+
+    def on(self, on=True):
+        self.assertEqual(self.core.set_guests_invite("host@x", LOCAL, on), (200, {"guests_can_invite": on}))
+
+    def guest_makes(self, **kw):
+        return self.core.make_invite("guest@x", TUNNEL, MARK, **kw)
+
+    def test_only_the_host_says_whether_guests_may_invite(self):
+        for email in ("guest@x", "member@x", "stranger@x", None):
+            for on in (True, False):
+                self.assertEqual(self.core.set_guests_invite(email, TUNNEL, on)[0], 403)
+        for bad in (None, 1, "yes", "on"):
+            self.assertEqual(self.core.set_guests_invite("host@x", LOCAL, bad)[0], 400)
+        self.assertFalse(self.core.guests_can_invite())  # off to begin with, and none of that changed it
+        for via in WAYS:  # the host, from anywhere they are the host
+            self.assertEqual(self.core.set_guests_invite("host@x", via, True)[0], 200)
+        self.assertTrue(self.core.list_invites("host@x", LOCAL, MARK)[1]["guests_can_invite"])
+
+    def test_a_guest_invites_only_while_the_host_lets_them(self):
+        self.assertEqual(self.guest_makes(), (403, {"error": core.NO_GUEST_INVITES}))
+        for via in WAYS:
+            self.assertFalse(self.core.may("guest@x", "invite.make", via))
+        self.on()
+        for via in WAYS:
+            self.assertTrue(self.core.may("guest@x", "invite.make", via))
+            self.assertFalse(self.core.may("member@x", "invite.make", via) or self.core.may("stranger@x", "invite.make", via))
+        status, made = self.guest_makes()
+        self.assertEqual(status, 200)
+        status, out, key = self.core.redeem(MARK, made["token"], "Friend")
+        self.assertEqual((status, self.core.role(out["email"])), (200, GUEST))
+        listed = self.core.list_invites("host@x", LOCAL, MARK)[1]["invites"]
+        self.assertEqual([i["by"] for i in listed], ["guest@x"])  # the host sees who invited
+        self.assertEqual(self.room.con.execute("select i.made_by from invited g join people_invites i on i.id = g.invite where g.email = ?", (out["email"],)).fetchone()[0], "guest@x")  # and who came in by whom
+        for what in ("invite.end", "invite.list", "guests_invite.set", "share.switch", "invite.see"):  # that is all a guest gets
+            self.assertFalse(self.core.may("guest@x", what, TUNNEL), what)
+
+    def test_what_a_guests_invite_can_be(self):
+        self.on()
+        self.assertEqual(self.guest_makes(ends_in=None)[0], 400)  # it always ends
+        self.assertEqual(self.guest_makes(ends_in=core.GUEST_LONGEST + 1)[0], 400)
+        self.assertEqual(self.guest_makes(uses=core.GUEST_USES + 1)[0], 400)
+        status, plain = self.guest_makes()
+        self.assertEqual((status, plain["uses_left"]), (200, core.GUEST_USES))
+        self.assertLessEqual(plain["expires"], time.time() + core.GUEST_LONGEST + 1)
+        self.assertEqual(self.guest_makes(for_name="Ada")[1]["uses_left"], 1)
+        self.assertEqual(self.core.make_invite("host@x", TUNNEL, MARK, ends_in=None, uses=core.MAX_GUESTS)[0], 200)  # none of this binds the host
+
+    def test_a_guest_has_a_few_open_and_makes_a_few_an_hour_and_ending_gives_nothing_back(self):
+        self.on()
+        for _ in range(core.GUEST_OPEN):
+            self.assertEqual(self.guest_makes()[0], 200)
+        self.assertEqual(self.guest_makes()[0], 429)  # that many open
+        self.assertEqual(self.core.end_invites("host@x", LOCAL, MARK)[1]["ended"], core.GUEST_OPEN)
+        for _ in range(core.GUEST_HOURLY - core.GUEST_OPEN):
+            self.assertEqual(self.guest_makes()[0], 200)  # room again for open ones
+        self.core.end_invites("host@x", LOCAL, MARK)
+        self.assertEqual(self.guest_makes()[0], 429)  # none open, and still that many made this hour
+        self.room.con.execute("update people_invites set created = created - 3601 where made_by = 'guest@x'")
+        self.assertEqual(self.guest_makes()[0], 200)  # an hour on
+        self.assertEqual(self.core.make_invite("host@x", TUNNEL, MARK)[0], 200)  # the host is not counted
+
+    def test_invites_the_switch_ended_dont_count_as_open_but_they_were_made(self):
+        self.on()
+        dead = [self.guest_makes()[1] for _ in range(core.GUEST_OPEN)]
+        self.assertEqual(self.guest_makes()[0], 429)
+        self.on(False)
+        self.on()  # all five ended by the switch: none is open any more
+        self.assertEqual(self.core.list_invites("host@x", LOCAL, MARK)[1]["invites"], [])
+        for _ in range(core.GUEST_HOURLY - core.GUEST_OPEN):
+            self.assertEqual(self.guest_makes()[0], 200)
+        self.assertEqual(self.guest_makes()[0], 429)  # five open again; and that is ten made this hour, the dead ones counted
+        self.core.end_invites("host@x", LOCAL, MARK)
+        self.assertEqual(self.guest_makes()[0], 429)  # the hour's count is of everything made
+        self.assertEqual([self.core.redeem(MARK, d["token"], "Late")[0] for d in dead], [403] * core.GUEST_OPEN)
+
+    def test_switched_off_a_guests_invites_are_dead_for_good(self):
+        self.on()
+        _, before = self.guest_makes()
+        _, hosts = self.core.make_invite("host@x", TUNNEL, MARK)
+        _, friend, key = self.core.redeem(MARK, before["token"], "Friend")
+        self.on(False)
+        self.assertEqual(self.core.redeem(MARK, before["token"], "Late")[0], 403)
+        self.assertEqual(self.guest_makes()[0], 403)
+        self.assertEqual([i["by"] for i in self.core.list_invites("host@x", LOCAL, MARK)[1]["invites"]], ["host@x"])  # and the list shows what still lets someone in
+        self.on()  # on again: what was made before stays dead
+        self.assertEqual(self.core.redeem(MARK, before["token"], "Late")[0], 403)
+        _, after = self.guest_makes()
+        self.assertEqual(self.core.redeem(MARK, after["token"], "Newcomer")[0], 200)
+        self.on(False)
+        self.on(False)  # off twice is off once
+        self.on()
+        self.assertEqual(self.core.redeem(MARK, after["token"], "Late")[0], 403)
+        self.assertEqual(self.core.redeem(MARK, hosts["token"], "Hosts friend")[0], 200)  # the host's own invites never depended on it
+        self.assertEqual((self.core.role(friend["email"]), self.core.guest_of(MARK, key)), (GUEST, friend["email"]))  # who came in stays in
+
+    def test_the_switch_is_looked_at_again_with_the_write(self):
+        # the host switches it off between the moment a guest's call was let through and the moment the invite is
+        # written: the write looks again, in the same transaction, and nothing is made
+        self.on()
+        real = self.core.refusal
+
+        def passed_then_switched_off(*a, **kw):  # the check passed, then the switch went off
+            self.core.refusal = real
+            self.on(False)
+            return None
+        self.core.refusal = passed_then_switched_off
+        self.assertEqual(self.guest_makes(), (403, {"error": core.NO_GUEST_INVITES}))
+        self.assertEqual(self.room.con.execute("select count(*) from people_invites where made_by = 'guest@x'").fetchone()[0], 0)
+
+    def test_an_invite_dies_with_its_makers_place_in_the_room(self):
+        self.on()
+        _, made = self.guest_makes()
+        self.room.con.execute("delete from people where email = 'guest@x'")
+        self.assertEqual(self.core.redeem(MARK, made["token"], "Late")[0], 403)
 
 
 if __name__ == "__main__":

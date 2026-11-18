@@ -426,7 +426,11 @@ def invite(a):
     import urllib.request
     from .outside import STAY
     got = running(a.keep, a.port)
-    if a.end:
+    if a.guests:
+        if a.end or a.name or a.hours is not None or a.uses is not None or a.forever:
+            sys.exit("--guests says whether guests may invite people: it doesn't go with the rest")
+        path, body = "/api/guests-invite", {"on": a.guests == "on"}
+    elif a.end:
         if a.name or a.hours is not None or a.uses is not None or a.forever:
             sys.exit("--end ends the open invites: it doesn't go with the rest")
         path, body = "/api/invites/end", {}
@@ -446,6 +450,9 @@ def invite(a):
             sys.exit(f"the room answered {exc.code}")
     except OSError as exc:
         sys.exit(f"couldn't reach the room on this computer: {exc}")
+    if a.guests:
+        return print("Guests can invite people now: their invites end within a day." if out.get("guests_can_invite") else
+                     "Guests can't invite people any more. The invites they made have stopped working, for good; people who came in stay in.")
     if a.end:
         n = out.get("ended", 0)
         return print(f"{n} open invite{'' if n == 1 else 's'} ended. Nobody new comes in by {'it' if n == 1 else 'them'}; people who are in stay in.")
@@ -718,6 +725,7 @@ def main():
     s.add_argument("--forever", action="store_true", help="an invite with no end")
     s.add_argument("--uses", type=int, help="how many people it lets in (default: as many as the room has room for)")
     s.add_argument("--end", action="store_true", help="end every open invite: nobody new comes in by them, and people who are in stay in")
+    s.add_argument("--guests", choices=["on", "off"], help="let guests invite people too (their invites end within a day), or stop that")
     s.add_argument("--keep", metavar="DIR", help="the kept room in DIR (when more than one room is open)")
     s.add_argument("--port", type=int, help="the room on this port (when more than one room is open)")
     for cmd in ("share", "link", "unlink"):  # link and unlink: the old names of share and share --stop, still answered

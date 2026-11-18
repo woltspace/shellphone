@@ -78,6 +78,13 @@ def relay_cases():
     rv["once"] = two.answer("i", "POST", "/api/guest", {"name": "Bob"}, secret)[0]
     rv["at_another_link"] = other.answer("i", "POST", "/api/guest", {"name": "Bob"}, secret)[0]
     rv["guest_makes"] = two.answer("i", "POST", "/api/invites", {}, guest)[0]
+    rv["guest_sets_the_switch"] = two.answer("i", "POST", "/api/guests-invite", {"on": True}, guest)[0]
+    rv["host_sets_the_switch"] = two.answer("h", "POST", "/api/guests-invite", {"on": True}, two.token)
+    made_by_guest = two.answer("i", "POST", "/api/invites", {}, guest)
+    rv["guest_makes_when_on"] = made_by_guest[0]
+    rv["friend_of_guest_comes_in"] = two.answer("i", "POST", "/api/guest", {"name": "Friend"}, made_by_guest[1].get("link", ".").rsplit(".", 1)[1])[0]
+    rv["host_stops_it"] = two.answer("h", "POST", "/api/guests-invite", {"on": False}, two.token)
+    rv["guests_invite_after_off"] = two.answer("i", "POST", "/api/guest", {"name": "Late"}, made_by_guest[1].get("link", ".").rsplit(".", 1)[1])[0]
     rv["guest_lists"] = two.answer("i", "GET", "/api/invites", None, guest)[0]
     rv["guest_ends"] = two.answer("i", "POST", "/api/invites/end", {}, guest)[0]
     status, listed = two.answer("h", "GET", "/api/invites", None, two.token)
@@ -298,8 +305,45 @@ inv["guest_ends"] = tell("POST", "/api/invites/end", t.host, "spo=" + visitor, {
 inv["stranger_makes"] = tell("POST", "/api/invites", t.host, None, {})[0]
 inv["bad_ends_in"] = tell("POST", "/api/invites", "127.0.0.1", here, {"ends_in": 1})[0]
 inv["not_an_object"] = tell("POST", "/api/invites", "127.0.0.1", here, ["x"])[0]
-# the room's database refuses the write at the last moment: nobody is half let in
 import contextlib, io, sqlite3
+
+# the command: `shellphone invite`
+cli.running = lambda keep, port: {"port": PORT, "token": token}
+
+
+def command(**kw):
+    said = io.StringIO()
+    with contextlib.redirect_stdout(said):
+        try:
+            cli.invite(argparse.Namespace(**{"keep": None, "port": None, "end": False, "name": None, "hours": None, "uses": None, "forever": False, "guests": None, **kw}))
+        except SystemExit as exc:
+            return "refused: " + str(exc)
+    return said.getvalue()
+
+
+# guests invite only while the host lets them: over HTTP, through the tunnel
+gi = out["guests_invite"] = {}
+guest_out = "spo=" + visitor
+gi["guest_sets"] = tell("POST", "/api/guests-invite", t.host, guest_out, {"on": True})[0]
+gi["off_to_begin_with"] = tell("GET", "/api/invites", "127.0.0.1", here)[1].get("guests_can_invite")
+gi["host_sets_from_outside"] = tell("POST", "/api/guests-invite", t.host, host_out, {"on": True})
+gi["bad_body"] = tell("POST", "/api/guests-invite", "127.0.0.1", here, {"on": "yes"})[0]
+status, theirs = tell("POST", "/api/invites", t.host, guest_out, {"uses": 2})
+gi["guest_makes"] = (status, theirs.get("link", "").startswith("https://site.example/t/synthetic-room-3#i."))
+gi["guest_makes_one_with_no_end"] = tell("POST", "/api/invites", t.host, guest_out, {"ends_in": None})[0]
+theirs = theirs.get("link", "#i.").split("#i.")[1]
+gi["friend_comes_in"] = t.enter({"i": theirs, "name": "Friend"})[0]
+gi["guest_still_cant"] = (tell("GET", "/api/invites", t.host, guest_out)[0], tell("POST", "/api/invites/end", t.host, guest_out, {})[0], tell("POST", "/api/link", t.host, guest_out, {"on": False})[0])
+gi["host_sees_who_invited"] = [i["by"] == HOST for i in tell("GET", "/api/invites", "127.0.0.1", here)[1]["invites"]]
+gi["host_stops_it"] = tell("POST", "/api/guests-invite", "127.0.0.1", here, {"on": False})
+gi["after_off"] = (t.enter({"i": theirs, "name": "Late"})[0], tell("POST", "/api/invites", t.host, guest_out, {})[0])
+tell("POST", "/api/guests-invite", "127.0.0.1", here, {"on": True})
+gi["on_again_old_invite"] = t.enter({"i": theirs, "name": "Late"})[0]
+said = command(guests="off")
+gi["command"] = ("can't invite people any more" in said, tell("GET", "/api/invites", "127.0.0.1", here)[1].get("guests_can_invite"), "can invite people now" in command(guests="on"))
+command(guests="off")
+
+# the room's database refuses the write at the last moment: nobody is half let in
 
 
 class Refusing:
@@ -339,20 +383,6 @@ r.CON = real
 inv["when_the_database_refuses"] = (got[0], got[2], len(r.people()) - listed, real.in_transaction, r.q("select count(*) as n from guest_keys where email not in (select email from people)")[0]["n"])
 got = t.enter({"i": once, "name": "Lucky"})
 inv["and_the_one_place_is_still_there"] = (got[0], tell("GET", "/api/state", t.host, "spo=" + got[2])[0])
-
-# the command: `shellphone invite`
-cli.running = lambda keep, port: {"port": PORT, "token": token}
-
-
-def command(**kw):
-    said = io.StringIO()
-    with contextlib.redirect_stdout(said):
-        try:
-            cli.invite(argparse.Namespace(**{"keep": None, "port": None, "end": False, "name": None, "hours": None, "uses": None, "forever": False, **kw}))
-        except SystemExit as exc:
-            return "refused: " + str(exc)
-    return said.getvalue()
-
 
 said = command(name="Ada", hours=2)
 inv["command_says"] = ("for Ada, once" in said, "for 2 hours" in said, "https://site.example/t/synthetic-room-3#i." in said)

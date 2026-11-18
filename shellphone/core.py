@@ -38,7 +38,8 @@ RULES = {
     "invite.see": ({HOST}, False),         # the link that lets people in as guests
     "guest_agents.set": ({HOST}, False),   # whether guests may bring agents of their own
     "agent.invite": ({HOST, MEMBER, GUEST}, False),  # a message for one of the caller's own agents (guests: while the host allows it)
-    "invite.make": ({HOST}, False),        # a new link that lets people in as guests, for a time
+    "invite.make": ({HOST, GUEST}, False), # a new link that lets people in as guests, for a time (guests: only while the host lets them, and within limits)
+    "guests_invite.set": ({HOST}, False),  # whether guests may invite people
     "invite.end": ({HOST}, False),         # end the open ones: nobody new comes in by them; who is in stays in
     "invite.list": ({HOST}, False),        # which are open: when they end, how many places are left. Never the links themselves
 }
@@ -47,6 +48,10 @@ ONLY_HERE = "only the room's host can do that, on the computer the room runs on"
 NOT_LISTED = "not on this room's list"
 NO_GUEST_AGENTS = "the host has turned off agents from guests in this room"
 NO_INVITE = "this link doesn't open this room any more: ask its host for a new one"
+NO_GUEST_INVITES = "the host hasn't let guests invite people to this room"
+# What a guest's invite can be, when the host lets guests invite: it always ends, within a day; it lets in a few
+# people; a guest has a few open at a time, and makes a few an hour (ending one doesn't give that hour back).
+GUEST_LONGEST, GUEST_USES, GUEST_OPEN, GUEST_HOURLY = 86400, 10, 5, 10
 NOT_SHARED = "share the room first: an invite is a link through what the room is shared by"
 DAY = 86400
 LONGEST = 30 * DAY  # an invite that ends, ends within this; the host may also make one with no end
@@ -60,6 +65,9 @@ TABLES = (
     # a guest's own key (a hash of it), for what the room was shared by when they came in. Written in the same
     # transaction as their place on the list and the invite's use: there is no moment when one exists without the others
     "create table if not exists guest_keys(key_hash text primary key, email text not null, mark text not null, at real not null)",
+    # what the host has switched on for guests (guests_can_invite), and how many times that was switched off
+    # (invite_epoch): an invite a guest made carries the count it was made under, and is dead when it differs
+    "create table if not exists room_rules(key text primary key, value integer not null)",
 )
 
 
@@ -99,6 +107,8 @@ class Core:
             return 403, {"error": ONLY_HERE}
         if what == "agent.invite" and role == GUEST and not (switches or {}).get("guest_agents", True):
             return 403, {"error": NO_GUEST_AGENTS}
+        if what == "invite.make" and role == GUEST and not self.guests_can_invite():
+            return 403, {"error": NO_GUEST_INVITES}
         return None
 
     def may(self, email, what, via, switches=None):
@@ -117,6 +127,36 @@ class Core:
                     c.execute(table)
             self._tables = True
         return self.r.tx()
+
+    @staticmethod
+    def _rule(c, key):
+        row = c.execute("select value from room_rules where key = ?", (key,)).fetchone()
+        return row["value"] if row else 0
+
+    def guests_can_invite(self):
+        with self._tx() as c:
+            return bool(self._rule(c, "guests_can_invite"))
+
+    def set_guests_invite(self, email, via, on):
+        """The host lets guests invite people, or stops that. Stopping it ends, for good, every invite a guest made:
+        switching it on again does not bring them back. People who came in stay in."""
+        no = self.refusal(email, "guests_invite.set", via)
+        if no:
+            return no
+        if not isinstance(on, bool):
+            return 400, {"error": "say on: true or false"}
+        with self._tx() as c:
+            if self._rule(c, "guests_can_invite") and not on:
+                c.execute("insert or replace into room_rules (key, value) values ('invite_epoch', ?)", (self._rule(c, "invite_epoch") + 1,))
+            c.execute("insert or replace into room_rules (key, value) values ('guests_can_invite', ?)", (int(on),))
+        return 200, {"guests_can_invite": on}
+
+    def _maker_may(self, c, row):
+        """Whether the one who made this invite may still invite, as the room's rules stand now."""
+        role = self.role(row["made_by"])
+        if role == HOST:
+            return True
+        return role == GUEST and bool(self._rule(c, "guests_can_invite")) and row["epoch"] == self._rule(c, "invite_epoch")
 
     @staticmethod
     def _open(row, now):
@@ -159,10 +199,28 @@ class Core:
         if uses is not None and (isinstance(uses, bool) or not isinstance(uses, int) or not 1 <= uses <= MAX_GUESTS):
             return 400, {"error": f"uses: how many people it lets in, from 1 to {MAX_GUESTS}, or null"}
         token, now, ident = secrets.token_urlsafe(32), time.time(), secrets.token_hex(8)
+        guest = self.role(email) == GUEST
+        if guest:  # within what a guest's invite can be
+            if ends_in is None or ends_in > GUEST_LONGEST:
+                return 400, {"error": f"an invite from a guest ends within {GUEST_LONGEST // 3600} hours"}
+            if uses is None:
+                uses = GUEST_USES
+            elif uses > GUEST_USES:
+                return 400, {"error": f"an invite from a guest lets in up to {GUEST_USES} people"}
         expires = now + ends_in if ends_in is not None else None
         with self._tx() as c:
-            c.execute("insert into people_invites (id, token_hash, made_by, for_name, expires, uses_left, mark, created) values (?, ?, ?, ?, ?, ?, ?, ?)",
-                      (ident, token_hash(token), email, for_name, expires, uses, mark, now))
+            epoch = 0
+            if guest:  # looked at with the write, so two at once can't both slip under a limit
+                if not self._rule(c, "guests_can_invite"):
+                    return 403, {"error": NO_GUEST_INVITES}
+                mine = [dict(r) for r in c.execute("select * from people_invites where made_by = ?", (email,))]
+                if sum(1 for r in mine if r["created"] > now - 3600) >= GUEST_HOURLY:  # made, whatever became of them: ending one doesn't give the hour back
+                    return 429, {"error": f"that's {GUEST_HOURLY} invites in an hour: make the next one later"}
+                epoch = self._rule(c, "invite_epoch")
+                if sum(1 for r in mine if r["mark"] == mark and r["epoch"] == epoch and self._open(r, now)) >= GUEST_OPEN:  # open: what would still let someone in. One the host's switch has ended isn't
+                    return 429, {"error": f"you have {GUEST_OPEN} open invites: wait for one to end or be used"}
+            c.execute("insert into people_invites (id, token_hash, made_by, for_name, expires, uses_left, mark, epoch, created) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                      (ident, token_hash(token), email, for_name, expires, uses, mark, epoch, now))
         return 200, {"id": ident, "token": token, "expires": expires, "uses_left": uses, **({"for": for_name} if for_name else {})}
 
     def end_invites(self, email, via, mark, only=None):
@@ -184,9 +242,9 @@ class Core:
         if no:
             return no
         now = time.time()
-        with self._tx() as c:
-            rows = [dict(r) for r in c.execute("select * from people_invites where mark = ? order by created", (mark or "",))]
-        return 200, {"invites": [{"id": r["id"], "by": r["made_by"], "expires": r["expires"], "uses_left": r["uses_left"], "created": r["created"],
+        with self._tx() as c:  # open, and made by someone who may still invite: what would let someone in right now
+            rows = [r for r in (dict(r) for r in c.execute("select * from people_invites where mark = ? order by created", (mark or "",))) if self._maker_may(c, r)]
+        return 200, {"guests_can_invite": self.guests_can_invite(), "invites": [{"id": r["id"], "by": r["made_by"], "expires": r["expires"], "uses_left": r["uses_left"], "created": r["created"],
                                   **({"for": r["for_name"]} if r["for_name"] else {}), **({"first": True} if r["legacy"] else {})} for r in rows if self._open(r, now)]}
 
     def end_mark(self, mark):
@@ -217,7 +275,7 @@ class Core:
         try:
             with self._tx() as c:
                 row = c.execute("select * from people_invites where token_hash = ? and mark = ?", (token_hash(token), mark or "")).fetchone() if isinstance(token, str) and token else None
-                if not self._open(row, time.time()) or self.role(row["made_by"]) not in RULES["invite.make"][0]:
+                if not self._open(row, time.time()) or not self._maker_may(c, row):  # the rules as they stand now, looked at with everything else
                     return 403, {"error": NO_INVITE}, None
                 if already + c.execute("select count(*) as n from guest_keys where mark = ?", (mark,)).fetchone()["n"] >= MAX_GUESTS:
                     return 429, {"error": "this room is full"}, None

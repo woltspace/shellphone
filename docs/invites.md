@@ -20,6 +20,8 @@ how they came in. A page decides nothing: it calls the room and shows the answer
 | Make an invite | the host | this computer, or their own link from outside |
 | End the open invites | the host | the same |
 | List the open invites | the host | the same |
+| Let guests invite, or stop that | the host | the same |
+| Make an invite, as a guest | a guest, while the host lets guests invite | their own link |
 | Share the room, or stop | the host | this computer only |
 
 A room behind a login of its own (see [hosting](hosting.md)) has no invites: its owner adds people.
@@ -47,6 +49,12 @@ nowhere else.
 
 `POST /api/invites/end` ends every open invite (`{}`), or one (`{"id": "..."}`). Answer: `{"ended": 2}`. People who
 came in stay in.
+
+`POST /api/guests-invite` with `{"on": true}` lets guests invite people; `{"on": false}` stops that. Off to begin
+with. Answer: `{"guests_can_invite": true}`. `GET /api/invites` says it too. While it is on, a guest makes an invite
+with the same `POST /api/invites`, within limits: it ends within a day, lets in up to 10 people, a guest has up to 5
+open and makes up to 10 an hour. Switching it off ends every invite a guest made, for good: switching it on again
+does not bring them back. An invite also stops working when the one who made it is no longer in the room.
 
 `GET /api/link` (the menu's Share row) has `invite` only while the room's first invite is open.
 
