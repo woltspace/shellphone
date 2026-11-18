@@ -124,3 +124,17 @@ test("a desk with no history starts its totals at nothing, from its first room",
   const e = d.stats().ever;
   assert.deepEqual([e.tunnel, e.all, e.since], [1, 1, new Date().toISOString().slice(0, 10)]);
 });
+
+test("how many are online now, and the most at once that day, by way", () => {
+  const d = newDesk();
+  d.point("r1", "c1", "p", A, false, 1); d.point("r2", "c2", "p", B, false, 1);
+  assert.equal(d.open("relay-room").ok, true);
+  assert.deepEqual(d.stats().online, { relay: 1, tunnel: 2, all: 3 });
+  d.point("r1", "c1", "p", "", false, 2);  // one closes
+  const s = d.stats(), today = new Date().toISOString().slice(0, 10);
+  assert.deepEqual(s.online, { relay: 1, tunnel: 1, all: 2 });
+  assert.deepEqual(s.peaks.map((p) => [p.day, p.what, p.n]), [[today, "relay", 1], [today, "tunnel", 2]]);  // the day's most stays
+  d.point("r2", "c2", "p", "", true, 2);  // the other unlinks for good
+  assert.equal(d.stats().online.tunnel, 0);
+  assert.ok(!JSON.stringify(d.stats().peaks).includes("r1"));
+});

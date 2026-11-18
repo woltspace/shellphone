@@ -195,6 +195,7 @@ export class Desk extends DurableObject {
     this.sql = ctx.storage.sql;
     this.sql.exec("create table if not exists rooms (id text primary key, open integer not null, at integer not null, gen integer not null)");
     this.sql.exec("create table if not exists counters (name text primary key, n integer not null)");
+    this.sql.exec("create table if not exists peaks (day text not null, what text not null, n integer not null, primary key (day, what))");
     this.sql.exec("create table if not exists taps (day text not null, what text not null, n integer not null, primary key (day, what))");
     this.sql.exec("create table if not exists signs (id text primary key, claim text not null, proof text not null, url text not null, at integer not null, seq integer not null, gone integer not null default 0)");
     this.sql.exec("create table if not exists sign_days (day text primary key, made integer not null default 0, moved integer not null default 0, lookups integer not null default 0, refused integer not null default 0)");
@@ -238,6 +239,7 @@ export class Desk extends DurableObject {
     this.sql.exec("insert into counters (name, n) values ('gen', 1) on conflict (name) do update set n = n + 1");
     const gen = this.sql.exec("select n from counters where name = 'gen'").one().n;  // the desk's own count: a forgotten room's number never comes round again
     this.sql.exec("insert into rooms (id, open, at, gen) values (?, 1, ?, ?) on conflict (id) do update set open = 1, at = ?, gen = ?", id, now, gen, now, gen);
+    this.peak(now, "relay", this.count());
     return { ok: true, gen };
   }
 
@@ -275,6 +277,13 @@ export class Desk extends DurableObject {
     this.sql.exec("insert into counters (name, n) values ('ever_since', ?) on conflict (name) do nothing", now);
     this.sql.exec("insert into counters (name, n) values (?, 1) on conflict (name) do update set n = n + 1", what);
   }
+  // Online now, and the most at once on each day (kept for good, one small row a day and way). Through the relay
+  // that is exact: a room holds a connection here. Through a tunnel it is the rooms that said they are shared and
+  // haven't said they closed: one whose computer went to sleep still counts, since it never said so.
+  shared() { return this.sql.exec("select count(*) as n from signs where url != '' and gone = 0").one().n; }
+  peak(now, what, n) {
+    this.sql.exec("insert into peaks (day, what, n) values (?, ?, ?) on conflict (day, what) do update set n = max(n, excluded.n)", this.day(now), what, n);
+  }
   everNow() {
     const got = Object.fromEntries(this.sql.exec("select name, n from counters where name like 'ever_%'").toArray().map((r) => [r.name, r.n]));
     const relay = got.ever_relay || 0, tunnel = got.ever_tunnel || 0;
@@ -310,10 +319,12 @@ export class Desk extends DurableObject {
       this.sql.exec("insert into signs (id, claim, proof, url, at, seq, gone) values (?, ?, ?, ?, ?, ?, ?)", id, claim, check, url, now, seq, gone ? 1 : 0);
       this.signed(now, "made");
       this.ever(now, "ever_tunnel");
+      this.peak(now, "tunnel", this.shared());
       return { ok: true };
     }
     if (url && url !== known.url) this.signed(now, "moved");
     this.sql.exec("update signs set url = ?, at = ?, seq = ?, gone = ? where id = ?", url, now, seq, gone ? 1 : 0, id);
+    this.peak(now, "tunnel", this.shared());
     return { ok: true };
   }
 
@@ -340,7 +351,9 @@ export class Desk extends DurableObject {
       days: this.sql.exec("select * from days order by day desc limit 30").toArray(),
       taps: this.sql.exec("select day, what, n from taps order by day desc, what limit 60").toArray(),
       signs: this.sql.exec("select count(*) as n from signs where gone = 0").one().n, signs_unlinked: this.sql.exec("select count(*) as n from signs where gone = 1").one().n, signs_open: this.sql.exec("select count(*) as n from signs where url != ''").one().n,
-      sign_days: this.sql.exec("select * from sign_days order by day desc limit 30").toArray(), ever: this.everNow() };
+      sign_days: this.sql.exec("select * from sign_days order by day desc limit 30").toArray(), ever: this.everNow(),
+      online: { relay: this.count(), tunnel: this.shared(), all: this.count() + this.shared() },
+      peaks: this.sql.exec("select day, what, n from peaks order by day desc, what limit 60").toArray() };
   }
 }
 
