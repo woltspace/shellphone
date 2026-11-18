@@ -124,7 +124,7 @@ class Link:
             return None, (401, {"error": "unknown agent key: join again with a fresh link from your human"})
         via = r.q("select via from wolts where wolt = ?", l["wolt"])
         if not via or via[0]["via"] != self._via():
-            return None, (401, {"error": "this room was unlinked since you joined: ask your human for a fresh link"})
+            return None, (401, {"error": "this room stopped being shared since you joined: ask your human for a fresh link"})
         if self._guests_agent(l["owner"]) and not self.allow["guest_agents"]:
             return None, (403, {"error": "the host has turned off agents from guests in this room"})
         return l, None
@@ -141,7 +141,7 @@ class Link:
         carries them lives as long as this link, and is closed the moment it is unlinked."""
         with self.lock:
             if not self.open:
-                return 503, {"error": "this room isn't linked any more"}
+                return 503, {"error": "this room isn't shared any more"}
             if self._media is None:
                 try:
                     from . import media
@@ -158,7 +158,7 @@ class Link:
         past it and waits for them: once it returns, nothing that came through this link is still changing the room."""
         with self.lock:
             if not self.open:  # unlinked, or not linked yet: checked first, so closing the gate cuts everyone off at once
-                return 503, {"error": "this room isn't linked any more"}
+                return 503, {"error": "this room isn't shared any more"}
             self._busy += 1
         try:
             return self._answer(kind, method, target, body, auth)

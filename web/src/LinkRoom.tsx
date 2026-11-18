@@ -1,6 +1,6 @@
 // A room on this computer, in its host's menu: whether anyone outside can reach it, and the one place to invite people.
-// "Not linked" until the host links it; linked, it has an address others can open and an invite to send;
-// unlinked again, both stop working for good and the room goes on as it was. The room answers these calls only to its
+// "Not shared" until the host shares it; shared, it has an address others can open and an invite to send;
+// stopped again, both stop working for good and the room goes on as it was. The room answers these calls only to its
 // host, on the computer it runs on (see link_call in room.py); for anyone else this draws nothing.
 import { useEffect, useState } from "react";
 import { ChevronRight, Globe, Loader2, Lock, Smartphone, UserPlus } from "lucide-react";
@@ -25,7 +25,7 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
   const [info, setInfo] = useState<Info | null>(null);
   const [busy, setBusy] = useState<"" | "link" | "unlink">(""), [sure, setSure] = useState(false);
   const [note, setNote] = useState(""), [mine, setMine] = useState("");
-  useEffect(() => { if (open) { setSure(false); ask().then(setInfo); } }, [open]);  // each time the menu opens: `shellphone link` may have changed it meanwhile
+  useEffect(() => { if (open) { setSure(false); ask().then(setInfo); } }, [open]);  // each time the menu opens: `shellphone share` may have changed it meanwhile
   if (!info) return null;
   const flip = async (on: boolean) => {
     setBusy(on ? "link" : "unlink"); setNote(""); setMine(""); setSure(false);
@@ -33,27 +33,27 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
     setBusy("");
     const now = after(info, got);
     setInfo(now.info); setNote(now.note);
-    if (on && got && got.linked && got.invite) pass(got.invite, "Join my shellphone room", setNote);  // "Link and invite": the invite comes right after
+    if (on && got && got.linked && got.invite) pass(got.invite, "Join my shellphone room", setNote);  // "Share and invite": the invite comes right after
   };
   const small = "block text-xs text-dim";
   const words = unlinkedWords(info, note, busy);
   if (!info.linked) return <>
     <div className={`${row} cursor-default`}><Lock size={20} className="text-go" />
-      <span className="flex-1">Not linked<small className={small}>Nobody can reach this room through {info.relay || "the site"}.</small></span></div>
+      <span className="flex-1">Not shared<small className={small}>Nobody can reach this room through {info.relay || "the site"}.</small></span></div>
     <button type="button" disabled={!!busy} onClick={() => flip(true)} className={row}><UserPlus size={20} className="text-acc" />
       <span className="flex-1">Invite people<small className={`${small} ${words.warn ? "text-acc" : ""}`}>{words.text}</small>
-        {!busy && <span className="inline-block mt-2 font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">link and invite</span>}</span>
+        {!busy && <span className="inline-block mt-2 font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">share and invite</span>}</span>
       {busy && <Loader2 size={20} className="text-acc animate-spin" />}</button>
   </>;
   return <>
     <div className={`${row} cursor-default`}><Globe size={20} className="text-acc" />
-      <span className="flex-1">Linked<small className={small}>Reachable through {info.relay}, by the people you invite{info.guests ? ` (${info.guests} came in)` : ""}. Messages stay on this computer.</small></span></div>
+      <span className="flex-1">Shared<small className={small}>Reachable through {info.relay}, by the people you invite{info.guests ? ` (${info.guests} came in)` : ""}. Messages stay on this computer.</small></span></div>
     <button type="button" onClick={() => info.invite && pass(info.invite, "Join my shellphone room", setNote)} className={row}><UserPlus size={20} className="text-acc" />
       <span className="flex-1">Invite people<small className={`${small} ${note.startsWith("http") ? "break-all" : ""}`}>{note || "Send this link to a friend: they open it and pick a name. They come in as a guest."}</small></span><ChevronRight size={20} className="text-acc" /></button>
     <button type="button" onClick={() => info.link && pass(info.link, "My shellphone room", setMine)} className={row}><Smartphone size={20} className="text-acc" />
       <span className="flex-1">Open it on your phone<small className={`${small} ${mine.startsWith("http") ? "break-all" : ""}`}>{mine || "Your own link: it opens the room as you, its host. Keep it to yourself."}</small></span><ChevronRight size={20} className="text-acc" /></button>
     <button type="button" disabled={!!busy} onClick={() => (sure ? flip(false) : setSure(true))} className={row}><Lock size={20} className={sure ? "text-acc" : "text-dim"} />
-      <span className="flex-1">{sure ? "Tap again to unlink" : "Unlink"}<small className={small}>{busy ? "Unlinking…" : `Everyone who came in through ${info.relay} loses access at once, and both links stop working for good. The room and its history stay here.`}</small></span>
-      {busy ? <Loader2 size={20} className="text-acc animate-spin" /> : sure ? <span className="font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">unlink</span> : null}</button>
+      <span className="flex-1">{sure ? "Tap again to stop sharing" : "Stop sharing"}<small className={small}>{busy ? "Stopping…" : `Everyone who came in through ${info.relay} loses access at once, and both links stop working for good. The room and its history stay here.`}</small></span>
+      {busy ? <Loader2 size={20} className="text-acc animate-spin" /> : sure ? <span className="font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">stop</span> : null}</button>
   </>;
 }

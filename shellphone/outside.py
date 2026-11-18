@@ -143,7 +143,7 @@ class Outside:
     def enter(self, body):
         """(status, answer, the token to keep in a cookie or None)."""
         if not self.open or not isinstance(body, dict):
-            return 403, {"error": "this room isn't linked any more"}, None
+            return 403, {"error": "this room isn't shared any more"}, None
         if isinstance(body.get("k"), str):
             return (200, {"ok": True}, body["k"]) if self.who(body["k"]) else (403, {"error": "this link doesn't open this room any more: ask its host for a new one"}, None)
         if isinstance(body.get("i"), str) and hmac.compare_digest(self.invite_token, body["i"]):
@@ -187,8 +187,8 @@ class Outside:
             owed = [o for o in self._owed() if o["site"] == self.site]
             if not owed:
                 return {"linked": False, "relay": where}
-            # said for as long as it is true, wherever the host looks: the menu, or `shellphone unlink`
-            return {"linked": False, "relay": where, "note": f"{where} couldn't be told yet that this room is unlinked: until it is, the old link shows the room as offline. Telling it again every minute" + (
+            # said for as long as it is true, wherever the host looks: the menu, or `shellphone share --stop`
+            return {"linked": False, "relay": where, "note": f"{where} couldn't be told yet that this room isn't shared any more: until it is, the old link shows the room as offline. Telling it again every minute" + (
                 f", but that couldn't be written down in {self.data}: keep this room open until it is told, or it never will be." if self._unwritten else ".")}
         return {"linked": True, "state": "up", "relay": where, "link": f"{self.site}/t/{self.room}#k.{self.host_token}",
                 "invite": f"{self.site}/t/{self.room}#i.{self.invite_token}", "guests": len(self.guests), "guest_agents": True, "tunnel": True}
@@ -323,7 +323,7 @@ class Outside:
                 (self.data / FILE).unlink(missing_ok=True)
             except OSError as exc:
                 self._keep_telling()
-                return 500, {"error": f"the tunnel is closed and nobody outside can come in, but the room's keys couldn't be removed from {self.data / FILE} ({exc}): delete that file yourself, or the room is linked again at its next start", "linked": False}
+                return 500, {"error": f"the tunnel is closed and nobody outside can come in, but the room's keys couldn't be removed from {self.data / FILE} ({exc}): delete that file yourself, or the room is shared again at its next start", "linked": False}
             if self._settle()[0]:
                 self._keep_telling()
             return 200, self.info()

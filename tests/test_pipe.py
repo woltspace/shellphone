@@ -670,9 +670,9 @@ class ThroughTheRelay(unittest.TestCase):
         door.open(local)
         return p, seen, local.split("/?")[0], door
 
-    def switch(self, cmd, url):
+    def switch(self, cmd, url, *more):
         env = {**os.environ, "PYTHONPATH": str(REPO)}
-        return subprocess.run([sys.executable, "-m", "shellphone.cli", cmd, "--port", url.rsplit(":", 1)[1]], capture_output=True, text=True, timeout=60, env=env)
+        return subprocess.run([sys.executable, "-m", "shellphone.cli", cmd, "--port", url.rsplit(":", 1)[1], *more], capture_output=True, text=True, timeout=60, env=env)
 
     def say(self, door, url, text, cid):
         return door.open(urllib.request.Request(url + "/api/messages", data=json.dumps({"text": text, "cid": cid}).encode(), headers={"Content-Type": "application/json"}))
@@ -705,7 +705,7 @@ class ThroughTheRelay(unittest.TestCase):
         # unlink: everyone outside is cut off, and the room goes on as it was
         gone = self.switch("unlink", url)
         self.assertEqual(gone.returncode, 0, gone.stdout + gone.stderr)
-        self.assertIn("The room is unlinked", gone.stdout)
+        self.assertIn("The room isn't shared any more", gone.stdout)
         self.assertEqual(ask(cmd="wait", state="offline")["state"], "offline")
         self.assertEqual(guest(cmd="wait", state="offline")["state"], "offline")
         room_id = re.search(r"/r/([A-Za-z0-9_-]{22})", first).group(1)
@@ -713,8 +713,9 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(json.load(door.open(url + "/api/link"))["linked"], False)
         self.say(door, url, "said after unlinking", "after001")
         self.assertEqual(self.texts(json.load(door.open(url + "/api/state"))), ["said before anyone could reach the room", "said after unlinking"])
-        # link once more: a new address and new keys; the old links open nothing
-        again = self.switch("link", url)
+        # shared once more, by the command's name of today: a new address and new keys; the old links open nothing
+        again = self.switch("share", url)
+        self.assertIn("The room is shared, through the site's sealed relay", again.stdout)
         second = re.search(r"Open it from anywhere:\s+(\S+)", again.stdout).group(1)
         self.assertNotEqual(second.split("#")[0], first.split("#")[0])
         self.assertNotEqual(second.split("#")[1], first.split("#")[1])
@@ -747,7 +748,7 @@ class ThroughTheRelay(unittest.TestCase):
             line = p.stdout.readline()
             self.assertTrue(line, seen)
             seen += line
-        self.assertIn("couldn't link the room", seen)
+        self.assertIn("couldn't share the room", seen)
         local = re.search(r"Open the chat:\s+(\S+)", seen).group(1)
         door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         door.open(local)

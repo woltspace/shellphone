@@ -1,7 +1,7 @@
 """shellphone: a chat room for you and your coding agents, on your own computer. Standard library only.
 
     shellphone room [--name NAME] [--port N] [--keep DIR]   # open a room; Ctrl-C closes it and deletes everything in it
-    shellphone link | unlink                                # make that room reachable from anywhere, or take that away again
+    shellphone share [--via relay|tunnel] | share --stop    # share that room: reachable from anywhere, with an invite; or stop sharing it
     shellphone host LINK [--name NAME] [--keep DIR]         # a room opened with a link from the Start a room page
     shellphone join LINK --name NAME [--dir DIR]            # an agent joins with the link the room printed
     shellphone wait | post | history | working | run ...    # after join: the connector's commands (see connector.py)
@@ -206,7 +206,7 @@ def run(a, r, data, server, banner, closing=lambda: None):
             print("\nRoom closed and deleted." if not data.exists() else f"\nRoom closed, but {data} couldn't be deleted: remove it yourself.")
 
 
-RUN = "run.json"    # in an open room's folder: where the room listens and the host's token, for `shellphone link` on this computer
+RUN = "run.json"    # in an open room's folder: where the room listens and the host's token, for `shellphone share` on this computer
 POINTER = "shellphone-open-"  # in the temporary folder, one per open kept room: where that room is kept
 LINK = "link.json"  # in a kept room's folder while it is linked: the link's parts, so the room comes back at the same address
 
@@ -235,7 +235,7 @@ def replace_private(path, text):
 
 
 class Linker:
-    """The room's switch between "only on this computer" and "linked". The room's own page and `shellphone link`
+    """The room's switch between "only on this computer" and "linked" (what people call shared), through the relay. The room's own page and `shellphone share`
     both end up here; nothing that comes through a relay can."""
 
     def __init__(self, r, data, keep, relay, link=None):
@@ -281,7 +281,7 @@ class Linker:
             link = Link(self.r, HOST_EMAIL, **(self.saved() or {"relay": self.relay}))
             why = link.start()
             if why != "up":
-                return 502, {"error": f"couldn't link the room through {urllib.parse.urlsplit(link.relay).netloc}: {why_not(why)}", "linked": False}
+                return 502, {"error": f"couldn't share the room through {urllib.parse.urlsplit(link.relay).netloc}: {why_not(why)}", "linked": False}
             self.link = link
             link.changed = lambda: self.save(link)  # a guest came in, or the host changed what guests may do
             self.save(link)
@@ -304,8 +304,64 @@ class Linker:
             link.stop()
 
 
+WAYS = {"relay": "the site's sealed relay", "tunnel": "a tunnel of its own"}  # the ways a room on this computer is shared; its host picks one
+
+
+class Share:
+    """The room's one switch for sharing, over the ways there are to share it (each one a switch of its own: info, on,
+    off, close, saved). One way at a time: its links are the room's links, and stopping ends them for good."""
+
+    def __init__(self, ways, first):
+        self.ways, self.first, self.lock = ways, first, threading.Lock()
+
+    def now(self):
+        """The way the room is shared right now, or None."""
+        return next((w for w, s in self.ways.items() if s.info().get("linked")), None)
+
+    def saved(self):
+        """The way a kept room was shared when it last closed, or None."""
+        return next((w for w, s in self.ways.items() if s.saved()), None)
+
+    def info(self):
+        now = self.now()
+        way = now or self.saved() or self.first
+        info = {**self.ways[way].info(), "via": way, "ways": list(self.ways)}
+        if not now:  # a stop that isn't finished yet is said whichever way comes next
+            note = next((n for n in (s.info().get("note") for s in self.ways.values()) if n), None)
+            if note:
+                info["note"] = note
+        return info
+
+    def on(self, via=None):
+        with self.lock:
+            now, kept = self.now(), self.saved()
+            if now:
+                if via and via != now:
+                    return 409, {"error": f"the room is already shared through {WAYS[now]}: stop sharing it first, then share it the other way", "linked": True}
+                return 200, self.info()
+            if via and kept and kept != via:  # its old links would die without a word: the host says so first
+                return 409, {"error": f"this kept room was last shared through {WAYS[kept]}: stop sharing it first ({me()} share --stop), then share it the other way", "linked": False}
+            way = via or kept or self.first
+            status, info = self.ways[way].on()
+            return status, {**info, "via": way, "ways": list(self.ways)}
+
+    def off(self):
+        with self.lock:
+            failed = None
+            for way, s in self.ways.items():
+                if s.info().get("linked") or s.saved() or way == self.first:
+                    status, info = s.off()
+                    if status != 200:
+                        failed = failed or (status, info)
+            return failed or (200, self.info())
+
+    def close(self):
+        for s in self.ways.values():
+            s.close()
+
+
 def announce(data, port, token):
-    """Say where this room listens, for `shellphone link` and `unlink` run on this computer by the same user."""
+    """Say where this room listens, for `shellphone share` run on this computer by the same user."""
     with private(data / RUN) as f:
         json.dump({"pid": os.getpid(), "port": port, "token": token}, f)
     if (data / THROWAWAY).is_file():
@@ -314,7 +370,7 @@ def announce(data, port, token):
         with private(Path(tempfile.gettempdir()) / f"{POINTER}{os.getpid()}.json") as f:
             json.dump({"dir": str(data)}, f)
     except OSError:
-        pass  # then `shellphone link --keep DIR` still finds it
+        pass  # then `shellphone share --keep DIR` still finds it
 
 
 def linked_words(info):
@@ -322,37 +378,39 @@ def linked_words(info):
   Invite people:           {info['invite']}
 
 The first link is yours alone: it is the key to the room as its host. The second lets someone in as a guest.
-Unlink it with: {me()} unlink   (the room stays open on this computer, and both links stop working for good)"""
+Stop sharing with: {me()} share --stop   (the room stays open on this computer, and both links stop working for good)"""
 
 
 def room(a):
+    from .outside import Outside
     r, data, url, token, code, server = start(a)
     relay = (getattr(a, "relay", None) or os.environ.get("SHELLPHONE_RELAY") or default_relay()).rstrip("/")
-    if a.tunnel or os.environ.get("SHELLPHONE_TUNNEL") == "1":  # experimental: linked through a tunnel of its own, not carried by the relay
-        from .outside import Outside
-        r.LINKER = r.OUTSIDE = linker = Outside(r, data, bool(a.keep), relay, server.server_address[1], HOST_EMAIL)
-    else:
-        r.LINKER = linker = Linker(r, data, bool(a.keep), relay)
+    first = a.via or os.environ.get("SHELLPHONE_VIA") or "relay"  # the way the menu's button and a plain `shellphone share` take
+    if first not in WAYS:
+        sys.exit(f"SHELLPHONE_VIA is {first!r}: the ways to share a room are " + " and ".join(WAYS))
+    r.OUTSIDE = Outside(r, data, bool(a.keep), relay, server.server_address[1], HOST_EMAIL)  # the tunnel is experimental, and only started when asked for
+    r.LINKER = share = Share({"relay": Linker(r, data, bool(a.keep), relay), "tunnel": r.OUTSIDE}, first)
     announce(data, server.server_address[1], token)
+    later = f"The room is open on this computer; share it later with: {me()} share"
     more = ""
-    if r.OUTSIDE is not None and (a.link or linker.saved()):  # through a tunnel: the site asks the room before it takes its address, so the room must be answering first
-        def later():
+    if (a.share or share.saved()) and (a.via or share.saved() or first) == "tunnel":  # through a tunnel: the site asks the room before it takes its address, so the room must be answering first
+        def after():
             import time
             time.sleep(0.5)
-            status, info = linker.on()
-            print("\nIt is linked:\n\n" + linked_words(info) + "\n" if status == 200 else f"\n{info['error']}. The room is open on this computer; link it later with: {me()} link\n", flush=True)
-        threading.Thread(target=later, daemon=True).start()
-        more = "\nLinking it through a tunnel: its links follow in a moment.\n"
-    elif a.link or linker.saved():  # asked for, or a kept room that was linked when it last closed
-        status, info = linker.on()
-        more = "\nIt is linked:\n\n" + linked_words(info) + "\n" if status == 200 else f"\n{info['error']}. The room is open on this computer; link it later with: {me()} link\n"
+            status, info = share.on(a.via)
+            print("\nIt is shared:\n\n" + linked_words(info) + "\n" if status == 200 else f"\n{info['error']}. {later}\n", flush=True)
+        threading.Thread(target=after, daemon=True).start()
+        more = "\nSharing it through a tunnel: its links follow in a moment.\n"
+    elif a.share or share.saved():  # asked for, or a kept room that was shared when it last closed
+        status, info = share.on(a.via)
+        more = "\nIt is shared:\n\n" + linked_words(info) + "\n" if status == 200 else f"\n{info['error']}. {later}\n"
     run(a, r, data, server, f"""shellphone room is open, on this computer{"" if more.startswith(chr(10) + "It is") else " only"}.
 
   Open the chat:    {url}/?k={token}
   Bring an agent:   uvx shellphone join '{url}/#{code}' --name NAME
 
 Both links are keys to this room: share them only with your own agents.
-{more}Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "Everything in it is deleted."), linker.close)
+{more}Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "Everything in it is deleted."), share.close)
 
 
 def default_relay():
@@ -361,7 +419,7 @@ def default_relay():
 
 
 def running(keep=None, port=None):
-    """The room open on this computer that `link` and `unlink` mean: the kept one named, the one on that port, or the
+    """The room open on this computer that `share` means: the kept one named, the one on that port, or the
     only one open. A room's run file counts only when it is this user's own and private."""
     tmp = Path(tempfile.gettempdir())
     folders = [Path(keep).expanduser().resolve()] if keep else list(tmp.glob(PREFIX + "*"))
@@ -388,13 +446,18 @@ def running(keep=None, port=None):
 
 
 def switch(a):
-    """`shellphone link` and `shellphone unlink`: ask the room open on this computer to link itself, or to drop its link."""
+    """`shellphone share` and `shellphone share --stop` (and their old names, `link` and `unlink`): ask the room open on
+    this computer to share itself, or to stop."""
     import urllib.request
     got = running(a.keep, a.port)
-    req = urllib.request.Request(f"http://127.0.0.1:{got['port']}/api/link", data=json.dumps({"on": a.cmd == "link"}).encode(),
+    on = a.cmd == "link" or (a.cmd == "share" and not a.stop)
+    via = getattr(a, "via", None)
+    if via and not on:
+        sys.exit("--via says how to share a room: it doesn't go with --stop")
+    req = urllib.request.Request(f"http://127.0.0.1:{got['port']}/api/link", data=json.dumps({"on": on, **({"via": via} if via else {})}).encode(),
                                  headers={"Content-Type": "application/json", "Cookie": f"sp{got['port']}={got['token']}"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=40) as res:
+        with urllib.request.urlopen(req, timeout=120) as res:  # a tunnel takes its time to come up
             info = json.loads(res.read())
     except urllib.error.HTTPError as exc:
         try:
@@ -404,11 +467,11 @@ def switch(a):
     except OSError as exc:
         sys.exit(f"couldn't reach the room on this computer: {exc}")
     if info.get("linked"):
-        print("The room is linked.\n\n" + linked_words(info))
+        print("The room is shared" + (f", through {WAYS[info['via']]}" if info.get("via") in WAYS else "") + ".\n\n" + linked_words(info))
     elif info.get("note"):
-        print("The room is unlinked: nobody outside can come in any more, and its old links don't work again. It stays open on this computer.\n" + info["note"])
+        print("The room isn't shared any more: nobody outside can come in, and its old links don't work again. It stays open on this computer.\n" + info["note"])
     else:
-        print("The room is unlinked. Nobody can reach it through the site any more, and its old links don't work again. It stays open on this computer.")
+        print("The room isn't shared any more. Nobody outside can reach it, and its old links don't work again. It stays open on this computer.")
 
 
 def _read(path):
@@ -570,13 +633,17 @@ def main():
     s.add_argument("--name", default=os.environ.get("USER") or "you", help="your name in the room")
     s.add_argument("--port", type=int, default=4090, help="default 4090; if it's taken, a free one is picked and printed")
     s.add_argument("--keep", metavar="DIR", help="keep the room in DIR instead of deleting it on close")
-    s.add_argument("--link", action="store_true", help="link the room right away, so it can be opened from anywhere and shared")
-    s.add_argument("--relay", help=argparse.SUPPRESS)  # link through another relay than the usual one (testing)
-    s.add_argument("--tunnel", action="store_true", help="experimental: when linked, the room is reached through a Cloudflare quick tunnel (needs cloudflared), with voice and files")
-    for cmd, words in (("link", "make the room open on this computer reachable from anywhere, and get its links"), ("unlink", "take that away again: the room stays open on this computer only")):
-        s = sub.add_parser(cmd, help=words)
+    s.add_argument("--share", action="store_true", help="share the room right away: it can be opened from anywhere, and people invited")
+    s.add_argument("--link", dest="share", action="store_true", help=argparse.SUPPRESS)  # the old name of --share
+    s.add_argument("--via", choices=list(WAYS), help="how the room is shared: relay (the default: sealed messages through the site, text only) or tunnel (experimental: a Cloudflare quick tunnel, with voice and files; needs cloudflared)")
+    s.add_argument("--relay", help=argparse.SUPPRESS)  # share through another site than the usual one (testing)
+    for cmd in ("share", "link", "unlink"):  # link and unlink: the old names of share and share --stop, still answered
+        s = sub.add_parser(cmd, **({"help": "share the room open on this computer: reachable from anywhere, with a link of your own and an invite. --stop takes that away again"} if cmd == "share" else {}))
         s.add_argument("--keep", metavar="DIR", help="the kept room in DIR (when more than one room is open)")
         s.add_argument("--port", type=int, help="the room on this port (when more than one room is open)")
+        if cmd == "share":
+            s.add_argument("--via", choices=list(WAYS), help="relay (sealed messages through the site, text only) or tunnel (experimental: with voice and files; needs cloudflared). Left out: the way the room was opened with")
+            s.add_argument("--stop", action="store_true", help="stop sharing: everyone outside loses access at once and both links stop working for good; the room stays open on this computer")
     s = sub.add_parser("host", help="open a room that others reach through a relay, with the link from the Start a room page")
     s.add_argument("link")
     s.add_argument("--name", default=os.environ.get("USER") or "you", help="your human's name in the room")
@@ -589,7 +656,7 @@ def main():
     s.add_argument("--dir", default="shellphone", help="where your room key is kept (default: ./shellphone)")
     s.add_argument("--creature", default="raccoon"); s.add_argument("--voice")
     a = ap.parse_args()
-    {"room": room, "host": host, "join": join, "link": switch, "unlink": switch}[a.cmd](a)
+    {"room": room, "host": host, "join": join, "share": switch, "link": switch, "unlink": switch}[a.cmd](a)
 
 
 if __name__ == "__main__":

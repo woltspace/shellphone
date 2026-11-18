@@ -919,7 +919,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0])
 
     def link_call(self, email, body):
-        """Link or unlink the room, or say which it is. Only for the host, on this computer, from the room's own page or
+        """Share the room or stop sharing it (inside, "linked" and "unlinked"), or say which it is. Only for the host, on this computer, from the room's own page or
         command: this is answered here at the door and is no part of what the room answers through a relay."""
         if not (LINKER and LOCAL and self.local_host() and email == host()):
             return 403, {"error": "only the room's host can do that, on the computer the room runs on"}
@@ -927,7 +927,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return 200, LINKER.info()
         if not isinstance(body, dict) or not isinstance(body.get("on"), bool):
             return 400, {"error": "say on: true or false"}
-        return LINKER.on() if body["on"] else LINKER.off()
+        via = body.get("via")  # which way to share it, when the host picks one: the switch's own ways, nothing else
+        if via is not None and (not body["on"] or not isinstance(via, str) or via not in getattr(LINKER, "ways", ())):
+            return 400, {"error": "say via: one of the ways this room can be shared, with on: true"}
+        return (LINKER.on(via) if via else LINKER.on()) if body["on"] else LINKER.off()
 
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path

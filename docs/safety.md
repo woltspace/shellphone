@@ -47,7 +47,7 @@ The assessment should cover:
 5. **Execution and network:** normal approval rules, shell access, plugins/MCP tools, external services, Docker socket,
    host networking and background jobs. A container with unrestricted network can still send out any data it can read.
 6. **Stopping and recovery:** identify every sharing route and the agent/room processes, know how to stop them, and
-   have a clean copy or backup of valuable data. Verify remote rejection and local availability after unlinking.
+   have a clean copy or backup of valuable data. Verify remote rejection and local availability after stopping.
 7. **Evidence:** know where the room's data and the agent's session/tool records are kept, what is missing, and who
    can read them. An agent's assessment is useful preparation, not a guarantee that the system is secure.
 
@@ -64,13 +64,13 @@ the person who owns the machine.
 
 ## What disconnecting means
 
-With the link/unlink implementation in the local-first release, a successful **Unlink** closes the relay admission
+With the share / stop sharing switch in the local-first release (in older builds: link/unlink), a successful **Stop sharing** closes the relay admission
 gate, finishes admitted room requests before returning, closes that connection and removes its saved identity.
-Old relay links cannot reconnect; relinking creates new ones. A kept room stays unlinked after restart.
-If a room request is still running, unlink can take time. A button tap or a network error is not evidence of completion.
+Old relay links cannot reconnect; sharing again creates new ones. A kept room stays unshared after restart.
+If a room request is still running, stopping can take time. A button tap or a network error is not evidence of completion.
 Check the result, then try the old invitation from a separate browser while confirming local chat still works.
 
-Unlink is specific to that relay route. An independently configured Cloudflare tunnel, proxy or other route must be
+Stop sharing is specific to the route the room was shared through. An independently configured Cloudflare tunnel, proxy or other route must be
 closed separately. A local owner address must not be exposed as a shortcut around remote authentication.
 
 **Disconnecting is not rollback.** It cannot undo commands already executed, recover copied information, stop every
@@ -79,14 +79,14 @@ not the same as terminating its process or its child jobs. To stop machine-side 
 and jobs as well. For a suspected incident, stop the relevant sharing routes and agent/container, preserve evidence,
 review changed files, and revoke credentials that may have been exposed before resuming.
 
-## A room linked through a tunnel of its own (experimental)
+## A room shared through a tunnel of its own (experimental)
 
-`shellphone room --tunnel` does not use the sealed relay. When linked, the room is reached through a Cloudflare quick
+`shellphone share --via tunnel` does not use the sealed relay. The room is reached through a Cloudflare quick
 tunnel that it starts itself, so Cloudflare is able to read the traffic, and there is no login in front of the room
 but the room's own links: whoever holds a person's link is that person. The site keeps only the room's lasting address
-and two hashes of a secret; it asks the room to prove itself before it sends anyone to it. Unlinking closes the tunnel
+and two hashes of a secret; it asks the room to prove itself before it sends anyone to it. Stopping closes the tunnel
 and throws away every key, on the room's computer first; it cannot undo what was done or copied while the room was
-linked. An icon on a phone's home screen holds a copy of its owner's key until the icon is deleted or the room unlinked.
+shared. An icon on a phone's home screen holds a copy of its owner's key until the icon is deleted or the room's sharing stopped.
 
 ## What is recorded today
 
@@ -108,6 +108,6 @@ the room database consistently (stop the room or use SQLite's backup mechanism),
 file and assuming that is a complete backup.
 
 A fuller audit facility is separate work: structured timestamped room events for joins, membership/permission changes,
-access rejection and link/unlink outcomes; stable event/request/agent identifiers to associate them with the agent's
+access rejection and share / stop outcomes; stable event/request/agent identifiers to associate them with the agent's
 own tool records; protected retention and export. It should record outcomes and relevant IDs without raw passwords,
 tokens, secret-bearing URLs or message/file contents by default. These are requirements, **not features shipped here**.

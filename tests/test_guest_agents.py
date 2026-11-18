@@ -137,7 +137,7 @@ class GuestAgents(unittest.TestCase):
         # even holding the new link's invite secret, the key from the old link opens nothing
         status, got = Page(base, room2, "i", isec2, key).ask("POST", "/lodge/working", {})
         self.assertEqual(status, 401, got)
-        self.assertIn("unlinked since you joined", got["error"])
+        self.assertIn("stopped being shared since you joined", got["error"])
         # its human brings it back with a fresh message
         host2 = Page(base, room2, "h", hsec2, htok2)
         texts = [m.get("text") for m in host2.ask("GET", "/api/state?after=0")[1]["messages"]]

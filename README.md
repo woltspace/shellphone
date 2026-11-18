@@ -29,40 +29,54 @@ It prints a link that opens the chat, and one line to give any coding agent so i
 (`uvx shellphone@latest join '<link>' --name NAME`). Press Ctrl-C and the room is deleted; add `--keep DIR` to keep it.
 At first only this computer can open it.
 
-### Link it, invite people, unlink it
+### Share it, invite people, stop sharing
 
-To open the room on your phone or bring friends in, link it: the same room gets an address on shellphone.woltspace.app.
+To open the room on your phone or bring friends in, share it: the same room gets an address on shellphone.woltspace.app.
 Messages stay on your computer; the site passes sealed messages along and can't read them.
 
-- **Link:** in the room's menu, **Invite people** has a **link and invite** button. Or run `uvx shellphone@latest link`
-  while the room is open (`room --link` links it from the start).
-- **Invite:** the room's menu always has **Invite people**. Linked, it shares the guest invite. Not linked, it says the
-  room needs linking first and does both in one tap.
-- **Unlink:** **Unlink** in the menu (two taps), or `uvx shellphone@latest unlink`. Everyone outside loses access at once,
-  and both links stop working for good. The room and its history stay on your computer. Linking again makes new links.
+- **Share:** in the room's menu, **Invite people** has a **share and invite** button. Or run `uvx shellphone@latest share`
+  while the room is open (`room --share` shares it from the start).
+- **Invite:** the room's menu always has **Invite people**. Shared, it hands you the guest invite. Not shared, it says the
+  room is shared first and does both in one tap.
+- **Stop sharing:** **Stop sharing** in the menu (two taps), or `uvx shellphone@latest share --stop`. Everyone outside
+  loses access at once, and both links stop working for good. The room and its history stay on your computer. Sharing
+  again makes new links.
 
-`link` gives two links. One is yours alone: it opens the room as its host. The other is the invite: friends open it in
-their browser, pick a name and come in as guests, no account. Share only the invite.
+`share` gives two links. One is yours alone: it opens the room as its host. The other is the invite: friends open it in
+their browser, pick a name and come in as guests, no account. Send only the invite.
 
-A kept room (`--keep DIR`) that was linked when it closed comes back linked at the same address; an unlinked one stays
-unlinked. Only the host, on the computer the room runs on, can link or unlink it.
-Through the link the page is text only for now: no voice notes or files.
+A kept room (`--keep DIR`) that was shared when it closed comes back shared at the same address; one that wasn't stays
+on your computer only. Only the host, on the computer the room runs on, can share it or stop.
+Shared this way the page is text only for now: no voice notes or files.
 
-Unlinking closes the way in through shellphone.woltspace.app. A room you also share another way (see
+Stopping closes the way in through shellphone.woltspace.app. A room you also share another way (see
 [Self-hosting a lasting room](#self-hosting-a-lasting-room)) stays open that way.
 
-### Experimental: link through a tunnel of its own
+`link` and `unlink` are the old names of `share` and `share --stop`, and still work.
 
-`uvx shellphone@latest room --tunnel` opens a room whose link does not go through the relay. When you link it, the
-room starts a free Cloudflare quick tunnel on your computer and is reached straight through it: the same page as on
-your own computer, with voice notes and files, and agents from other computers. shellphone.woltspace.app only keeps
-the room's lasting address and sends people on to wherever the room is now; nothing of the chat passes through it.
-Link, invite and unlink work the same way, from the menu or with `link` and `unlink`.
+### The ways to share a room
+
+| Way | How | What you get |
+|---|---|---|
+| Through the site, sealed (the default) | `share`, or `share --via relay` | No account, nothing to install. Text only for now. Nobody in the middle can read it. |
+| Through a tunnel of its own (experimental) | `share --via tunnel` | No account; needs `cloudflared`. Voice notes, files, agents from other computers. Cloudflare could read the traffic. |
+| Behind your own Cloudflare login | a separate setup: [Self-hosting a lasting room](#self-hosting-a-lasting-room) | Your own address, people logged in by email. A room started with `shellphone room` can't be moved there in place yet. |
+
+One way at a time: to change, stop sharing, then share the other way (the old links don't come back).
+`room --via tunnel` (or `SHELLPHONE_VIA=tunnel`) makes the tunnel what the menu's button and a plain `share` use.
+
+### Experimental: share through a tunnel of its own
+
+`uvx shellphone@latest share --via tunnel` shares the open room without the relay. The room starts a free Cloudflare
+quick tunnel on your computer and is reached straight through it: the same page as on your own computer, with voice
+notes and files, and agents from other computers. shellphone.woltspace.app only keeps the room's lasting address and
+sends people on to wherever the room is now; nothing of the chat passes through it.
+Invite and stop sharing work the same way, from the menu or with `share --stop`.
 
 It needs [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/)
 on your computer, and no account. What to know before you use it:
 
-- **Who can read what.** The relay link is sealed end to end. This one is not: the traffic is ordinary https through
+- **Who can read what.** Sharing through the relay is sealed end to end. This one is not: the traffic is ordinary https through
   Cloudflare's tunnel, so Cloudflare could read it. The site still can't.
 - **Nobody is in front of the room.** There is no login but the room's own links. Your link is your key as the host;
   the invite makes guests; an agent joins with a one-time message from **Add an agent**. Each person's key travels in
@@ -72,7 +86,7 @@ on your computer, and no account. What to know before you use it:
   what the address bar shows once you are in. A kept room (`--keep DIR`) comes back at the same lasting address, with
   the same people. An agent that joined through it finds the room again by itself; something it was sending just as
   the room moved is not sent twice, and it says so.
-- **Unlinking** closes the tunnel, throws away every key that was handed out, and closes the lasting address for good.
+- **Stopping** closes the tunnel, throws away every key that was handed out, and closes the lasting address for good.
   If the site can't be told right then, the room says so and keeps telling it.
 - **Limits of a quick tunnel** (Cloudflare's, for testing and development): 200 requests at a time, no uptime promise.
 - **Phones.** Add the room to a home screen from the lasting address with `?install` added before the `#`: that icon
@@ -144,7 +158,7 @@ Shellphone is experimental and adds no sandbox. An agent keeps its existing tool
 guest does not get a terminal, but untrusted room content can influence an agent. Before connecting, ask the agent to
 review its files, credentials, permissions and who is trusted. [Safety, disconnecting and log coverage](docs/safety.md)
 explains the risks. [Optional containers](docs/containers.md) must contain the agent too, not only the room.
-Unlink stops that relay route; it does not undo actions, erase copied data or stop already-running agent jobs.
+Stop sharing closes that route; it does not undo actions, erase copied data or stop already-running agent jobs.
 Chat history is not a complete tool-execution audit log.
 
 ## Self-hosting a lasting room
