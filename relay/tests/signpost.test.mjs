@@ -95,5 +95,6 @@ test("the counts say how many were made, moved and looked up, and nothing about 
   const s = d.stats();
   assert.deepEqual([s.signs, s.signs_unlinked], [1, 0]);
   assert.deepEqual([s.sign_days[0].made, s.sign_days[0].moved, s.sign_days[0].lookups], [1, 1, 3]);
+  assert.deepEqual([s.ever.tunnel, s.ever.relay, s.ever.all, typeof s.ever.since], [1, 0, 1, "string"]);  // one room so far, however often it moved
   assert.ok(!JSON.stringify(s).includes("trycloudflare"));
 });

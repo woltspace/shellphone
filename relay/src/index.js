@@ -227,6 +227,7 @@ export class Desk extends DurableObject {
       const today = this.sql.exec("select rooms_opened as n from days where day = ?", this.day(now)).toArray()[0];
       if ((today ? today.n : 0) >= number(this.env.MAX_ROOMS_PER_DAY, 200)) { this.add(now, "refused", 1); return { ok: false, why: "the relay has opened all the rooms it may today" }; }
       this.add(now, "rooms_opened", 1);
+      this.ever(now, "ever_relay");
     }
     this.sql.exec("insert into counters (name, n) values ('gen', 1) on conflict (name) do update set n = n + 1");
     const gen = this.sql.exec("select n from counters where name = 'gen'").one().n;  // the desk's own count: a forgotten room's number never comes round again
@@ -261,6 +262,18 @@ export class Desk extends DurableObject {
     this.sql.exec("update rooms set open = 0, at = ? where id = ? and gen = ?", now, id, gen);
   }
 
+  // Rooms shared so far, by way: totals that are never cleared (the per-day rows go after 90 days). They start at
+  // nothing on the day this was first deployed (ever_since), and say nothing about which rooms. Only in stats().
+  ever(now, what) {
+    this.sql.exec("insert into counters (name, n) values ('ever_since', ?) on conflict (name) do nothing", now);
+    this.sql.exec("insert into counters (name, n) values (?, 1) on conflict (name) do update set n = n + 1", what);
+  }
+  everNow() {
+    const got = Object.fromEntries(this.sql.exec("select name, n from counters where name like 'ever_%'").toArray().map((r) => [r.name, r.n]));
+    const relay = got.ever_relay || 0, tunnel = got.ever_tunnel || 0;
+    return { relay, tunnel, all: relay + tunnel, since: got.ever_since ? this.day(got.ever_since) : null };
+  }
+
   // Signposts (see signpost above). Per day: made (new ones), moved (a room said it is somewhere new: about once per
   // start), lookups (someone, or an agent, asked where a room is), refused (turned away by a cap).
   signed(now, what) {
@@ -290,6 +303,7 @@ export class Desk extends DurableObject {
       }
       this.sql.exec("insert into signs (id, claim, proof, url, at, seq, gone) values (?, ?, ?, ?, ?, ?, ?)", id, claim, check, url, now, seq, gone ? 1 : 0);
       this.signed(now, "made");
+      if (!gone) this.ever(now, "ever_tunnel");
       return { ok: true };
     }
     if (url && url !== known.url) this.signed(now, "moved");
@@ -320,7 +334,7 @@ export class Desk extends DurableObject {
       days: this.sql.exec("select * from days order by day desc limit 30").toArray(),
       taps: this.sql.exec("select day, what, n from taps order by day desc, what limit 60").toArray(),
       signs: this.sql.exec("select count(*) as n from signs where gone = 0").one().n, signs_unlinked: this.sql.exec("select count(*) as n from signs where gone = 1").one().n, signs_open: this.sql.exec("select count(*) as n from signs where url != ''").one().n,
-      sign_days: this.sql.exec("select * from sign_days order by day desc limit 30").toArray() };
+      sign_days: this.sql.exec("select * from sign_days order by day desc limit 30").toArray(), ever: this.everNow() };
   }
 }
 

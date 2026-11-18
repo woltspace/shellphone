@@ -9,7 +9,8 @@ main = "src/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = false
 preview_urls = false
-routes = [{ pattern = "shellphone.woltspace.app", custom_domain = true }]
+# One Worker, two addresses: the same pages, rooms, lasting addresses and counts behind both, so a link made on one works on the other.
+routes = [{ pattern = "shellphone.woltspace.app", custom_domain = true }, { pattern = "shellphone.dev", custom_domain = true }]
 
 [vars]
 RELAY_OFF = ""        # set to "1" to turn the whole relay off: every request and socket is refused

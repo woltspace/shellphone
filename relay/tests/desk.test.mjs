@@ -75,6 +75,7 @@ test("a room that reports too late loses its place, and is told so", () => {
   assert.deepEqual(desk.report("a", a.gen, 2, 9), { ok: true });   // with a place free, a late room gets one back
   const s = desk.stats();
   assert.deepEqual([s.open_rooms, s.days[0].rooms_opened, s.days[0].connections, s.days[0].frames], [1, 2, 2, 9]);  // not a new room; its counts kept
+  assert.deepEqual([s.ever.relay, s.ever.tunnel, s.ever.all], [2, 0, 2]);  // the total so far counts a room once, like the day's
 });
 
 test("a goodbye from an earlier host can't close the room's next one", () => {
