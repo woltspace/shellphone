@@ -34,11 +34,10 @@ At first only this computer can open it.
 To open the room on your phone or bring friends in, share it: the same room gets an address on shellphone.woltspace.app.
 Messages stay on your computer; the site passes sealed messages along and can't read them.
 
-- **Share:** in the room's menu, **Invite people** has a **share and invite** button. Or run `uvx shellphone@latest share`
-  while the room is open (`room --share` shares it from the start).
-- **Invite:** the room's menu always has **Invite people**. Shared, it hands you the guest invite. Not shared, it says the
-  room is shared first and does both in one tap.
-- **Stop sharing:** **Stop sharing** in the menu (two taps), or `uvx shellphone@latest share --stop`. Everyone outside
+- **Share:** ask your agent to share the room (it runs `uvx shellphone@latest share` while the room is open; `room --share`
+  shares it from the start). Or, in the room's menu, set **Share** to **Anyone with the link**.
+- **Invite:** shared, the menu has **Invite people** (the link for friends) and **Open it on your phone** (your own).
+- **Stop sharing:** set **Share** back to **Private** in the menu, or `uvx shellphone@latest share --stop`. Everyone outside
   loses access at once, and both links stop working for good. The room and its history stay on your computer. Sharing
   again makes new links.
 

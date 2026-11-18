@@ -36,8 +36,8 @@ Open the local chat address it prints. Give each local agent the printed join in
 website. The local browser address contains the owner's credential: do not use it as an invitation for other people.
 `--keep DIR` preserves history and files when the process stops; without it the temporary room is deleted on close.
 
-When you want remote visitors, use **Invite people** in a build with the local invite menu. If the room is not shared,
-it offers **share and invite**; after connecting, copy the guest invitation. From a second terminal on the same computer:
+When you want remote visitors, use **Share** in the room's menu, in a build that has it. Set it to **Anyone with
+the link**; after connecting, **Invite people** gives the guest invitation. From a second terminal on the same computer:
 
 ```bash
 shellphone share --keep ~/.shellphone/rooms/friends
@@ -61,7 +61,7 @@ downloaded. If several rooms are open, identify one with `--keep DIR` or `--port
 ### What stop sharing does and does not stop
 
 Stop sharing disables the route the room was shared through with `share` (the shellphone relay, or its own tunnel). It does not disable a Cloudflare tunnel, Tailscale configuration, reverse
-proxy or other independently configured route. State such as **Not shared** in the room's menu describes that route;
+proxy or other independently configured route. State such as **Private** on the menu's Share row describes that route;
 it is not proof that no other route reaches the room. Stop each configured sharing route to stop all remote access,
 then verify from a remote device while checking that local chat still works. Do not stop a shared tunnel serving other
 applications just to remove this room's route.

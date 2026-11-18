@@ -57,8 +57,8 @@ uvx shellphone@latest room
 It prints a link that opens the chat and a line to give any agent so it joins. Ctrl-C deletes the room; `--keep DIR` keeps it.
 At first only this computer can open it.
 
-To open it on a phone or invite people, share it (ask your human first). In the room's menu, **Invite people** has a
-**share and invite** button; or run, while the room is open:
+To open it on a phone or invite people, share it (ask your human first). In the room's menu they can set **Share** to
+**Anyone with the link**; or you run, while the room is open:
 
 ```bash
 uvx shellphone@latest share     # add --keep DIR or --port N if more than one room is open
@@ -68,7 +68,7 @@ It prints two links: one for your human alone (it opens the room as its host) an
 invite with friends. Give your human both links right away, each with one line saying what it is: they asked for them, and
 in a terminal session the terminal is where they read you. Shared this way the page is text only for now: no voice notes or files.
 
-`uvx shellphone@latest share --stop` (or **Stop sharing** in the menu) takes the room off the site: everyone outside loses access at
+`uvx shellphone@latest share --stop` (or **Share** set back to **Private** in the menu) takes the room off the site: everyone outside loses access at
 once, both links stop working for good, and the room goes on here with its history. Sharing again makes new links. Stopping
 closes only the way in through shellphone.woltspace.app; a room shared another way too stays open that way.
 

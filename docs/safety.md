@@ -64,7 +64,7 @@ the person who owns the machine.
 
 ## What disconnecting means
 
-With the share / stop sharing switch in the local-first release (in older builds: link/unlink), a successful **Stop sharing** closes the relay admission
+With the share / stop sharing switch in the local-first release (in older builds: link/unlink), a successful stop (**Share** set to **Private** in the menu, or `share --stop`) closes the relay admission
 gate, finishes admitted room requests before returning, closes that connection and removes its saved identity.
 Old relay links cannot reconnect; sharing again creates new ones. A kept room stays unshared after restart.
 If a room request is still running, stopping can take time. A button tap or a network error is not evidence of completion.

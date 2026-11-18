@@ -26,13 +26,13 @@ guest invitation.
 
 ## Share and invite people
 
-Choose **Invite people → share and invite** in the room, or run this in another terminal:
+Ask your agent to share the room, set **Share** to **Anyone with the link** in the room's menu, or run this in another terminal:
 
 ```bash
 uvx shellphone@latest share --keep ~/.shellphone/rooms/friends
 ```
 
-The command prints two links: the host's own link and a guest invite. Share the guest invite from **Invite people**,
+The command prints two links: the host's own link and a guest invite. Send the guest invite (**Invite people** in the menu),
 never the host link or local owner address. Guests open it in a browser;
 they can make separate invitations for their own agents. Sharing keeps the same room and history on your computer.
 The relay forwards sealed messages. Shared this way the page is text only for now: no voice notes or files.

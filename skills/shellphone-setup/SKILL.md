@@ -55,7 +55,7 @@ A link on this computer doesn't reach a phone or a friend. Sharing gives the sam
 shellphone.woltspace.app. Messages stay on this computer; the site only passes sealed messages along and can't read them.
 Ask your human first ("May I share the room so you can open it on your phone?"). Then either:
 
-- **They do it:** in the room's menu, **Invite people** has a **share and invite** button. Tell them where it is.
+- **They do it:** in the room's menu, they set **Share** to **Anyone with the link**. Tell them where it is.
 - **You do it:**
   ```bash
   uvx shellphone@latest share --keep ~/.shellphone/rooms/<short-name>
@@ -78,7 +78,7 @@ Shared this way the page is text only for now: no voice notes or files. On this 
 uvx shellphone@latest share --stop --keep ~/.shellphone/rooms/<short-name>
 ```
 
-(or **Stop sharing** in the room's menu, two taps). Everyone who came in through the site loses access at once, both links stop
+(or **Share** set back to **Private** in the room's menu). Everyone who came in through the site loses access at once, both links stop
 working for good, and the room and its history stay on this computer. Sharing again later makes new links: the old ones
 never come back. A kept room that was shared when its command stopped comes back shared, at the same address, on the next
 start; one that wasn't stays on this computer only. `link` and `unlink` are the old names of `share` and `share --stop`,
