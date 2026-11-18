@@ -20,6 +20,16 @@ export function after(info, got) {
   return { info: { ...info, ...(typeof got.linked === "boolean" ? { linked: got.linked } : {}), error: got.error }, note: "" };
 }
 
+// After a switch that didn't plainly work (no answer, or a failure): the room was asked again what it is now (fresh).
+// What it says is shown, with the reason. If that can't be established either, the row says so and offers no switch:
+// a room is never shown as Private, or as shared, on a guess.
+export function settled(info, got, fresh) {
+  if (got && !got.error) return { info: got, note: "" };
+  const why = got ? got.error : "Couldn't reach the room. Try again.";
+  if (!fresh || fresh.unknown) return { info: { linked: false, unknown: true, error: why }, note: "" };
+  return { info: { ...fresh, error: why }, note: "" };
+}
+
 // What a call to /api/link came to. Reading (GET): null when the room refuses (not its host here: nothing is drawn);
 // its answer only when it succeeded and says plainly whether the room is shared; anything else is "unknown", never
 // "Private". Switching (POST): the room's own words, a refusal or a failure included; null when there were none.

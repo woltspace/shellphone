@@ -2,7 +2,7 @@
 //   node --test web/tests/linkroom.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { after, answered, unlinkedWords } from "../src/linkwords.js";
+import { after, answered, settled, unlinkedWords } from "../src/linkwords.js";
 
 const local = { linked: false, relay: "relay.example" };
 
@@ -80,4 +80,20 @@ test("a switch that failed keeps the room's own words", () => {
   assert.equal(answered(false, 500, null), null);
   assert.equal(answered(false, 200, { ok: true }), null);  // says nothing about the room: treated as no answer
   assert.deepEqual(answered(false, 200, { linked: true, relay: "relay.example" }), { linked: true, relay: "relay.example" });
+});
+
+test("after a switch that didn't plainly work, the row shows what the room says it is now, or that it can't tell", () => {
+  const priv = { linked: false, relay: "relay.example" }, shared = { linked: true, relay: "relay.example", invite: "https://relay.example/r/x#i.y.z" };
+  const unknown = { linked: false, unknown: true };
+  // a lost answer to "share", from Private: the room may be shared by now
+  assert.deepEqual(settled(priv, null, shared).info, { ...shared, error: "Couldn't reach the room. Try again." });
+  assert.deepEqual(settled(priv, null, priv).info, { ...priv, error: "Couldn't reach the room. Try again." });
+  for (const fresh of [null, unknown]) {  // and when the room can't be read either: unknown, with the reason, never Private
+    assert.deepEqual(settled(priv, null, fresh).info, { linked: false, unknown: true, error: "Couldn't reach the room. Try again." });
+    assert.deepEqual(settled(shared, { error: "the tunnel wouldn't close", linked: true }, fresh).info, { linked: false, unknown: true, error: "the tunnel wouldn't close" });
+    assert.deepEqual(settled(priv, { error: "no way through" }, fresh).info, { linked: false, unknown: true, error: "no way through" });
+  }
+  assert.deepEqual(settled(shared, { error: "the tunnel wouldn't close", linked: true }, shared).info, { ...shared, error: "the tunnel wouldn't close" });
+  assert.deepEqual(settled(shared, { error: "keys couldn't be removed", linked: false }, priv).info, { ...priv, error: "keys couldn't be removed" });
+  assert.deepEqual(settled(priv, shared, null), { info: shared, note: "" });  // it worked: the answer itself, nothing asked again
 });

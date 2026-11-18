@@ -168,6 +168,8 @@ def start(a, token=None):
         r.add_person(HOST_EMAIL, a.name)
     token, code = token or secrets.token_urlsafe(24), secrets.token_urlsafe(32)
     r.LOCAL[token] = HOST_EMAIL
+    from .core import Core
+    r.CORE = Core(r, HOST_EMAIL)  # the room's rules: every door asks them
     with r.tx() as c:  # one agent link per run; a kept room's old link stops working
         c.execute("delete from invites where owner = ? and expires is null", (HOST_EMAIL,))
         c.execute("insert into invites (code_hash, owner, expires, once) values (?, ?, null, 0)", (r.key_hash(code), HOST_EMAIL))

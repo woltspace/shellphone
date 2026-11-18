@@ -82,6 +82,7 @@ class Door(unittest.TestCase):
         code = self.ask("GET", "/join", cookie=cookie)[1].split("#a.")[1].split("'")[0].split("&")[0]
         self.assertEqual(self.ask("POST", "/lodge/join", host="127.0.0.1", body={"wolt": "sideways"}, headers={"Authorization": "Bearer " + code})[0], 401)
         self.assertEqual(self.ask("POST", "/lodge/join", body={"wolt": "straight"}, headers={"Authorization": "Bearer " + code})[0], 200)  # refused at the wrong door, it wasn't used up
+        self.assertEqual(self.ask("POST", "/lodge/join", body={"wolt": "outsider"}, headers={"Authorization": "Bearer " + self.keys["code"]})[0], 401)  # and this computer's own code opens nothing from outside
 
     def test_the_cookie_is_kept_from_scripts_and_other_sites(self):
         _, _, cookie = self.ask("POST", "/api/enter", body={"k": self.keys["host"]})
@@ -321,6 +322,24 @@ class Unlink(unittest.TestCase):
             self.assertEqual(json.loads((Path(td) / OWED).read_text())[0]["room"], "old-room")
             self.assertFalse((Path(td) / FILE).exists())
             self.assertIsNone(Outside(None, Path(td), True, "https://site.example", 1, "host").saved())
+
+    def test_when_neither_the_stop_nor_the_keys_removal_reaches_the_disk_it_claims_no_more_than_this_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.kept(td)
+            o._tell = lambda *a, **kw: None
+            with patch.object(cli, "replace_private", side_effect=OSError("disk full")), patch.object(Path, "unlink", side_effect=OSError("read-only")):
+                status, info = o.off()
+                self.assertEqual(status, 500)
+                self.assertIn("while this room stays open", info["error"])
+                self.assertIn("work again then", info["error"])
+                self.assertNotIn("open nothing any more", info["error"])
+                self.assertIn("only for as long as this room stays open", o.info()["note"])  # and it stays said, wherever the host looks
+                self.assertIsNone(o.saved())  # closed for this run
+                self.assertIsNone(o.who("old-host-key"))
+            self.assertEqual(Outside(None, Path(td), True, "https://site.example", 1, "host").saved()["room"], "old-room")  # what the warning said: a later run finds the old keys
+            self.assertEqual(o._settle(), (0, True))  # once the disk takes writes again, the same run finishes the job
+            self.assertFalse((Path(td) / FILE).exists())
+            self.assertNotIn("note", o.info())
 
     def test_keys_that_cant_be_removed_are_reported_and_open_nothing_meanwhile(self):
         with tempfile.TemporaryDirectory() as td:

@@ -15,7 +15,7 @@ import contextlib, hashlib, hmac, json, os, re, secrets, shutil, subprocess, thr
 
 OWED = "outside-unlinked.json"  # rooms' addresses the site has still to be told are unlinked (it couldn't be reached then): told again until it knows
 FILE = "outside.json"  # in a kept room's folder while it is linked this way: the room's lasting address and who holds a link
-MAX_GUESTS = 50
+from .core import MAX_GUESTS, Core  # noqa: F401  (MAX_GUESTS lives with the room's rules now; kept importable from here)
 ADDRESS = re.compile(r"https://([a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com)\b")
 AGENT_STEPS = """Please join my shellphone room: a group chat where people and their coding agents talk together. I'm {name} there.
 
@@ -158,21 +158,21 @@ class Outside:
         return next((e for t, e in list(self.guests.items()) if hmac.compare_digest(t, token)), None)
 
     def enter(self, body):
-        """(status, answer, the token to keep in a cookie or None)."""
+        """(status, answer, the token to keep in a cookie or None). Under the switch's lock: a key or an invite is
+        looked at and acted on as the room is shared at that moment, never as it was a moment before a stop."""
+        with self.lock:
+            return self._enter(body)
+
+    def _enter(self, body):
         if not self.open or not isinstance(body, dict):
             return 403, {"error": "this room isn't shared any more"}, None
         if isinstance(body.get("k"), str):
             return (200, {"ok": True}, body["k"]) if self.who(body["k"]) else (403, {"error": "this link doesn't open this room any more: ask its host for a new one"}, None)
         if isinstance(body.get("i"), str) and hmac.compare_digest(self.invite_token, body["i"]):
             with self.lock:
-                if len(self.guests) >= MAX_GUESTS:
-                    return 429, {"error": "this room is full"}, None
-                try:
-                    email = self.r.add_guest(body.get("name"))
-                except ValueError as exc:
-                    return 400, {"error": str(exc)}, None
-                mine = secrets.token_urlsafe(24)
-                self.guests[mine] = email
+                status, out, mine = Core(self.r, self.host_email).admit(self.guests, body.get("name"))  # who gets in is the room's rule, not this door's
+                if not mine:
+                    return status, out, None
                 self.save()
             return 200, {"ok": True, "mine": mine}, mine  # their own key from here on: the page hands it to the room's lasting address, which remembers it in this browser
         return 403, {"error": "this link doesn't open this room any more: ask its host for a new one"}, None
@@ -192,9 +192,15 @@ class Outside:
     def enter_page(self):
         return ENTER_PAGE.replace("{{SIGN}}", json.dumps(f"{self.site}/t/{self.room}"))
 
-    def agent_steps(self, email):
+    def agent_steps(self, email, token):
+        """The message for one of this person's agents, or None. token: the key the person asked with; it is looked at
+        again here, under the switch's lock, so a key from before a stop gets nothing through what is shared now."""
         name = self.r.people().get(email, {}).get("name") or "your human"
-        return AGENT_STEPS.format(name=name, link=f"{self.site}/t/{self.room}#a.{self.r.agent_code(email, self.via())}", minutes=self.r.JOIN_MINUTES)
+        with self.lock:  # with the switch: a stop is either done before this (then there is no message), or after it (then it takes this code with it)
+            mark = self.via()
+            if not mark or not token or self.who(token) != email:
+                return None
+            return AGENT_STEPS.format(name=name, link=f"{self.site}/t/{self.room}#a.{self.r.agent_code(email, mark)}", minutes=self.r.JOIN_MINUTES)
 
     # -- what the host sees
 
@@ -202,6 +208,9 @@ class Outside:
         where = urllib.parse.urlsplit(self.site).netloc
         if not self.open:
             owed = [o for o in self._owed() if o["site"] == self.site]
+            kept = self._file()
+            if kept and self._unwritten and self._ended(kept):  # stopped, but nothing of it could be put on disk: said for as long as it is so
+                return {"linked": False, "relay": where, "note": f"Sharing is stopped only for as long as this room stays open: the stop couldn't be written down, and the room's old keys are still in {self.data / FILE}. Delete that file before the room starts again, or its old links work again then."}
             if not owed:
                 return {"linked": False, "relay": where}
             # said for as long as it is true, wherever the host looks: the menu, or `shellphone share --stop`
@@ -353,6 +362,8 @@ class Outside:
                 (self.data / FILE).unlink(missing_ok=True)
             except OSError as exc:
                 self._keep_telling()
+                if self._unwritten:  # neither the stop nor the keys' removal is on disk: closed for this run, and no further
+                    return 500, {"error": f"the tunnel is closed and nobody outside can come in while this room stays open. But the stop couldn't be written down, and the room's keys couldn't be removed from {self.data / FILE} ({exc}): delete that file before the room starts again, or its old links work again then", "linked": False}
                 return 500, {"error": f"the tunnel is closed and nobody outside can come in, but the room's keys couldn't be removed from {self.data / FILE} ({exc}): delete that file yourself. Its keys open nothing any more", "linked": False}
             if self._settle()[0]:
                 self._keep_telling()

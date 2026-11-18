@@ -8,7 +8,7 @@ import hashlib, hmac, json, os, secrets, threading, urllib.parse
 
 RELAY = "https://shellphone.woltspace.app"  # where a room links to unless it's told otherwise (SHELLPHONE_RELAY)
 SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt"), ("GET", "/api/page"), ("POST", "/api/page"), ("POST", "/api/thread-who"), ("POST", "/api/main"), ("POST", "/api/rename")}  # what a page may ask through the relay, for now: text chat, pausing or removing an agent and renaming a chat (the room refuses guests), and pages
-MAX_GUESTS = 50  # people who may come in through one link's invite
+from .core import MAX_GUESTS, Core, RELAY as THROUGH_RELAY  # noqa: F401  (MAX_GUESTS lives with the room's rules now; kept importable from here)
 # What an agent may ask through the relay (experimental): sign up with a person's one-time code, then hear the room and
 # answer in it. No files, pages or voice yet, and nothing that changes who else is in the room.
 AGENT_SHARED = {("GET", "/lodge/messages"), ("GET", "/lodge/thread"), ("GET", "/lodge/history"), ("POST", "/lodge/messages"),
@@ -40,6 +40,7 @@ class Link:
 
     def __init__(self, r, host_email, relay, room_id=None, secret=None, token=None, invite_secret=None, invite_token=None, guests=None, guest_agents=True, say=print):
         self.r, self.host_email, self.relay, self.say = r, host_email, relay.rstrip("/"), say
+        self.core = Core(r, host_email)  # the room's rules: this door says who is calling, they say what that person may do
         self.room_id, self.secret, self.token = room_id or secrets.token_bytes(16), secret or secrets.token_bytes(32), token or secrets.token_urlsafe(24)
         # The invite link has a secret and a token of its own, so nobody holding it can come in as the host. All it can
         # do is make a guest: a person with the name they typed, the guest mark, and a token of their own. (That token is
@@ -85,7 +86,7 @@ class Link:
         return read
 
     def _guests_agent(self, owner):
-        return bool(self.r.people().get(owner, {}).get("guest"))
+        return self.core.guests_agent(owner)
 
     def _for_agent(self, method, target, path, body, auth):
         """An agent on another computer (experimental): a person's one-time code signs it up, then its own key."""
@@ -95,10 +96,7 @@ class Link:
                 inv = r.invite_of(r.key_hash(auth))
                 if inv and self._guests_agent(inv["owner"]) and not self.allow["guest_agents"]:
                     return 403, {"error": "the host has turned off agents from guests in this room"}
-                status, out, _, _ = r.join_wolt(r.key_hash(auth), body)
-                if status == 200:  # it came in through this link: its key counts through this link only
-                    with r.tx() as c:
-                        c.execute("update wolts set via = ? where wolt = ?", (self._via(), out["wolt"]))
+                status, out, _, _ = r.join_wolt(r.key_hash(auth), body, self._via())  # the code must be one this link handed out, and the key counts through this link only
                 return status, out
             l, why = self.agent(auth)
             if not l:
@@ -174,20 +172,15 @@ class Link:
             return self._for_agent(method, target, path, body, auth)
         if kind == "h":
             email = self.person(kind, auth)
-            if email and (method, path) == ("GET", "/api/invite"):
+            if email and (method, path) == ("GET", "/api/invite") and self.core.may(email, "invite.see", THROUGH_RELAY):
                 from . import seal
                 return 200, {"key": f"i.{seal.b64e(self.invite_secret)}.{self.invite_token}"}
         elif hmac.compare_digest(self.invite_token, auth):  # the invite link itself: it can ask for a place in the room, nothing else
             if (method, path) != ("POST", "/api/guest"):
                 return 403, {"error": "tell the room your name first"}
-            if len(self.guests) >= MAX_GUESTS:
-                return 429, {"error": "this room is full"}
-            try:
-                email = r.add_guest(body.get("name") if isinstance(body, dict) else None)
-            except ValueError as exc:
-                return 400, {"error": str(exc)}
-            mine = secrets.token_urlsafe(24)
-            self.guests[mine] = email
+            status, out, mine = self.core.admit(self.guests, body.get("name") if isinstance(body, dict) else None)
+            if not mine:
+                return status, out
             self.changed()
             return 200, {"token": mine}
         else:  # a guest's own token
@@ -197,8 +190,9 @@ class Link:
         if (method, path) == ("POST", "/api/agent-invite"):  # a message for one of this person's agents, on any computer
             return self.agent_invite(email)
         if (method, path) == ("POST", "/api/guest-agents"):  # the host turns agents from guests on or off, for this link
-            if email != self.host_email:
-                return 403, {"error": "only the room's host can do that"}
+            no = self.core.refusal(email, "guest_agents.set", THROUGH_RELAY)
+            if no:
+                return no
             self.allow["guest_agents"] = bool(body.get("on")) if isinstance(body, dict) else self.allow["guest_agents"]
             self.changed()
             return 200, {"guest_agents": self.allow["guest_agents"]}
@@ -216,9 +210,10 @@ class Link:
         """A message for one of this person's agents on any computer: a one-time code, in a link through the relay."""
         from . import seal
         r = self.r
-        if self._guests_agent(email) and not self.allow["guest_agents"]:
-            return 403, {"error": "the host has turned off agents from guests in this room"}
-        link = f"{self.relay}/r/{seal.b64e(self.room_id)}#a.{seal.b64e(self.invite_secret)}.{r.agent_code(email)}"
+        no = self.core.refusal(email, "agent.invite", THROUGH_RELAY, self.allow)
+        if no:
+            return no
+        link = f"{self.relay}/r/{seal.b64e(self.room_id)}#a.{seal.b64e(self.invite_secret)}.{r.agent_code(email, self._via())}"
         name = r.people().get(email, {}).get("name") or "your human"
         return 200, {"text": AGENT_STEPS.format(name=name, link=link, minutes=r.JOIN_MINUTES), "minutes": r.JOIN_MINUTES}
 
@@ -287,6 +282,10 @@ class Link:
         if self._thread is not None and self._thread is not threading.current_thread():
             self._thread.join(5)
         self.guests.clear()
+        try:
+            self.r.drop_agent_codes(self._via())  # codes for agents handed out through this link go with it
+        except Exception:
+            pass  # they are refused anyway once this link is gone: each is held to the link it came from (room.join_wolt)
         self.secret = self.invite_secret = secrets.token_bytes(32)  # nothing made with the old ones opens anything now
         self.token = self.invite_token = secrets.token_urlsafe(24)
         self.state = None

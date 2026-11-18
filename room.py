@@ -34,6 +34,7 @@ LOCK = threading.RLock()
 DEV = False
 LINKER = None  # set by the `shellphone` command: the room's switch between "only on this computer" and "linked" (info, on, off)
 OUTSIDE = None  # set by the `shellphone` command while the room is linked through a tunnel (shellphone/outside.py): its address there, and who each outside link belongs to
+CORE = None  # set by the `shellphone` command: the room's rules, who may do what (shellphone/core.py). Every door asks it
 LOCAL = {}  # `shellphone room` (a room on this computer only): login token -> email. The token comes in the link the host opens.
 # Behind Cloudflare Access: the team domain and the Access app's audience tag. With both set, people must carry a valid Access login.
 ACCESS_TEAM = os.environ.get("SHELLPHONE_ACCESS_TEAM", "")
@@ -795,6 +796,16 @@ def host():
     return row[0]["email"] if row else None
 
 
+def rules():
+    """The room's rules: who may do what (shellphone/core.py). Every door asks them. The `shellphone` command sets them
+    for its rooms; a room run on its own (`room.py serve`) loads them here, from the same checkout or package."""
+    global CORE
+    if CORE is None:
+        from shellphone.core import Core
+        CORE = Core(sys.modules[__name__])
+    return CORE
+
+
 def set_paused(wolt, paused):
     with tx() as c:
         if not c.execute("update wolts set paused = ? where wolt = ?", (1 if paused else 0, wolt)).rowcount:
@@ -922,18 +933,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Hand a call that passed the door (a known person, or a wolt's key) to the room, and send back its answer."""
         return Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0])
 
+    def via(self):
+        """How this call came in, told from the connection itself, never from anything the caller sends as data:
+        (the way, whether that is this computer). What the room's rules (CORE) are asked with."""
+        if not LOCAL:
+            return "access", False
+        return ("local", True) if self.local_host() else ("tunnel", False) if self.outside_host() else ("unknown", False)
+
     def link_call(self, email, body, post=False):
         """Share the room or stop sharing it (inside, "linked" and "unlinked"), or say which it is. Only for the host, on this computer, from the room's own page or
         command: this is answered here at the door and is no part of what the room answers through a relay."""
-        if LINKER and LOCAL and not post and self.outside_host() and email == host():
-            # the host, come in from outside with their own link: they see that the room is shared and get the invite to
-            # pass on. Nothing here changes anything, and their own key isn't handed out again.
-            info = LINKER.info()
-            return 200, {**{k: info[k] for k in ("linked", "relay", "invite", "guests", "via") if k in info}, "fixed": True}
-        if not (LINKER and LOCAL and self.local_host() and email == host()):
+        if not (LINKER and LOCAL):
             return 403, {"error": "only the room's host can do that, on the computer the room runs on"}
+        via = self.via()
+        no = rules().refusal(email, "share.switch" if post else "share.see", via)  # the rule is the room's (shellphone/core.py), not this door's
+        if no:
+            return no
         if not post:
-            return 200, LINKER.info()
+            info = LINKER.info()
+            if via[1]:
+                return 200, info
+            # the host, come in from outside with their own link: they see that the room is shared and get the invite to
+            # pass on (when that is theirs to see). Nothing here changes anything, and their own key isn't handed out again.
+            seen = ("linked", "relay", "guests", "via") + (("invite",) if rules().may(email, "invite.see", via) else ())
+            return 200, {**{k: info[k] for k in seen if k in info}, "fixed": True}
         if not isinstance(body, dict) or not isinstance(body.get("on"), bool):
             return 400, {"error": "say on: true or false"}
         via = body.get("via")  # which way to share it, when the host picks one: the switch's own ways, nothing else
@@ -981,7 +1004,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/join":  # a logged-in person gets one message to paste to their own wolt, wherever they talk to it
             if not p:
                 return self.send(403, b"You're not on this room's list.", "text/plain; charset=utf-8")
-            return self.send(200, join_page(email, p["name"], OUTSIDE.agent_steps(email) if self.outside_host() else None).encode(), "text/html; charset=utf-8")
+            no = rules().refusal(email, "agent.invite", self.via())  # the room's rule, whichever door this is
+            if no:
+                return self.send(403, no[1]["error"].encode(), "text/plain; charset=utf-8")
+            steps = None
+            if LOCAL and not self.local_host():  # through the room's tunnel: a message through the link the room has now, for the one asking as their key stands now; or none at all. Never one of this computer's
+                steps = OUTSIDE.agent_steps(email, self.outside_token()) if OUTSIDE else None
+                if not steps:
+                    return self.send(403, b"This room isn't shared any more.", "text/plain; charset=utf-8")
+            return self.send(200, join_page(email, p["name"], steps).encode(), "text/html; charset=utf-8")
         if not p:
             return self.send(403, {"error": "not on this room's list"})
         if path == "/api/link":  # whether the room can be reached from outside: the host's to see, on this computer only
@@ -997,11 +1028,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/lodge/join":
                 if LOCAL and not self.local_host() and not self.outside_host():
                     return self.send(401, {"error": "unknown lodge key"})
-                got = join_wolt(self.bearer(), json.loads(self.body() or b"{}"), OUTSIDE.via() if self.outside_host() else None)
-                if got[0] == 200 and self.outside_host():  # it came in through the tunnel: its key counts through this link only
-                    with tx() as c:
-                        c.execute("update wolts set via = ? where wolt = ?", (OUTSIDE.via(), got[1]["wolt"]))
-                return self.send(*got)
+                door = None
+                if LOCAL and not self.local_host():  # it came in through the room's tunnel: the link's mark is read once, and both the code and the new key are held to it
+                    door = OUTSIDE.via() if OUTSIDE else None
+                    if not door:
+                        return self.send(401, {"error": "unknown lodge key"})
+                return self.send(*join_wolt(self.bearer(), json.loads(self.body() or b"{}"), door))
             if path.startswith("/lodge/"):
                 l = self.lodge()
                 if not l:
@@ -1047,7 +1079,7 @@ def invite_of(code_hash):
 
 def join_wolt(code_hash, data, door=None):
     """An agent signs itself up with a person's invite code: through the room's own door, or through the relay.
-    door: the mark of the link this call came in through, when it came through a tunnel's address."""
+    door: the mark of the link this call came in through (a tunnel's address, or the relay); None on this computer."""
     if not isinstance(data, dict):
         return reply(400, {"error": "send a JSON object"})
     wolt = str(data.get("wolt", "")).strip().lower()
@@ -1057,7 +1089,7 @@ def join_wolt(code_hash, data, door=None):
     voice = data.get("voice") if re.fullmatch(r"[a-z]{2,20}", str(data.get("voice") or "")) else None  # no voice unless asked for
     with tx() as c:  # the code is checked and used up in one go: two agents racing with one code can't both get in
         inv = invite_of(code_hash)
-        if inv and inv["via"] and inv["via"] != door:  # handed out through a link that is gone, or used at another door
+        if inv and inv["via"] != door:  # handed out through a link that is gone, or used at another door than its own: this computer's codes work here only, a link's through that link only
             inv = None
         if not inv:
             return reply(401, {"error": "this invite code has expired (they last 30 minutes), was already used, or is wrong. Ask your human for a fresh message from + agent"})
@@ -1066,7 +1098,7 @@ def join_wolt(code_hash, data, door=None):
             return reply(409, {"error": f"{wolt} is taken in this room: pick another name"})
         key = secrets.token_urlsafe(32)
         c.execute("delete from wolts where wolt = ?", (wolt,))  # a wolt joining again gets a fresh key
-        c.execute("insert into wolts (wolt, key_hash, owner, creature, voice) values (?, ?, ?, ?, ?)", (wolt, key_hash(key), inv["owner"], creature, voice))
+        c.execute("insert into wolts (wolt, key_hash, owner, creature, voice, via) values (?, ?, ?, ?, ?, ?)", (wolt, key_hash(key), inv["owner"], creature, voice, door))  # its key counts at the door its code was for, set in the same go
         dress(c, wolt=wolt)
         keep_main(c)
         if inv["once"]:  # codes from the join page work once
@@ -1540,6 +1572,11 @@ def main():
 
     if a.cmd == "serve":
         DEV = a.dev
+        try:
+            rules()  # who may do what: one file for every door, and no room opens without it
+        except ImportError as exc:
+            sys.exit(f"room.py can't find the room's rules (shellphone/core.py): {exc}. Run it from a complete checkout of shellphone "
+                     "(room.py with the shellphone folder next to it), or use the installed package (uvx shellphone).")
         print(f"shellphone room on http://127.0.0.1:{a.port}" + (" (dev: pick who you are with ?as=EMAIL)" if DEV else ""), flush=True)
         if not DEV and not (ACCESS_TEAM and ACCESS_AUD):
             print("WARNING: SHELLPHONE_ACCESS_TEAM and SHELLPHONE_ACCESS_AUD aren't set, so the room believes the email in a plain "

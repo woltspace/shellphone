@@ -5,7 +5,7 @@
 // get the invite, nothing more (see link_call in room.py). For anyone else this draws nothing.
 import { useEffect, useState } from "react";
 import { ChevronRight, Globe, Loader2, Lock, Smartphone, UserPlus } from "lucide-react";
-import { after, answered, unlinkedWords, type Info } from "./linkwords.js";
+import { answered, settled, unlinkedWords, type Info } from "./linkwords.js";
 
 async function ask(on?: boolean): Promise<Info | null> {
   try {
@@ -30,17 +30,14 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
   useEffect(() => { if (open) ask().then(setInfo); }, [open]);  // each time the menu opens: `shellphone share` may have changed it meanwhile
   if (!info) return null;
   if (info.unknown) return <div className={`${row} cursor-default`}><Lock size={20} className="text-dim" />
-    <span className="flex-1 min-w-0">Share<small className="block text-xs text-acc">Couldn't check whether this room is shared. Open the menu again to retry.</small></span></div>;
+    <span className="flex-1 min-w-0">Share<small className="block text-xs text-acc">{info.error ? `${info.error}. ` : ""}Couldn't check whether this room is shared. Open the menu again to retry.</small></span></div>;
   const flip = async (on: boolean) => {
     if (on === info.linked) return;
     if (!on && !window.confirm("Make this room private? Everyone outside loses access at once, and its links stop working for good.")) return;
     setBusy(on ? "link" : "unlink"); setNote(""); setSaid(""); setMine("");
     const got = await ask(on);
-    let now = after(info, got);
-    if (got?.error) {  // it failed: show what the room is now, read afresh, with the reason
-      const fresh = await ask();
-      if (fresh && !fresh.unknown) now = { info: { ...fresh, error: got.error }, note: "" };
-    }
+    const fresh = got && !got.error ? null : await ask();  // no answer, or a failure: ask the room what it is now
+    const now = settled(info, got, fresh);
     setBusy("");
     setInfo(now.info); setNote(now.note);
   };
