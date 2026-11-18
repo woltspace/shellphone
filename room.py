@@ -923,6 +923,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def link_call(self, email, body):
         """Share the room or stop sharing it (inside, "linked" and "unlinked"), or say which it is. Only for the host, on this computer, from the room's own page or
         command: this is answered here at the door and is no part of what the room answers through a relay."""
+        if LINKER and LOCAL and body is None and self.outside_host() and email == host():
+            # the host, come in from outside with their own link: they see that the room is shared and get the invite to
+            # pass on. Nothing here changes anything, and their own key isn't handed out again.
+            info = LINKER.info()
+            return 200, {**{k: info[k] for k in ("linked", "relay", "invite", "guests", "via") if k in info}, "fixed": True}
         if not (LINKER and LOCAL and self.local_host() and email == host()):
             return 403, {"error": "only the room's host can do that, on the computer the room runs on"}
         if body is None:

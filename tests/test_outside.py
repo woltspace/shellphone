@@ -56,8 +56,17 @@ class Door(unittest.TestCase):
         status, _, cookie = self.enter(k=self.keys["host"])
         self.assertEqual(status, 200)
         self.assertEqual(self.ask("GET", "/api/state", cookie=cookie)[1]["me"], cli.HOST_EMAIL)
-        self.assertEqual(self.ask("GET", "/api/link", cookie=cookie)[0], 403)  # linking and unlinking stay on the room's own computer
-        self.assertEqual(self.ask("POST", "/api/link", cookie=cookie, body={"on": False})[0], 403)
+        status, info, _ = self.ask("GET", "/api/link", cookie=cookie)  # the host sees that it is shared, and gets the invite to pass on
+        self.assertEqual((status, info["linked"], info["fixed"]), (200, True, True))
+        self.assertTrue(info["invite"].endswith("#i." + self.keys["invite"]))
+        self.assertNotIn("link", info)  # their own key isn't handed out again
+        self.assertNotIn(self.keys["host"], json.dumps(info))
+        for body in ({"on": False}, {"on": True}, {"on": False, "forget": True}, {"on": True, "via": "relay"}):  # sharing and stopping stay on the room's own computer
+            self.assertEqual(self.ask("POST", "/api/link", cookie=cookie, body=body)[0], 403, body)
+        self.assertEqual(self.ask("GET", "/api/link", cookie=cookie)[1]["linked"], True)
+        _, _, guest = self.enter(i=self.keys["invite"], name="Peeker")  # a guest is told nothing about sharing
+        self.assertEqual(self.ask("GET", "/api/link", cookie=guest)[0], 403)
+        self.assertEqual(self.ask("GET", "/api/link")[0], 403)
         self.assertEqual(self.ask("POST", "/api/messages", cookie=cookie, body={"text": "x"}, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)  # another site's page can't post as the host
         self.assertEqual(self.ask("POST", "/api/messages", cookie=cookie, body={"text": "from outside"})[0], 200)
 
