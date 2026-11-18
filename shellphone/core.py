@@ -15,7 +15,7 @@ thing people can do in a room is a new line in the table, and no door changes.
 Changing this file changes who gets into people's rooms and what they can do there. It is not a place for look and
 feel. If a change here seems needed, it belongs in an issue on the project first.
 """
-import secrets
+import hashlib, secrets, time
 from typing import NamedTuple
 
 HOST, MEMBER, GUEST = "host", "member", "guest"  # the host opened the room; a member is on its list by name; a guest came in by an invite
@@ -38,11 +38,33 @@ RULES = {
     "invite.see": ({HOST}, False),         # the link that lets people in as guests
     "guest_agents.set": ({HOST}, False),   # whether guests may bring agents of their own
     "agent.invite": ({HOST, MEMBER, GUEST}, False),  # a message for one of the caller's own agents (guests: while the host allows it)
+    "invite.make": ({HOST}, False),        # a new link that lets people in as guests, for a time
+    "invite.end": ({HOST}, False),         # end the open ones: nobody new comes in by them; who is in stays in
+    "invite.list": ({HOST}, False),        # which are open: when they end, how many places are left. Never the links themselves
 }
 ONLY_HOST = "only the room's host can do that"
 ONLY_HERE = "only the room's host can do that, on the computer the room runs on"
 NOT_LISTED = "not on this room's list"
 NO_GUEST_AGENTS = "the host has turned off agents from guests in this room"
+NO_INVITE = "this link doesn't open this room any more: ask its host for a new one"
+NOT_SHARED = "share the room first: an invite is a link through what the room is shared by"
+DAY = 86400
+LONGEST = 30 * DAY  # an invite that ends, ends within this; the host may also make one with no end
+# A people invite is a row here, never a fixed key: who made it, who it is for (nobody named: anyone), when it ends,
+# how many places are left, and the mark of what the room was shared by when it was made (it works through that only).
+# Only a hash of its secret is kept: the link itself can't be made again from this table.
+TABLES = (
+    """create table if not exists people_invites(id text primary key, token_hash text unique not null, made_by text not null, for_name text,
+        expires real, uses_left integer, ended real, mark text not null, epoch integer not null default 0, created real not null, legacy integer not null default 0)""",
+    "create table if not exists invited(email text primary key, invite text not null, at real not null)",  # which invite each guest came in by
+    # a guest's own key (a hash of it), for what the room was shared by when they came in. Written in the same
+    # transaction as their place on the list and the invite's use: there is no moment when one exists without the others
+    "create table if not exists guest_keys(key_hash text primary key, email text not null, mark text not null, at real not null)",
+)
+
+
+def token_hash(token):
+    return hashlib.sha256(str(token).encode()).hexdigest()
 
 
 class Core:
@@ -86,16 +108,129 @@ class Core:
         """Whether this agent's human is a guest: such agents come and go with the host's switch."""
         return self.role(owner) == GUEST
 
-    def admit(self, guests, name):
-        """A people invite, already checked by the door it came to, lets one more guest in: a place on the room's list
-        under the name they typed, and a key of their own. guests: that door's own {key: email}, which it locks and
-        saves. Returns (status, {"email"} or {"error"}, the new key or None)."""
-        if len(guests) >= MAX_GUESTS:
-            return 429, {"error": "this room is full"}, None
+    # -- people invites: records in the room's own database
+
+    def _tx(self):
+        if not getattr(self, "_tables", False):
+            with self.r.tx() as c:
+                for table in TABLES:
+                    c.execute(table)
+            self._tables = True
+        return self.r.tx()
+
+    @staticmethod
+    def _open(row, now):
+        return bool(row) and row["ended"] is None and (row["expires"] is None or row["expires"] > now) and (row["uses_left"] is None or row["uses_left"] > 0)
+
+    def adopt(self, mark, token, made_by=None):
+        """The one invite a way of sharing comes with becomes a record like any other: the host's, with no end. Done
+        once for that invite: asked again (a restart, a second look) it changes nothing, so an invite that was ended
+        stays ended and places that were taken stay taken."""
+        with self._tx() as c:
+            c.execute("insert or ignore into people_invites (id, token_hash, made_by, mark, created, legacy) values (?, ?, ?, ?, ?, 1)",
+                      (secrets.token_hex(8), token_hash(token), made_by or self.host_email or self.r.host(), mark, time.time()))
+
+    def invite(self, mark, token):
+        """The record of this invite as it came through what the room is shared by now, open or not; None if there is none."""
+        if not mark or not isinstance(token, str) or not token:
+            return None
+        with self._tx() as c:
+            row = c.execute("select * from people_invites where token_hash = ? and mark = ?", (token_hash(token), mark)).fetchone()
+        return dict(row) if row else None
+
+    def invite_open(self, mark, token):
+        return self._open(self.invite(mark, token), time.time())
+
+    def make_invite(self, email, via, mark, ends_in=DAY, uses=None, for_name=None):
+        """A new invite. ends_in: seconds from now, or None for no end. uses: how many people it lets in (None: as
+        many as the room has room for). for_name: one named person; then it lets in one, under that name.
+        Returns (200, {"id", "token", ...}): the token is said here once and kept nowhere."""
+        no = self.refusal(email, "invite.make", via)
+        if no:
+            return no
+        if not mark:
+            return 409, {"error": NOT_SHARED}
+        if ends_in is not None and (isinstance(ends_in, bool) or not isinstance(ends_in, (int, float)) or not 60 <= ends_in <= LONGEST):
+            return 400, {"error": f"ends_in: seconds from now, from 60 to {LONGEST}, or null for an invite with no end"}
+        if for_name is not None:
+            if not isinstance(for_name, str) or not " ".join(for_name.split()):
+                return 400, {"error": "for: the person's name"}
+            for_name, uses = " ".join(for_name.split())[:40], 1
+        if uses is not None and (isinstance(uses, bool) or not isinstance(uses, int) or not 1 <= uses <= MAX_GUESTS):
+            return 400, {"error": f"uses: how many people it lets in, from 1 to {MAX_GUESTS}, or null"}
+        token, now, ident = secrets.token_urlsafe(32), time.time(), secrets.token_hex(8)
+        expires = now + ends_in if ends_in is not None else None
+        with self._tx() as c:
+            c.execute("insert into people_invites (id, token_hash, made_by, for_name, expires, uses_left, mark, created) values (?, ?, ?, ?, ?, ?, ?, ?)",
+                      (ident, token_hash(token), email, for_name, expires, uses, mark, now))
+        return 200, {"id": ident, "token": token, "expires": expires, "uses_left": uses, **({"for": for_name} if for_name else {})}
+
+    def end_invites(self, email, via, mark, only=None):
+        """End the open invites of what the room is shared by now (only: one of them, by its id). Who came in stays in."""
+        no = self.refusal(email, "invite.end", via)
+        if no:
+            return no
+        if only is not None and not isinstance(only, str):
+            return 400, {"error": "id: which invite to end"}
+        with self._tx() as c:
+            now = time.time()  # the open ones: what has run out or been used up is over already, and isn't counted
+            n = c.execute("update people_invites set ended = ? where mark = ? and ended is null and (expires is null or expires > ?) and (uses_left is null or uses_left > 0)"
+                          + (" and id = ?" if only else ""), (now, mark or "", now, *((only,) if only else ()))).rowcount
+        return 200, {"ended": n}
+
+    def list_invites(self, email, via, mark):
+        """The open invites, for the host: what each is, never its link."""
+        no = self.refusal(email, "invite.list", via)
+        if no:
+            return no
+        now = time.time()
+        with self._tx() as c:
+            rows = [dict(r) for r in c.execute("select * from people_invites where mark = ? order by created", (mark or "",))]
+        return 200, {"invites": [{"id": r["id"], "by": r["made_by"], "expires": r["expires"], "uses_left": r["uses_left"], "created": r["created"],
+                                  **({"for": r["for_name"]} if r["for_name"] else {}), **({"first": True} if r["legacy"] else {})} for r in rows if self._open(r, now)]}
+
+    def end_mark(self, mark):
+        """The room stopped being shared this way: every invite made through it ends with it, and every guest's key."""
+        with self._tx() as c:
+            c.execute("update people_invites set ended = ? where mark = ? and ended is null", (time.time(), mark))
+            c.execute("delete from guest_keys where mark = ?", (mark,))
+
+    def guest_of(self, mark, key):
+        """The guest this key belongs to, through what the room is shared by now; None for any other key."""
+        if not mark or not isinstance(key, str) or not key:
+            return None
+        with self._tx() as c:
+            row = c.execute("select email from guest_keys where key_hash = ? and mark = ?", (token_hash(key), mark)).fetchone()
+        return row["email"] if row and self.role(row["email"]) == GUEST else None
+
+    def guest_count(self, mark):
+        with self._tx() as c:
+            return c.execute("select count(*) as n from guest_keys where mark = ?", (mark or "",)).fetchone()["n"]
+
+    def redeem(self, mark, token, name, already=0):
+        """Someone comes in by an invite. One transaction in the room's database, all or nothing: the invite is open
+        and was made through what the room is shared by now, its maker may still invite, the room has a place; then
+        the place is taken, the guest is on the list, and their own key is on record. Only then is the key handed
+        out. If any of it fails, the commit included, none of it happened: a one-time invite is not used up by a
+        failure, and no key exists that the room doesn't know. already: guests the door holds keys for from before
+        keys were kept here. Returns (status, {"email", "name"} or {"error"}, the new key or None)."""
         try:
-            email = self.r.add_guest(name)
-        except ValueError as exc:
-            return 400, {"error": str(exc)}, None
-        key = secrets.token_urlsafe(24)
-        guests[key] = email
-        return 200, {"email": email}, key
+            with self._tx() as c:
+                row = c.execute("select * from people_invites where token_hash = ? and mark = ?", (token_hash(token), mark or "")).fetchone() if isinstance(token, str) and token else None
+                if not self._open(row, time.time()) or self.role(row["made_by"]) not in RULES["invite.make"][0]:
+                    return 403, {"error": NO_INVITE}, None
+                if already + c.execute("select count(*) as n from guest_keys where mark = ?", (mark,)).fetchone()["n"] >= MAX_GUESTS:
+                    return 429, {"error": "this room is full"}, None
+                try:
+                    email = self.r.add_guest(row["for_name"] or name)
+                except ValueError as exc:
+                    return 400, {"error": str(exc)}, None
+                if row["uses_left"] is not None:
+                    c.execute("update people_invites set uses_left = uses_left - 1 where id = ?", (row["id"],))
+                now, key = time.time(), secrets.token_urlsafe(24)
+                c.execute("insert into invited (email, invite, at) values (?, ?, ?)", (email, row["id"], now))
+                c.execute("insert into guest_keys (key_hash, email, mark, at) values (?, ?, ?, ?)", (token_hash(key), email, mark, now))
+                out = {"email": email, "name": self.r.people().get(email, {}).get("name")}
+        except Exception:  # the room's database refused, at any point up to and including the commit: taken back whole (room.tx)
+            return 500, {"error": "the room couldn't keep your place just now: open the link again"}, None
+        return 200, out, key

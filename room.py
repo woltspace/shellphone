@@ -129,10 +129,11 @@ def tx():
         c.execute("begin immediate")
         try:
             yield c
+            c.execute("commit")
         except BaseException:
-            c.execute("rollback")
+            if c.in_transaction:  # what was inside failed, or the commit itself did: none of it stays, and the next one starts clean
+                c.execute("rollback")
             raise
-        c.execute("commit")
 
 
 def q(sql, *args):
@@ -995,6 +996,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return 400, {"error": "say via: one of the ways this room can be shared, with on: true"}
         return (LINKER.on(via) if via else LINKER.on()) if body["on"] else LINKER.off()
 
+    def agent_message(self, email):
+        """A fresh message for one of this person's agents, with a one-time code in it. Asked for with a POST, so
+        nothing is made by merely opening a page or by another site sending a browser here."""
+        no = rules().refusal(email, "agent.invite", self.via())  # the room's rule, whichever door this is
+        if no:
+            return no
+        if LOCAL and not self.local_host():  # through the room's tunnel: a message through the link the room has now, for the one asking as their key stands now; or none at all. Never one of this computer's
+            steps = OUTSIDE.agent_steps(email, self.outside_token()) if OUTSIDE else None
+            return (200, {"text": steps, "minutes": JOIN_MINUTES}) if steps else (403, {"error": "this room isn't shared any more"})
+        return 200, {"text": agent_text(email), "minutes": JOIN_MINUTES}
+
+    def invites_call(self, email, path, body, post):
+        """The host's invites for people: make one, end the open ones, or list them. The room's rules decide
+        (shellphone/core.py); this door only says who is asking and how they came in. A room behind a login of its
+        own has no invites: people are added there by its owner."""
+        if not (LOCAL and LINKER and hasattr(LINKER, "door")):
+            return 403, {"error": "people are added by this room's owner here"}
+        door = LINKER.door()
+        mark, via = (door.door_mark() if door else None), self.via()
+        if not post:
+            return rules().list_invites(email, via, mark)
+        if not isinstance(body, dict):
+            return 400, {"error": "send a JSON object"}
+        if path.endswith("/end"):
+            return rules().end_invites(email, via, mark, body.get("id"))
+        status, out = rules().make_invite(email, via, mark, body.get("ends_in", 86400), body.get("uses"), body.get("for"))
+        if status == 200:
+            out["link"] = door.invite_link(out.pop("token"))  # said once, here: the room keeps only a hash of it
+        return status, out
+
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -1038,16 +1069,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             no = rules().refusal(email, "agent.invite", self.via())  # the room's rule, whichever door this is
             if no:
                 return self.send(403, no[1]["error"].encode(), "text/plain; charset=utf-8")
-            steps = None
-            if LOCAL and not self.local_host():  # through the room's tunnel: a message through the link the room has now, for the one asking as their key stands now; or none at all. Never one of this computer's
-                steps = OUTSIDE.agent_steps(email, self.outside_token()) if OUTSIDE else None
-                if not steps:
-                    return self.send(403, b"This room isn't shared any more.", "text/plain; charset=utf-8")
-            return self.send(200, join_page(email, p["name"], steps).encode(), "text/html; charset=utf-8")
+            return self.send(200, join_page(p["name"]).encode(), "text/html; charset=utf-8")  # the page only: it asks for the message itself, with a POST (agent_message)
         if not p:
             return self.send(403, {"error": "not on this room's list"})
         if path == "/api/link":  # whether the room can be reached from outside: the host's to see, on this computer only
             return self.send(*self.link_call(email, None))
+        if path == "/api/invites":
+            return self.send(*self.invites_call(email, path, None, False))
         m = re.fullmatch(r"/assets/([\w.-]+\.(js|css))", path)  # the page's code and styles, built ahead of time into dist/
         if m and (HERE / "dist" / "assets" / m.group(1)).is_file():
             return self.send(200, (HERE / "dist" / "assets" / m.group(1)).read_bytes(), "text/javascript; charset=utf-8" if m.group(2) == "js" else "text/css; charset=utf-8")
@@ -1083,6 +1111,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(403, {"error": "not on this room's list"})
             if path == "/api/link":
                 return self.send(*self.link_call(email, json.loads(self.body() or b"{}"), post=True))
+            if path in ("/api/invites", "/api/invites/end"):
+                return self.send(*self.invites_call(email, path, json.loads(self.body() or b"{}"), True))
+            if path == "/api/agent-invite":
+                return self.send(*self.agent_message(email))
             self.send(*for_person(self.call("POST"), email))
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})
@@ -1552,17 +1584,19 @@ def wolt_by_key(key):
     return row[0] if row else None
 
 
-def join_page(email, name, steps=None):
-    if steps:  # asked through the tunnel: the agent is on another computer, and gets the room's lasting address
-        esc = steps.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        return JOIN_PAGE.replace("{{NAME}}", name.replace("<", "&lt;")).replace("{{TEXT}}", esc).replace("{{MINUTES}}", str(JOIN_MINUTES))
+def agent_text(email):
+    """The message for one of this person's agents on this computer (or behind the room's own login), with a fresh code in it."""
     code = agent_code(email)
     lodge = {"room_url": os.environ.get("SHELLPHONE_URL", "http://127.0.0.1:4090"), "invite": code}
     if os.environ.get("SHELLPHONE_CF_ID"):
         lodge.update(cf_client_id=os.environ["SHELLPHONE_CF_ID"], cf_client_secret=os.environ["SHELLPHONE_CF_SECRET"])
-    text = WOLT_STEPS.format(skill=CODE_URL + "skills/shellphone-join/SKILL.md", connector=CODE_URL + "connector.py", lodge=json.dumps(lodge), minutes=JOIN_MINUTES, email=email)
-    esc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return JOIN_PAGE.replace("{{NAME}}", name.replace("<", "&lt;")).replace("{{TEXT}}", esc).replace("{{MINUTES}}", str(JOIN_MINUTES))
+    return WOLT_STEPS.format(skill=CODE_URL + "skills/shellphone-join/SKILL.md", connector=CODE_URL + "connector.py", lodge=json.dumps(lodge), minutes=JOIN_MINUTES, email=email)
+
+
+def join_page(name):
+    """The page a person brings an agent from. It holds no code: opening a page makes nothing. The page asks for the
+    message with a POST of its own (POST /api/agent-invite), which only the room's own page can send."""
+    return JOIN_PAGE.replace("{{NAME}}", name.replace("&", "&amp;").replace("<", "&lt;")).replace("{{MINUTES}}", str(JOIN_MINUTES))
 
 
 JOIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1584,10 +1618,17 @@ a{color:#c4531e}
 <div class="row"><button id="share">Share</button><button id="copy" class="alt">Copy</button></div>
 <p>The code inside works once, within {{MINUTES}} minutes. Open this page again for a fresh one. Your agent takes orders only from you.</p>
 <p><a href="./">&larr; back to the room</a></p>
-<details><summary>See the message</summary><pre id="text">{{TEXT}}</pre></details>
+<details><summary>See the message</summary><pre id="text"></pre></details>
 <script>
-const text = document.getElementById("text").textContent;
-const copy = document.getElementById("copy"), share = document.getElementById("share");
+let text = "";
+const copy = document.getElementById("copy"), share = document.getElementById("share"), pre = document.getElementById("text");
+copy.disabled = share.disabled = true;
+// the message, with its one-time code, is made when this page asks for it: never by the page merely being opened
+fetch("/api/agent-invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then((r) => r.json().then((got) => {
+  if (!r.ok || !got.text) throw new Error(got.error || "");
+  text = pre.textContent = got.text;
+  copy.disabled = share.disabled = false;
+})).catch((e) => { pre.textContent = e.message || "Couldn't make the message just now. Open this page again."; document.querySelector("details").open = true; });
 copy.onclick = async () => { try { await navigator.clipboard.writeText(text); copy.textContent = "Copied"; } catch { document.querySelector("details").open = true; copy.textContent = "Select it below"; } };
 if (navigator.share) share.onclick = () => navigator.share({ text }).catch(() => {}); else share.remove();
 </script>

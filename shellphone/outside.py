@@ -147,6 +147,23 @@ class Outside:
             replace_private(self.data / FILE, json.dumps({"site": self.site, "room": self.room, "secret": self.secret, "host_token": self.host_token,
                                                           "invite_token": self.invite_token, "guests": dict(self.guests)}))
 
+    # -- the room's invites, through this way of sharing it (records in the room's rules, shellphone/core.py)
+
+    def core(self):
+        return Core(self.r, self.host_email)
+
+    def door_mark(self):
+        """The mark of what the room is shared by now, or None. Asking it makes sure the invite this address came with
+        is on record (once: an invite that was ended stays ended)."""
+        with self.lock:
+            mark = self.via()
+            if mark and self.r is not None:
+                self.core().adopt(mark, self.invite_token, self.host_email)
+            return mark
+
+    def invite_link(self, token):
+        return f"{self.site}/t/{self.room}#i.{token}"
+
     # -- who is at the door
 
     def who(self, token):
@@ -155,7 +172,8 @@ class Outside:
             return None
         if hmac.compare_digest(self.host_token, token):
             return self.host_email
-        return next((e for t, e in list(self.guests.items()) if hmac.compare_digest(t, token)), None)
+        kept = next((e for t, e in list(self.guests.items()) if hmac.compare_digest(t, token)), None)  # guests from before their keys were kept in the room's database
+        return kept or (self.core().guest_of(self.via(), token) if self.r is not None else None)
 
     def enter(self, body):
         """(status, answer, the token to keep in a cookie or None). Under the switch's lock: a key or an invite is
@@ -168,13 +186,15 @@ class Outside:
             return 403, {"error": "this room isn't shared any more"}, None
         if isinstance(body.get("k"), str):
             return (200, {"ok": True}, body["k"]) if self.who(body["k"]) else (403, {"error": "this link doesn't open this room any more: ask its host for a new one"}, None)
-        if isinstance(body.get("i"), str) and hmac.compare_digest(self.invite_token, body["i"]):
-            with self.lock:
-                status, out, mine = Core(self.r, self.host_email).admit(self.guests, body.get("name"))  # who gets in is the room's rule, not this door's
-                if not mine:
-                    return status, out, None
-                self.save()
-            return 200, {"ok": True, "mine": mine}, mine  # their own key from here on: the page hands it to the room's lasting address, which remembers it in this browser
+        if isinstance(body.get("i"), str) and self.r is not None:
+            # who gets in is the room's rule, not this door's: the invite is looked up, used and the guest's key kept, all in one go
+            try:
+                status, out, mine = self.core().redeem(self.door_mark(), body["i"], body.get("name"), len(self.guests))
+            except Exception:  # the room's database can't be read or written just now: nobody is let in on a guess
+                return 500, {"error": "the room couldn't keep your place just now: open the link again"}, None
+            if not mine:
+                return status, out, None
+            return 200, {"ok": True, "mine": mine, "name": out.get("name")}, mine  # their own key from here on: the page hands it to the room's lasting address, which remembers it in this browser
         return 403, {"error": "this link doesn't open this room any more: ask its host for a new one"}, None
 
     def proof(self, n):
@@ -216,8 +236,10 @@ class Outside:
             # said for as long as it is true, wherever the host looks: the menu, or `shellphone share --stop`
             return {"linked": False, "relay": where, "note": f"{where} couldn't be told yet that this room isn't shared any more: until it is, the old link shows the room as offline. Telling it again every minute" + (
                 f", but that couldn't be written down in {self.data}: keep this room open until it is told, or it never will be." if self._unwritten else ".")}
+        first = self.r is None or self.core().invite_open(self.door_mark(), self.invite_token)  # the invite this address came with, while the host hasn't ended it
         return {"linked": True, "state": "up", "relay": where, "link": f"{self.site}/t/{self.room}#k.{self.host_token}",
-                "invite": f"{self.site}/t/{self.room}#i.{self.invite_token}", "guests": len(self.guests), "guest_agents": True, "tunnel": True}
+                **({"invite": self.invite_link(self.invite_token)} if first else {}),
+                "guests": len(self.guests) + (self.core().guest_count(self.via()) if self.r is not None else 0), "guest_agents": True, "tunnel": True}
 
     # -- the site's signpost
 
@@ -281,6 +303,7 @@ class Outside:
                 self.open = False
                 return 502, {"error": why, "linked": False}
             self.save()
+            self.door_mark()  # the invite this address comes with goes on record
             self._stop = threading.Event()
             threading.Thread(target=self._watch, args=(self._stop,), daemon=True).start()
             return 200, self.info()
@@ -347,9 +370,11 @@ class Outside:
                 got = self._file()
                 was = {k: got[k] for k in ("site", "room", "secret")} if got else None
             self._down()
-            if was and hasattr(self.r, "drop_agent_codes"):  # codes for agents handed out through this address go with it
+            if was and hasattr(self.r, "drop_agent_codes"):  # codes for agents handed out through this address go with it, and its invites for people
                 with contextlib.suppress(Exception):
                     self.r.drop_agent_codes(f"t:{was['room']}")
+                with contextlib.suppress(Exception):
+                    self.core().end_mark(f"t:{was['room']}")
             self.guests, self.room, self.secret, self.host_token, self.invite_token = {}, None, None, None, None
             if was:
                 self._unwritten = self._unwritten + [was]  # owed from this line on
@@ -392,6 +417,11 @@ button{font:600 16px -apple-system,system-ui,sans-serif;padding:12px 18px;border
 <p id="say">Opening the room…</p>
 <form id="form"><input id="name" maxlength="40" autocomplete="nickname" placeholder="Your name" required><button>Join</button></form>
 <p id="keepline" style="display:none;font-size:14px"><label><input type="checkbox" id="keep"> Remember me on this device</label></p>
+<div id="back" style="display:none">
+<p>To come back later, save your own link. Keep it to yourself: anyone who has it comes in as you. The invite you came by may stop working; this link stays yours.</p>
+<p><button type="button" id="copy">Copy my link</button> <button type="button" id="go" style="background:#fffdf6;color:#c4531e">Open the room</button></p>
+<p id="mine" style="font-size:13px;word-break:break-all"></p>
+</div>
 <script>
 // The link's part after # says who is at the door: k.TOKEN (a person's own key, maybe followed by .i.INVITE to fall
 // back on), i.INVITE (the room's invite: pick a name, become a guest) or a.CODE (for an agent, not for this page).
@@ -405,8 +435,19 @@ async function enter(body) {
     const got = await r.json().catch(() => ({}));
     if (!r.ok) return body.k && invite ? ask() : say(got.error || "That link doesn't open this room.");
     history.replaceState(null, "", "/");
-    // a new guest: by way of the room's lasting address once, so this browser finds its way back as the same person
-    location.replace(got.mine ? SIGN + "#k." + got.mine + (document.getElementById("keep").checked ? ".r" : "") : "/");
+    if (!got.mine) return location.replace("/");
+    // a new guest: shown their own link once, to keep (an invite ends; their own key doesn't), then on by way of the
+    // room's lasting address, so this browser finds its way back as the same person
+    const mine = SIGN + "#k." + got.mine, on = mine + (document.getElementById("keep").checked ? ".r" : "");
+    document.getElementById("form").style.display = document.getElementById("keepline").style.display = "none";
+    say("You're in" + (typeof got.name === "string" && got.name ? ", " + got.name : "") + ".");
+    document.getElementById("back").style.display = "block";
+    const copy = document.getElementById("copy");
+    copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(mine); copy.textContent = "Copied"; }
+      catch { document.getElementById("mine").textContent = mine; }  // no clipboard here: shown, to copy by hand
+    };
+    document.getElementById("go").onclick = () => location.replace(on);
   } catch { say("Couldn't reach the room. Try again in a moment."); }
 }
 function ask() {

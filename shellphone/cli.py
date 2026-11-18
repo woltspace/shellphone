@@ -259,6 +259,12 @@ class Linker:
         except (OSError, ValueError, KeyError, TypeError, AttributeError, seal.SealError):
             return None
 
+    def door_mark(self):
+        return self.link.door_mark() if self.link and self.link.open else None
+
+    def invite_link(self, token):
+        return self.link.invite_link(token)
+
     def save(self, link):
         from . import seal
         if not self.keep:
@@ -285,7 +291,7 @@ class Linker:
             if why != "up":
                 return 502, {"error": f"couldn't share the room through {urllib.parse.urlsplit(link.relay).netloc}: {why_not(why)}", "linked": False}
             self.link = link
-            link.changed = lambda: self.save(link)  # a guest came in, or the host changed what guests may do
+            link.changed = lambda: self.save(link)  # the host changed what guests may do
             self.save(link)
             return 200, link.info()
 
@@ -295,6 +301,10 @@ class Linker:
             link, self.link = self.link, None
             if link:
                 link.stop()
+                try:
+                    link.core.end_mark(link._via())  # the invites made through it end with it
+                except Exception:
+                    pass  # they open nothing anyway: the link they belong to is gone
             with self.filing:
                 (self.data / LINK).unlink(missing_ok=True)
             return 200, self.info()
@@ -327,6 +337,11 @@ class Share:
     def saved(self):
         """The way a kept room was shared when it last closed, or None."""
         return next(iter(self.kept()), None)
+
+    def door(self):
+        """What the room is shared by right now (it says its mark, and makes links for its invites), or None."""
+        now = self.now()
+        return self.ways[now] if now else None
 
     def info(self):
         now = self.now()
@@ -392,11 +407,52 @@ def announce(data, port, token):
 
 
 def linked_words(info):
+    stop = f"Stop sharing with: {me()} share --stop   (the room stays open on this computer, and its links stop working for good)"
+    if not info.get("invite"):  # the invite the room came with was ended: nothing here makes it again
+        return f"""  Open it from anywhere:   {info['link']}
+
+That link is yours alone: it is the key to the room as its host. The invite this room came with has ended: make a new one with {me()} invite
+{stop}"""
     return f"""  Open it from anywhere:   {info['link']}
   Invite people:           {info['invite']}
 
 The first link is yours alone: it is the key to the room as its host. The second lets someone in as a guest.
-Stop sharing with: {me()} share --stop   (the room stays open on this computer, and both links stop working for good)"""
+More invites, that end or are for one person: {me()} invite
+{stop}"""
+
+
+def invite(a):
+    """`shellphone invite`: ask the room open on this computer for a new invite for people, or to end the open ones."""
+    import urllib.request
+    from .outside import STAY
+    got = running(a.keep, a.port)
+    if a.end:
+        if a.name or a.hours is not None or a.uses is not None or a.forever:
+            sys.exit("--end ends the open invites: it doesn't go with the rest")
+        path, body = "/api/invites/end", {}
+    else:
+        if a.forever and a.hours is not None:
+            sys.exit("--forever and --hours: one or the other")
+        path, body = "/api/invites", {"ends_in": None if a.forever else int((a.hours if a.hours is not None else 24) * 3600), **({"uses": a.uses} if a.uses is not None else {}), **({"for": a.name} if a.name else {})}
+    req = urllib.request.Request(f"http://127.0.0.1:{got['port']}{path}", data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Cookie": f"sp{got['port']}={got['token']}", "X-Shellphone-Key": got["token"]})
+    try:
+        with STAY.open(req, timeout=30) as res:
+            out = json.loads(res.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            sys.exit(json.loads(exc.read()).get("error") or f"the room answered {exc.code}")
+        except ValueError:
+            sys.exit(f"the room answered {exc.code}")
+    except OSError as exc:
+        sys.exit(f"couldn't reach the room on this computer: {exc}")
+    if a.end:
+        n = out.get("ended", 0)
+        return print(f"{n} open invite{'' if n == 1 else 's'} ended. Nobody new comes in by {'it' if n == 1 else 'them'}; people who are in stay in.")
+    import time
+    left = "" if out.get("expires") is None else f", for {max(1, round((out['expires'] - time.time()) / 3600))} hour{'' if round((out['expires'] - time.time()) / 3600) <= 1 else 's'}"
+    who = f"for {a.name}, once" if a.name else "for one person" if out.get("uses_left") == 1 else f"for up to {out['uses_left']} people" if out.get("uses_left") else "for anyone who has it"
+    print(f"An invite {who}{left or ', with no end'}:\n\n  {out['link']}\n\nIt is shown here once: the room doesn't keep it. End the open invites with: {me()} invite --end")
 
 
 def room(a):
@@ -656,6 +712,14 @@ def main():
     s.add_argument("--link", dest="share", action="store_true", help=argparse.SUPPRESS)  # the old name of --share
     s.add_argument("--via", choices=list(WAYS), help="how the room is shared: relay (the default: sealed messages through the site, text only) or tunnel (experimental: a Cloudflare quick tunnel, with voice and files; needs cloudflared)")
     s.add_argument("--relay", help=argparse.SUPPRESS)  # share through another site than the usual one (testing)
+    s = sub.add_parser("invite", help="a new invite for people to the shared room on this computer: a link that ends, or is for one person. --end ends the open ones")
+    s.add_argument("--for", dest="name", metavar="NAME", help="for one person: it works once, and they come in under this name")
+    s.add_argument("--hours", type=float, help="how long it works (default 24)")
+    s.add_argument("--forever", action="store_true", help="an invite with no end")
+    s.add_argument("--uses", type=int, help="how many people it lets in (default: as many as the room has room for)")
+    s.add_argument("--end", action="store_true", help="end every open invite: nobody new comes in by them, and people who are in stay in")
+    s.add_argument("--keep", metavar="DIR", help="the kept room in DIR (when more than one room is open)")
+    s.add_argument("--port", type=int, help="the room on this port (when more than one room is open)")
     for cmd in ("share", "link", "unlink"):  # link and unlink: the old names of share and share --stop, still answered
         s = sub.add_parser(cmd, **({"help": "share the room open on this computer: reachable from anywhere, with a link of your own and an invite. --stop takes that away again"} if cmd == "share" else {}))
         s.add_argument("--keep", metavar="DIR", help="the kept room in DIR (when more than one room is open)")
@@ -675,7 +739,7 @@ def main():
     s.add_argument("--dir", default="shellphone", help="where your room key is kept (default: ./shellphone)")
     s.add_argument("--creature", default="raccoon"); s.add_argument("--voice")
     a = ap.parse_args()
-    {"room": room, "host": host, "join": join, "share": switch, "link": switch, "unlink": switch}[a.cmd](a)
+    {"room": room, "host": host, "join": join, "share": switch, "invite": invite, "link": switch, "unlink": switch}[a.cmd](a)
 
 
 if __name__ == "__main__":

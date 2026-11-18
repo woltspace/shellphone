@@ -81,7 +81,7 @@ class Door(unittest.TestCase):
 
     def test_an_agents_code_from_the_link_works_through_the_link_only(self):
         _, _, cookie = self.enter(k=self.keys["host"])
-        code = self.ask("GET", "/join", cookie=cookie)[1].split("#a.")[1].split("'")[0].split("&")[0]
+        code = self.ask("POST", "/api/agent-invite", cookie=cookie, body={})[1]["text"].split("#a.")[1].split("'")[0]
         self.assertEqual(self.ask("POST", "/lodge/join", host="127.0.0.1", body={"wolt": "sideways"}, headers={"Authorization": "Bearer " + code})[0], 401)
         self.assertEqual(self.ask("POST", "/lodge/join", body={"wolt": "straight"}, headers={"Authorization": "Bearer " + code})[0], 200)  # refused at the wrong door, it wasn't used up
         self.assertEqual(self.ask("POST", "/lodge/join", body={"wolt": "outsider"}, headers={"Authorization": "Bearer " + self.keys["code"]})[0], 401)  # and this computer's own code opens nothing from outside
@@ -126,7 +126,7 @@ class Door(unittest.TestCase):
 
     def test_an_agent_joins_through_the_link_and_one_from_this_computer_stays_there(self):
         _, _, cookie = self.enter(k=self.keys["host"])
-        page = self.ask("GET", "/join", cookie=cookie)[1]
+        page = self.ask("POST", "/api/agent-invite", cookie=cookie, body={})[1]["text"]
         code = page.split("#a.")[1].split("'")[0].split("&")[0]
         self.assertIn("https://site.example/t/synthetic-room#a.", page)  # the message names the lasting address, never the tunnel's
         self.assertNotIn(HOST, page)
@@ -160,7 +160,7 @@ class AfterUnlink(unittest.TestCase):
                 return res.status, raw
             host = {"Cookie": "spo=" + keys["host"]}
             self.assertEqual(ask("GET", "/api/state", headers=host)[0], 200)
-            code = ask("GET", "/join", headers=host)[1].decode().split("#a.")[1].split("'")[0].split("&")[0]
+            code = json.loads(ask("POST", "/api/agent-invite", headers=host, body={})[1])["text"].split("#a.")[1].split("'")[0]
             agent = {"Authorization": "Bearer " + json.loads(ask("POST", "/lodge/join", body={"wolt": "away"}, headers={"Authorization": "Bearer " + code})[1])["key"]}
             self.assertEqual(ask("GET", "/lodge/messages", headers=agent)[0], 200)
             proc.stdin.write("unlink\n"); proc.stdin.flush()
@@ -191,7 +191,7 @@ class AfterUnlink(unittest.TestCase):
                 return res.status, raw
 
             def code(host_key):
-                return ask("GET", "/join", headers={"Cookie": "spo=" + host_key})[1].decode().split("#a.")[1].split("'")[0].split("&")[0]
+                return json.loads(ask("POST", "/api/agent-invite", headers={"Cookie": "spo=" + host_key}, body={})[1])["text"].split("#a.")[1].split("'")[0]
             old, older = code(keys["host"]), code(keys["host"])
             for stop in ("unlink", "relink"):
                 proc.stdin.write(stop + "\n"); proc.stdin.flush()

@@ -66,13 +66,33 @@ class Link:
         from . import seal
         return f"{self.relay}/r/{seal.b64e(self.room_id)}#h.{seal.b64e(self.secret)}.{self.token}"
 
-    def invite_link(self):
+    def invite_link(self, token=None):
         from . import seal
-        return f"{self.relay}/r/{seal.b64e(self.room_id)}#i.{seal.b64e(self.invite_secret)}.{self.invite_token}"
+        return f"{self.relay}/r/{seal.b64e(self.room_id)}#i.{seal.b64e(self.invite_secret)}.{token or self.invite_token}"
+
+    def door_mark(self):
+        """The mark of this link, with the invite it came with on record (once: an invite that was ended stays ended)."""
+        mark = self._via()
+        self.core.adopt(mark, self.invite_token, self.host_email)
+        return mark
+
+    def invites(self, email, method, path, body):
+        """The host's invites, through this link: make one, end the open ones, or list them (shellphone/core.py decides)."""
+        mark = self.door_mark()
+        if method == "GET":
+            return self.core.list_invites(email, THROUGH_RELAY, mark)
+        body = body if isinstance(body, dict) else {}
+        if path.endswith("/end"):
+            return self.core.end_invites(email, THROUGH_RELAY, mark, body.get("id"))
+        status, out = self.core.make_invite(email, THROUGH_RELAY, mark, body.get("ends_in", 86400), body.get("uses"), body.get("for"))
+        if status == 200:
+            out["link"] = self.invite_link(out.pop("token"))
+        return status, out
 
     def info(self):
+        first = not self.open or self.core.invite_open(self.door_mark(), self.invite_token)  # the invite this link came with, while the host hasn't ended it
         return {"linked": self.open, "state": self.state, "relay": urllib.parse.urlsplit(self.relay).netloc,
-                "link": self.host_link(), "invite": self.invite_link(), "guests": len(self.guests), "guest_agents": self.allow["guest_agents"]}
+                "link": self.host_link(), **({"invite": self.invite_link()} if first else {}), "guests": len(self.guests) + (self.core.guest_count(self._via()) if self.open else 0), "guest_agents": self.allow["guest_agents"]}
 
     # -- what comes through the relay
 
@@ -132,7 +152,8 @@ class Link:
         link's own token is nobody yet: all it may do is ask for a place, see answer.)"""
         if kind == "h":  # the host's link: only the host's own token counts
             return self.host_email if hmac.compare_digest(self.token, auth) else None
-        return next((e for t, e in list(self.guests.items()) if hmac.compare_digest(t, auth)), None)
+        kept = next((e for t, e in list(self.guests.items()) if hmac.compare_digest(t, auth)), None)  # guests from before their keys were kept in the room's database
+        return kept or self.core.guest_of(self._via(), auth)
 
     def media(self, kind, operation, metadata, auth):
         """Voice and files through the link, in pieces (shellphone/media.py). The same gate as answer; the one who
@@ -174,19 +195,23 @@ class Link:
             email = self.person(kind, auth)
             if email and (method, path) == ("GET", "/api/invite") and self.core.may(email, "invite.see", THROUGH_RELAY):
                 from . import seal
+                if not self.core.invite_open(self.door_mark(), self.invite_token):
+                    return 404, {"error": "the invite this room came with was ended: make a new one"}
                 return 200, {"key": f"i.{seal.b64e(self.invite_secret)}.{self.invite_token}"}
-        elif hmac.compare_digest(self.invite_token, auth):  # the invite link itself: it can ask for a place in the room, nothing else
+        elif self.core.invite(self.door_mark(), auth):  # an invite link itself, open or not: it can ask for a place in the room, nothing else
             if (method, path) != ("POST", "/api/guest"):
                 return 403, {"error": "tell the room your name first"}
-            status, out, mine = self.core.admit(self.guests, body.get("name") if isinstance(body, dict) else None)
+            # looked up, used and the guest's key kept, all in one go (shellphone/core.py)
+            status, out, mine = self.core.redeem(self._via(), auth, body.get("name") if isinstance(body, dict) else None, len(self.guests))
             if not mine:
                 return status, out
-            self.changed()
-            return 200, {"token": mine}
+            return 200, {"token": mine, "name": out.get("name")}
         else:  # a guest's own token
             email = self.person(kind, auth)
         if not email:
             return 403, {"error": "not on this room's list"}
+        if path in ("/api/invites", "/api/invites/end") and (method, path) != ("GET", "/api/invites/end"):  # the host's invites for people
+            return self.invites(email, method, path, body)
         if (method, path) == ("POST", "/api/agent-invite"):  # a message for one of this person's agents, on any computer
             return self.agent_invite(email)
         if (method, path) == ("POST", "/api/guest-agents"):  # the host turns agents from guests on or off, for this link
