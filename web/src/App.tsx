@@ -14,7 +14,7 @@ import { UPPER } from "./Sky";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
-import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWallpaper, ThreadHat, nameChats, named, useChatsHome, unread, useSeen } from "./Threads";
+import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWallpaper, ThreadHat, nameChats, named, useChatsHome, unread, rootFresh, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
@@ -464,8 +464,12 @@ export function App() {
   // Threads the Matrix way: a reply carries the id of the message its thread hangs off. The main chat shows only the rest.
   const { main, replies } = useMemo(() => {
     const replies = new Map<string, Msg[]>(), main: Msg[] = [];
+    // a change to a page posted in the main chat goes under that page's message: it's a chat of its own now
+    const pageAt = new Map<string, string>();
+    for (const m of msgs) if (m.page && !m.thread) pageAt.set(m.page.id, m.id);
     for (const m of msgs) {
-      if (m.thread) replies.set(m.thread, [...(replies.get(m.thread) || []), m]);
+      const under = m.thread || (m.kind === "activity" && m.activity ? pageAt.get(m.activity.page) : undefined);
+      if (under) replies.set(under, [...(replies.get(under) || []), m]);
       else main.push(m);
     }
     return { main, replies };
@@ -481,9 +485,9 @@ export function App() {
   const open = (id: string) => setThread(id);  // opened from the threads list, back returns to it
   const { seen, mark } = useSeen();
   // an open thread counts as read, including replies that arrive while you're in it
-  useEffect(() => { const r = replies.get(thread); if (thread && r?.length) mark(thread, r.at(-1)!.n); }, [thread, replies]);
-  // Home as the chats: no main chat to talk in. Every thread is a chat, and so is anything someone just said in the main chat
-  // (it starts one, the wolts answer under it). The rest of the old main chat is one more chat, the lobby.
+  useEffect(() => { const r = replies.get(thread), first = msgs.find((m) => m.id === thread); const last = r?.length ? r.at(-1) : first; if (thread && last) mark(thread, last.n); }, [thread, replies, msgs]);
+  // Home as the chats: no main chat to talk in. Every thread is a chat, and so is every message said in the main chat, by a
+  // person or a wolt: it starts one, and the answers go under it. There is no lobby.
   const chatsHome = useChatsHome(), [lobby, setLobby] = useState(false), [starting, setStarting] = useState(false);
   // the sky above the scene stays hidden until you pull down for it: the chats open scrolled just past it
   // (once per time the list appears, as soon as it's tall enough to scroll that far)
@@ -506,8 +510,7 @@ export function App() {
     if (!l) { skyTucked.current = false; return; }
     if (!skyTucked.current && l.scrollHeight - l.clientHeight >= UPPER) { l.scrollTop = UPPER; skyTucked.current = true; }
   });
-  const since = Date.now() / 1000 - 86400;
-  const roots = main.filter((m) => replies.has(m.id) || (chatsHome && m.kind === "human" && m.at > since));
+  const roots = main.filter((m) => replies.has(m.id) || (chatsHome && (m.kind === "human" || m.kind === "wolt")));
   const lobbyList = chatsHome ? main.filter((m) => !roots.includes(m)) : main;
   // a chat you just started opens under the name your phone gave it, then follows it to the room's own id
   useEffect(() => { if (!thread || msgs.some((m) => m.id === thread)) return; const real = msgs.find((m) => m.cid === thread); if (real) setThread(real.id); }, [msgs, thread]);
@@ -515,11 +518,11 @@ export function App() {
   const settled = useRef(false);
   const threadsSeen = useRef(false); threadsSeen.current = replies.size > 0;
   useEffect(() => { if (!settled.current && state.me) { settled.current = true; if (!replies.size) setListOpen(false); } }, [state.me]);
-  const freshCount = roots.filter((r) => unread(replies.get(r.id) || [], seen[r.id], state.me)).length;
+  const freshCount = roots.filter((r) => unread(replies.get(r.id) || [], seen[r.id], state.me) || (chatsHome && rootFresh(r, seen, state.me))).length;
   // the main chat counts as read while it's on screen; what arrives while you're in a thread waits in the inbox
   const mainFresh = main.filter((m) => m.n > (seen.main || 0) && !(m.kind === "human" && m.email === state.me));
   useEffect(() => { if (!thread && (!chatsHome || lobby) && main.length) mark("main", main.at(-1)!.n); }, [thread, main, chatsHome, lobby]);
-  const inboxCount = freshCount + mainFresh.length;
+  const inboxCount = freshCount + (chatsHome ? 0 : mainFresh.length);  // on the chats, main-chat messages are chats: counted above
   const hdr = useRef<HTMLElement>(null), [hdrH, setHdrH] = useState(0);
   useLayoutEffect(() => { const el = hdr.current; if (!el) return; const ro = new ResizeObserver(() => setHdrH(el.offsetHeight)); ro.observe(el); return () => ro.disconnect(); }, []);
   const swipe = useSwipeBack(() => setThread(""));
@@ -762,8 +765,8 @@ export function App() {
       {chatsHome && !lobby ? <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
         <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
-        {chatRows({ main: mainFresh.filter((m) => lobbyList.includes(m)), all: lobbyList.filter((m) => m.kind === "human" || m.kind === "wolt"), roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread, lobby: true,
-          onMain: () => { setLobby(true); stickMain.current(); }, onOpen: open }).rows}
+        {chatRows({ main: [], all: [], roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread,
+          onMain: () => {}, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
       </div> : <>
         {chatsHome && <button type="button" onClick={() => setLobby(false)} className="flex-none flex items-center gap-1 px-3 py-2 border-0 border-b border-line bg-panel font-mono text-[12px] text-acc text-left cursor-pointer">
@@ -814,7 +817,7 @@ export function App() {
   if (!desk) return room;
   return <div className="h-full flex">
     <Suspense fallback={<div className="flex-1 bg-[#2a231c]" />}>
-      <Desk ctx={ctx} wolts={deskWolts} working={new Set(Object.keys(state.working || {}))} focus={focus} />
+      <Desk ctx={ctx} wolts={deskWolts} working={new Set(Object.keys(state.working || {}))} focus={focus} bridge={state.desk} />
     </Suspense>
     {/* its own box for everything fixed inside (menu, sheets), so they stay in the chat column */}
     <div className="flex-none w-[460px] h-full border-l border-line relative overflow-hidden [transform:translateZ(0)]">{room}</div>

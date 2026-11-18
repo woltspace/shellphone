@@ -10,6 +10,7 @@ The room also tells its clients when something changed, with a sealed {"t":"news
 asking every other second. A room where nothing happens sends nothing, and the relay can let it sleep.
 """
 import base64, json, threading, time
+from secrets import token_urlsafe
 
 from . import seal
 
@@ -22,6 +23,7 @@ FRAMES_PER_SECOND = 200       # how fast the host hands frames to the relay, acr
 FULL_WAIT = 120        # seconds before asking a full relay again for a place
 TAKEN_WAIT = 150       # seconds a host that had its room up keeps asking a relay that now says the room has a host: that host is itself, and the relay
                        # only counts it gone after a minute without a ping (so: that minute, and time for a few more tries)
+REPLACED = 4409       # the relay closes a host with this when the same room (same claim) connected again: that host stops
 PING, PING_EVERY = '{"ping":1}', 20  # "still here", said to the relay this often: a connection can die without either end being told
 MAX_BAD = 5            # frames that don't open or make no sense, before the client is turned away
 PER_SECOND = 20        # requests a client may make, on average
@@ -119,8 +121,13 @@ class HostPipe:
         try:
             return self._answer(self._kind, method, path, body, auth)
         except Exception as exc:  # the room's own failure is the room's to log; the client gets a plain answer
-            print(f"the room couldn't answer {method} {path.split('?')[0]}: {exc!r}", flush=True)
+            log(f"the room couldn't answer {method} {path.split('?')[0]}: {exc!r}")
             return 500, {"error": "the room couldn't answer"}
+
+
+def log(line):
+    """A line for the room's log, with the time, so a drop can be matched with the relay's own logs."""
+    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {line}", flush=True)
 
 
 def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, wait=(1, 2, 4, 8, 15, 30), news=None, claim=None):
@@ -136,10 +143,11 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
     the pings below, the relay lets us back in when our old connection died without it being told."""
     if connect is None:
         from websockets.sync.client import connect  # only a shared room needs it
+    instance = token_urlsafe(16)  # names this process to the relay: its own reconnect is let in at once, another copy of the room waits
     tries, was_up, taken = 0, False, None  # taken: when a room that had been up was first told it has a host, until it is up again
     while not stop.is_set():
         try:
-            headers = {**({"Authorization": f"Bearer {key}"} if key else {}), **({"X-Shellphone-Claim": claim} if claim else {})}
+            headers = {**({"Authorization": f"Bearer {key}"} if key else {}), **({"X-Shellphone-Claim": claim, "X-Shellphone-Instance": instance} if claim else {})}
             with connect(url, additional_headers=headers, open_timeout=15, max_size=256 * 1024) as ws:
                 tries, pipes, told, was_up, taken = 0, {}, 0.0, True, None
                 pinged = time.monotonic()
@@ -194,11 +202,17 @@ def serve(url, key, new_pipe, stop, on_state=lambda state: None, connect=None, w
                                 ping()  # and keep saying we're here while it goes out
         except Exception as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
+            if getattr(getattr(exc, "rcvd", None), "code", None) == REPLACED:  # another copy of this room, with the same link, took over
+                log("the relay connection ended: this room was opened again somewhere else with the same link; this copy stops")
+                on_state("refused: this room was opened again somewhere else")
+                return
             if status is None and not stop.is_set():  # why the connection went, for whoever reads the room's log later
-                print(f"the relay connection ended: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
+                log(f"the relay connection ended: {type(exc).__name__}: {str(exc)[:200]}")
             if status == 409 and was_up and taken is None:
                 taken = time.monotonic()
             taken_by_us = status == 409 and taken is not None and time.monotonic() - taken < TAKEN_WAIT
+            if taken_by_us:
+                log("the relay still sees this room's old connection; asking again")
             if status in (401, 409) and not taken_by_us:  # not allowed to open rooms here, or this room already has a host: trying again won't help
                 on_state(f"refused: {'this relay is not open to new rooms yet' if status == 401 else 'this room already has a host'}")
                 return

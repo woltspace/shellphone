@@ -50,14 +50,15 @@ function newRoom(name, desk, via = (d) => d) {
     getWebSocketAutoResponseTimestamp: (sock) => (sock.pinged ? new Date(sock.pinged) : null),
   };
   const room = new Room(ctx, { BEAT_SECONDS: "10", DESK: { idFromName: () => "desk", get: () => via(desk) } });
-  const come = async (what, claim) => {
-    const res = await room.fetch({ url: `https://relay.test/r/${name}/${what}`, headers: { get: (h) => (h === "X-Shellphone-Claim" && claim) || null } });
+  const come = async (what, claim, instance) => {
+    const said = { "X-Shellphone-Claim": claim, "X-Shellphone-Instance": instance };
+    const res = await room.fetch({ url: `https://relay.test/r/${name}/${what}`, headers: { get: (h) => said[h] || null } });
     return res.status === 101 ? sockets.at(-1).sock : res.status;
   };
   const up = async () => JSON.parse((await room.fetch({ url: `https://relay.test/r/${name}/up` })).body).up;
   const ping = (sock) => { sock.pinged = clock; };  // what Cloudflare notes when a socket says it's here: the room isn't woken
   const gone = (sock) => { sock.closed = 1006; return room.webSocketClose(sock, 1006); };  // the other end went away
-  return { room, ctx, host: (claim) => come("host", claim), client: () => come("ws"), gone, up, ping };
+  return { room, ctx, host: (claim, instance) => come("host", claim, instance), client: () => come("ws"), gone, up, ping };
 }
 
 test("a room that reports too late loses its place, and is told so", () => {
@@ -229,7 +230,7 @@ test("only one host at a time asks the desk for a room's place", async () => {
   assert.equal((await first).deserializeAttachment().gen, 1);
 });
 
-const MINE = "A".repeat(43), OTHER = "B".repeat(43);
+const MINE = "A".repeat(43), OTHER = "B".repeat(43), ME = "p".repeat(22), COPY = "q".repeat(22);  // ME, COPY: two processes
 
 test("a host that died without a goodbye is replaced by its own room coming back, and by nobody else", async () => {
   const desk = newDesk(), r = newRoom("a", desk);
@@ -237,11 +238,8 @@ test("a host that died without a goodbye is replaced by its own room coming back
   r.ping(first);
   const page = await r.client();
   assert.equal(await r.up(), true);
-  assert.equal(await r.host(MINE), 409);   // still saying it's here: nobody takes its place, not even itself
   later(20_000); r.ping(first);
-  later(59_000);
-  assert.equal(await r.host(MINE), 409);   // 59 s of silence isn't gone yet
-  later(1_000);                            // a minute: the connection died and the relay was never told
+  later(60_000);                           // a minute: the connection died and the relay was never told
   assert.equal(await r.up(), false);       // so the room no longer shows as up
   assert.equal(await r.client(), 404);     // and nobody is let in to talk to a dead socket
   assert.equal(await r.host(OTHER), 409);  // another room's claim doesn't open this one
@@ -276,6 +274,43 @@ test("a host that died without a goodbye is replaced by its own room coming back
   assert.equal(await r.up(), false);
   assert.equal(desk.stats().open_rooms, 0);
 });
+
+test("the room's own process coming back is let in at once, even while its old connection still looks alive", async () => {
+  const desk = newDesk(), r = newRoom("a", desk);
+  const first = await r.host(MINE, ME);    // a host that names its process
+  r.ping(first);
+  const page = await r.client();
+  later(5_000);                            // the old connection was cut seconds ago: the relay hasn't noticed
+  assert.equal(await r.host(OTHER, ME), 409);  // another room's claim still doesn't take it
+  assert.equal(await r.host(), 409);       // nor does no claim
+  assert.equal(await r.host(MINE), 409);   // nor its own claim from a host that names no process
+  assert.equal(await r.host(MINE, COPY), 409);  // nor another copy of the room, in another process
+  first.lingers = page.lingers = true;
+  const second = await r.host(MINE, ME);   // its own claim, from the same process: in, straight away
+  assert.equal(typeof second, "object");
+  assert.equal(first.closed, 4409);        // the one it replaced is told why, and stops
+  assert.equal(page.closed, 4404);
+  assert.equal(r.room.host(), second);
+  assert.equal(await r.up(), true);
+  assert.equal(desk.stats().open_rooms, 1);
+});
+
+for (const [listed, coming] of [[undefined, undefined], [undefined, ME], [ME, undefined], [ME, COPY]]) {
+  test(`not the same process (listed ${listed}, coming ${coming}): its own claim waits for the old one to go quiet`, async () => {
+    const desk = newDesk(), r = newRoom("a", desk);
+    const first = await r.host(MINE, listed);
+    r.ping(first);
+    later(59_000);
+    assert.equal(await r.host(MINE, coming), 409);  // still counted alive: the two copies don't put each other out
+    assert.equal(first.closed, null);
+    later(1_000);
+    first.lingers = true;
+    const second = await r.host(MINE, coming);      // gone quiet: in, as before
+    assert.equal(typeof second, "object");
+    assert.equal(first.closed, 4409);
+    assert.equal(r.room.host(), second);
+  });
+}
 
 test("a host from before claims is never judged and never replaced", async () => {
   const desk = newDesk(), r = newRoom("a", desk);

@@ -352,11 +352,13 @@ def looks_now():
 
 
 def may_switch(email, wolt):
-    """Whether this person may pause this agent or bring it back: the room's host, or the agent's own keeper. Never a guest."""
-    if not email or people().get(email, {}).get("guest"):
+    """Whether this person may pause this agent or bring it back: the room's host, or the agent's own keeper (a guest
+    too, for the agent they brought)."""
+    if not email:
         return False
     owner = next((l["owner"] for l in wolts() if l["wolt"] == wolt), None)
-    return owner is not None and (email == host() or canon(email) == canon(owner))
+    guest = people().get(email, {}).get("guest")
+    return owner is not None and ((email == host() and not guest) or canon(email) == canon(owner))
 
 
 def brings_in(c, tid, m):
@@ -1188,6 +1190,12 @@ def for_wolt(req, l):
     return reply(404, {"error": "not found"})
 
 
+def desk_for(email):
+    """The host's page learns where this room's desk bridge is, so its hint can be run from any folder."""
+    bridge = HERE / "desk" / "bridge.mjs"
+    return {"desk": str(bridge)} if email == host() and bridge.is_file() else {}
+
+
 def for_person(req, email):
     path, q = req.path, req.q
     if req.method not in ("GET", "POST"):
@@ -1199,7 +1207,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), **desk_for(email), "messages": messages(after)})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
@@ -1250,8 +1258,6 @@ def for_person(req, email):
             return reply(404, {"error": str(exc)})
         if not where:
             return reply(400, {"error": "which thread?"})
-        if people().get(email, {}).get("guest"):
-            return reply(403, {"error": "guests can't change who is in a thread"})
         if not any(l["wolt"] == who for l in wolts()):
             return reply(404, {"error": f"there's no {who} in this room"})
         if not may_switch(email, who):
