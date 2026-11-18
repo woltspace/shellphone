@@ -114,13 +114,30 @@ class Outside:
 
     # -- what is kept between runs
 
-    def saved(self):
+    def _file(self):
+        """What is on disk of a link made this way, with whichever site, or None."""
         try:
             got = json.loads((self.data / FILE).read_text())
-            assert got["site"] == self.site and all(isinstance(got[k], str) and got[k] for k in ("room", "secret", "host_token", "invite_token"))
+            assert all(isinstance(got[k], str) and got[k] for k in ("site", "room", "secret"))
             return got
         except (OSError, ValueError, KeyError, TypeError, AssertionError):
             return None
+
+    def _ended(self, got):
+        """Whether this address was unlinked on this computer: written down as owed, or still remembered as owed."""
+        return any(o["room"] == got["room"] and o["site"] == got["site"] for o in self._owed())
+
+    def saved(self):
+        got = self._file()
+        if not got:
+            return None
+        if self._ended(got):  # unlinked here, and the keys are still on disk (the room stopped in between, or the file
+            # couldn't be removed): they never open anything again, whatever the site answers
+            with contextlib.suppress(OSError):
+                (self.data / FILE).unlink(missing_ok=True)
+            return None
+        ok = got["site"] == self.site and all(isinstance(got.get(k), str) and got[k] for k in ("host_token", "invite_token"))
+        return got if ok else None
 
     def save(self):
         if not self.keep or not self.open:
@@ -177,7 +194,7 @@ class Outside:
 
     def agent_steps(self, email):
         name = self.r.people().get(email, {}).get("name") or "your human"
-        return AGENT_STEPS.format(name=name, link=f"{self.site}/t/{self.room}#a.{self.r.agent_code(email)}", minutes=self.r.JOIN_MINUTES)
+        return AGENT_STEPS.format(name=name, link=f"{self.site}/t/{self.room}#a.{self.r.agent_code(email, self.via())}", minutes=self.r.JOIN_MINUTES)
 
     # -- what the host sees
 
@@ -280,10 +297,17 @@ class Outside:
         know, whether those are written down: if not, they are only remembered while this room stays open)."""
         from . import cli
         with self.lock:
-            left = []
+            left, kept = [], self._file()
             for o in self._owed():
                 why = self._tell("", gone=True, room=o["room"], secret=o["secret"]) if o["site"] == self.site else "another site"
-                if why and "another room" not in why:  # told, or not this room's to close (then there is nothing more to say)
+                stuck = False
+                if kept and (kept["room"], kept["site"]) == (o["room"], o["site"]):  # its keys are still on disk: while they are, this stays written down
+                    try:
+                        (self.data / FILE).unlink(missing_ok=True)
+                        kept = None
+                    except OSError:
+                        stuck = True
+                if stuck or (why and "another room" not in why):  # told, or not this room's to close (then there is nothing more to say)
                     left.append(o)
             try:
                 if left:
@@ -310,7 +334,13 @@ class Outside:
         from . import cli
         with self.lock:
             was = {"site": self.site, "room": self.room, "secret": self.secret} if self.room and self.secret else None
+            if not was:  # shared in an earlier run and not opened in this one: the address on disk is the one to end
+                got = self._file()
+                was = {k: got[k] for k in ("site", "room", "secret")} if got else None
             self._down()
+            if was and hasattr(self.r, "drop_agent_codes"):  # codes for agents handed out through this address go with it
+                with contextlib.suppress(Exception):
+                    self.r.drop_agent_codes(f"t:{was['room']}")
             self.guests, self.room, self.secret, self.host_token, self.invite_token = {}, None, None, None, None
             if was:
                 self._unwritten = self._unwritten + [was]  # owed from this line on
@@ -323,7 +353,7 @@ class Outside:
                 (self.data / FILE).unlink(missing_ok=True)
             except OSError as exc:
                 self._keep_telling()
-                return 500, {"error": f"the tunnel is closed and nobody outside can come in, but the room's keys couldn't be removed from {self.data / FILE} ({exc}): delete that file yourself, or the room is shared again at its next start", "linked": False}
+                return 500, {"error": f"the tunnel is closed and nobody outside can come in, but the room's keys couldn't be removed from {self.data / FILE} ({exc}): delete that file yourself. Its keys open nothing any more", "linked": False}
             if self._settle()[0]:
                 self._keep_telling()
             return 200, self.info()

@@ -79,6 +79,17 @@ class WhichWay(unittest.TestCase):
         self.assertIn("share --stop", info["error"])
         self.assertEqual((ways["relay"].kept, ways["tunnel"].calls), (True, []))
 
+    def test_links_kept_from_both_ways_are_never_chosen_between_without_a_word(self):
+        for first in ("relay", "tunnel"):
+            for via in (None, "relay", "tunnel"):
+                s, ways = share(first, relay={"kept": True}, tunnel={"kept": True})
+                status, info = s.on(via)
+                self.assertEqual((status, info["linked"]), (409, False))
+                self.assertIn("share --stop", info["error"])
+                self.assertEqual([w.calls for w in ways.values()], [[], []])  # neither was started
+        self.assertEqual(s.off()[0], 200)  # the way out: stop, which ends both
+        self.assertEqual(s.on()[0], 200)
+
     def test_a_share_that_fails_leaves_the_room_as_it_was(self):
         s, ways = share("relay", relay={"fails": True})
         status, info = s.on()
@@ -101,6 +112,27 @@ class Stop(unittest.TestCase):
         ways["tunnel"].info = lambda: {"linked": False, "relay": "site.example", "note": "the site couldn't be told yet"}
         self.assertEqual(s.info()["note"], "the site couldn't be told yet")
         self.assertEqual(s.info()["via"], "relay")
+
+    def test_a_way_that_cant_be_stopped_doesnt_keep_the_next_one_open(self):
+        s, ways = share("relay", tunnel={"kept": True})
+        s.on()
+        self.assertTrue(ways["tunnel"].open)
+
+        def broken():
+            raise OSError("the kept link's file can't be removed")
+        ways["relay"].off = broken
+        status, info = s.off()
+        self.assertEqual(status, 500)
+        self.assertIn("can't be removed", info["error"])
+        self.assertIn("sealed relay", info["error"])  # which way it was
+        self.assertEqual((ways["tunnel"].open, ways["tunnel"].calls[-1], info["linked"]), (False, "off", False))
+
+    def test_a_stop_that_fails_says_what_is_still_shared(self):
+        s, ways = share("tunnel")
+        s.on()
+        ways["tunnel"].off = lambda: (500, {"error": "the tunnel wouldn't close", "linked": True})
+        status, info = s.off()
+        self.assertEqual((status, info["linked"], info["error"]), (500, True, "the tunnel wouldn't close"))
 
     def test_closing_the_room_closes_every_way(self):
         s, ways = share("relay")

@@ -15,5 +15,21 @@ export function unlinkedWords(info, note, busy) {
 // A room that didn't answer changes nothing, so the same button is still there to try again.
 export function after(info, got) {
   if (!got) return { info: { ...info, error: undefined }, note: "Couldn't reach the room. Try again." };
-  return { info: got.error ? { ...info, error: got.error } : got, note: "" };
+  if (!got.error) return { info: got, note: "" };
+  // it failed: what the room says it is now (when it says), with its reason. A stop that failed is never shown as done.
+  return { info: { ...info, ...(typeof got.linked === "boolean" ? { linked: got.linked } : {}), error: got.error }, note: "" };
+}
+
+// What a call to /api/link came to. Reading (GET): null when the room refuses (not its host here: nothing is drawn);
+// its answer only when it succeeded and says plainly whether the room is shared; anything else is "unknown", never
+// "Private". Switching (POST): the room's own words, a refusal or a failure included; null when there were none.
+export function answered(read, status, body) {
+  const said = body !== null && typeof body === "object" && !Array.isArray(body);
+  if (read) {
+    if (status === 403 || status === 404) return null;
+    return status === 200 && said && typeof body.linked === "boolean" ? body : { linked: false, unknown: true };
+  }
+  if (said && status === 200 && typeof body.linked === "boolean") return body;
+  if (said && typeof body.error === "string" && body.error) return body;
+  return null;
 }

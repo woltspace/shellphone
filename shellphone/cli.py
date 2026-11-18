@@ -170,7 +170,7 @@ def start(a, token=None):
     r.LOCAL[token] = HOST_EMAIL
     with r.tx() as c:  # one agent link per run; a kept room's old link stops working
         c.execute("delete from invites where owner = ? and expires is null", (HOST_EMAIL,))
-        c.execute("insert into invites values (?, ?, null, 0)", (r.key_hash(code), HOST_EMAIL))
+        c.execute("insert into invites (code_hash, owner, expires, once) values (?, ?, null, 0)", (r.key_hash(code), HOST_EMAIL))
     server = r.http.server.ThreadingHTTPServer(("127.0.0.1", port), r.Handler)
     server.daemon_threads = True
     return r, data, url, token, code, server
@@ -318,9 +318,13 @@ class Share:
         """The way the room is shared right now, or None."""
         return next((w for w, s in self.ways.items() if s.info().get("linked")), None)
 
+    def kept(self):
+        """The ways this kept room still has links from. More than one only when something went wrong."""
+        return [w for w, s in self.ways.items() if s.saved()]
+
     def saved(self):
         """The way a kept room was shared when it last closed, or None."""
-        return next((w for w, s in self.ways.items() if s.saved()), None)
+        return next(iter(self.kept()), None)
 
     def info(self):
         now = self.now()
@@ -334,7 +338,10 @@ class Share:
 
     def on(self, via=None):
         with self.lock:
-            now, kept = self.now(), self.saved()
+            now, both = self.now(), self.kept()
+            kept = both[0] if both else None
+            if not now and len(both) > 1:  # which links live and which die is the host's to say, not the order of a list
+                return 409, {"error": f"this kept room has links from both ways ({' and '.join(WAYS[w] for w in both)}): stop sharing it first ({me()} share --stop), which ends them all, then share it again", "linked": False}
             if now:
                 if via and via != now:
                     return 409, {"error": f"the room is already shared through {WAYS[now]}: stop sharing it first, then share it the other way", "linked": True}
@@ -347,13 +354,22 @@ class Share:
 
     def off(self):
         with self.lock:
-            failed = None
+            failed = []
             for way, s in self.ways.items():
-                if s.info().get("linked") or s.saved() or way == self.first:
-                    status, info = s.off()
-                    if status != 200:
-                        failed = failed or (status, info)
-            return failed or (200, self.info())
+                try:
+                    if s.info().get("linked") or s.saved() or way == self.first:
+                        status, info = s.off()
+                        if status != 200:
+                            failed.append((status, info.get("error") or f"stopping {WAYS.get(way, way)} answered {status}"))
+                except Exception as exc:  # one way that can't be stopped doesn't keep the next one open
+                    failed.append((500, f"couldn't stop sharing through {WAYS.get(way, way)} ({exc})"))
+            if not failed:
+                return 200, self.info()
+            try:
+                info = self.info()
+            except Exception:
+                info = {"linked": bool(self.now())}
+            return max(f[0] for f in failed), {**info, "error": "; ".join(f[1] for f in failed)}
 
     def close(self):
         for s in self.ways.values():

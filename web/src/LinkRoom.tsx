@@ -5,13 +5,14 @@
 // get the invite, nothing more (see link_call in room.py). For anyone else this draws nothing.
 import { useEffect, useState } from "react";
 import { ChevronRight, Globe, Loader2, Lock, Smartphone, UserPlus } from "lucide-react";
-import { after, unlinkedWords, type Info } from "./linkwords.js";
+import { after, answered, unlinkedWords, type Info } from "./linkwords.js";
 
 async function ask(on?: boolean): Promise<Info | null> {
   try {
     const r = await fetch("/api/link", on === undefined ? { cache: "no-store" } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on }) });
-    if (r.status === 403 || r.status === 404) return null;  // not this room's host here, or a room that has no such switch
-    return await r.json();
+    let body: unknown = null;
+    try { body = await r.json(); } catch { /* no words from the room */ }
+    return answered(on === undefined, r.status, body);  // a refusal draws nothing; an answer that can't be read is never shown as "Private"
   } catch { return null; }
 }
 
@@ -28,13 +29,19 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
   const [note, setNote] = useState(""), [said, setSaid] = useState(""), [mine, setMine] = useState("");
   useEffect(() => { if (open) ask().then(setInfo); }, [open]);  // each time the menu opens: `shellphone share` may have changed it meanwhile
   if (!info) return null;
+  if (info.unknown) return <div className={`${row} cursor-default`}><Lock size={20} className="text-dim" />
+    <span className="flex-1 min-w-0">Share<small className="block text-xs text-acc">Couldn't check whether this room is shared. Open the menu again to retry.</small></span></div>;
   const flip = async (on: boolean) => {
     if (on === info.linked) return;
     if (!on && !window.confirm("Make this room private? Everyone outside loses access at once, and its links stop working for good.")) return;
     setBusy(on ? "link" : "unlink"); setNote(""); setSaid(""); setMine("");
     const got = await ask(on);
+    let now = after(info, got);
+    if (got?.error) {  // it failed: show what the room is now, read afresh, with the reason
+      const fresh = await ask();
+      if (fresh && !fresh.unknown) now = { info: { ...fresh, error: got.error }, note: "" };
+    }
     setBusy("");
-    const now = after(info, got);
     setInfo(now.info); setNote(now.note);
   };
   const small = "block text-xs text-dim";
@@ -43,12 +50,12 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
     <label className={`${row} cursor-default`}>{info.linked ? <Globe size={20} className="text-acc" /> : <Lock size={20} className="text-acc" />}
       <span className="flex-1 min-w-0">Share
         {busy ? <small className={small}>{busy === "link" ? "Sharing…" : "Stopping…"}</small>
-          : !info.linked && words.warn ? <small className="block text-xs text-acc">{words.text}</small>
+          : words.warn ? <small className="block text-xs text-acc">{words.text}</small>
           : info.linked && info.guests ? <small className={small}>{info.guests} came in</small> : null}</span>
       {busy ? <Loader2 size={20} className="text-acc animate-spin" />
         : info.fixed ? <span title="Changed on the computer the room runs on" className="flex-none font-mono font-semibold text-xs text-dim">{info.linked ? "Anyone with the link" : "Private"}</span>
         : <select aria-label="Who can open this room" value={info.linked ? "link" : "private"} onChange={(e) => flip(e.target.value === "link")}
-        title={info.linked ? `Shared through ${info.relay}${info.via === "tunnel" ? ", by a tunnel of its own" : ""}` : "Only this computer can open this room"}
+        title={info.linked ? `Shared through ${info.relay}${info.via === "tunnel" ? ", by a tunnel of its own" : ""}` : "No shared link opens this room"}
         className="flex-none font-mono font-semibold text-xs text-acc bg-panel border border-line rounded-lg px-2 py-1.5 cursor-pointer">
         <option value="private">Private</option><option value="link">Anyone with the link</option></select>}</label>
     {info.linked && <>

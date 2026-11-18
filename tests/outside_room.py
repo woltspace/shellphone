@@ -18,3 +18,6 @@ for line in sys.stdin:  # "unlink": what the host's switch does, without the tun
         out._tell = lambda *a, **kw: None
         out.off()
         print("unlinked", flush=True)
+    if line.strip() == "relink":  # shared again: a new address, and new keys
+        out.room, out.secret, out.host_token, out.invite_token, out.host, out.open = "synthetic-room-2", "synthetic-secret-2", "host-key-" + "n" * 24, "invite-" + "n" * 24, HOST, True
+        print(json.dumps({"host": out.host_token}), flush=True)

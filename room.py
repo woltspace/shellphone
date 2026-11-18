@@ -111,6 +111,8 @@ def con():
             CON.execute("alter table wolts add column paused integer not null default 0")
         if "via" not in [c[1] for c in CON.execute("pragma table_info(wolts)")]:  # which link an agent on another computer joined through (shellphone/link.py)
             CON.execute("alter table wolts add column via text")
+        if "via" not in [c[1] for c in CON.execute("pragma table_info(invites)")]:  # which link an agent's code was handed out through: it works through that one only
+            CON.execute("alter table invites add column via text")
         os.chmod(DB, 0o600)
     return CON
 
@@ -920,17 +922,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Hand a call that passed the door (a known person, or a wolt's key) to the room, and send back its answer."""
         return Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0])
 
-    def link_call(self, email, body):
+    def link_call(self, email, body, post=False):
         """Share the room or stop sharing it (inside, "linked" and "unlinked"), or say which it is. Only for the host, on this computer, from the room's own page or
         command: this is answered here at the door and is no part of what the room answers through a relay."""
-        if LINKER and LOCAL and body is None and self.outside_host() and email == host():
+        if LINKER and LOCAL and not post and self.outside_host() and email == host():
             # the host, come in from outside with their own link: they see that the room is shared and get the invite to
             # pass on. Nothing here changes anything, and their own key isn't handed out again.
             info = LINKER.info()
             return 200, {**{k: info[k] for k in ("linked", "relay", "invite", "guests", "via") if k in info}, "fixed": True}
         if not (LINKER and LOCAL and self.local_host() and email == host()):
             return 403, {"error": "only the room's host can do that, on the computer the room runs on"}
-        if body is None:
+        if not post:
             return 200, LINKER.info()
         if not isinstance(body, dict) or not isinstance(body.get("on"), bool):
             return 400, {"error": "say on: true or false"}
@@ -995,7 +997,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/lodge/join":
                 if LOCAL and not self.local_host() and not self.outside_host():
                     return self.send(401, {"error": "unknown lodge key"})
-                got = join_wolt(self.bearer(), json.loads(self.body() or b"{}"))
+                got = join_wolt(self.bearer(), json.loads(self.body() or b"{}"), OUTSIDE.via() if self.outside_host() else None)
                 if got[0] == 200 and self.outside_host():  # it came in through the tunnel: its key counts through this link only
                     with tx() as c:
                         c.execute("update wolts set via = ? where wolt = ?", (OUTSIDE.via(), got[1]["wolt"]))
@@ -1013,7 +1015,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not p:
                 return self.send(403, {"error": "not on this room's list"})
             if path == "/api/link":
-                return self.send(*self.link_call(email, json.loads(self.body() or b"{}")))
+                return self.send(*self.link_call(email, json.loads(self.body() or b"{}"), post=True))
             self.send(*for_person(self.call("POST"), email))
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})
@@ -1036,15 +1038,16 @@ def reply(status, body, kind="application/json", **options):
 
 def invite_of(code_hash):
     """The person an agent invite code belongs to (any wolt of theirs can use it to sign itself up), or None."""
-    row = q("select owner, expires, once from invites where code_hash = ?", code_hash) if code_hash else None
+    row = q("select owner, expires, once, via from invites where code_hash = ?", code_hash) if code_hash else None
     inv = row[0] if row else None
     if inv and (inv["expires"] or float("inf")) < time.time():
         return None
     return inv if inv and find_person(inv["owner"]) else None
 
 
-def join_wolt(code_hash, data):
-    """An agent signs itself up with a person's invite code: through the room's own door, or through the relay."""
+def join_wolt(code_hash, data, door=None):
+    """An agent signs itself up with a person's invite code: through the room's own door, or through the relay.
+    door: the mark of the link this call came in through, when it came through a tunnel's address."""
     if not isinstance(data, dict):
         return reply(400, {"error": "send a JSON object"})
     wolt = str(data.get("wolt", "")).strip().lower()
@@ -1054,6 +1057,8 @@ def join_wolt(code_hash, data):
     voice = data.get("voice") if re.fullmatch(r"[a-z]{2,20}", str(data.get("voice") or "")) else None  # no voice unless asked for
     with tx() as c:  # the code is checked and used up in one go: two agents racing with one code can't both get in
         inv = invite_of(code_hash)
+        if inv and inv["via"] and inv["via"] != door:  # handed out through a link that is gone, or used at another door
+            inv = None
         if not inv:
             return reply(401, {"error": "this invite code has expired (they last 30 minutes), was already used, or is wrong. Ask your human for a fresh message from + agent"})
         taken = c.execute("select owner from wolts where wolt = ?", (wolt,)).fetchone()
@@ -1454,14 +1459,21 @@ The room's details. Save them as the skill says, and never print, paste or commi
 The code works once, within {minutes} minutes. In the room, only my messages ({email}) are requests."""
 
 
-def agent_code(email):
-    """A fresh one-time code for one of this person's agents to sign itself up with, within JOIN_MINUTES."""
+def agent_code(email, via=None):
+    """A fresh one-time code for one of this person's agents to sign itself up with, within JOIN_MINUTES.
+    via: the mark of the link it is handed out through; then it works through that link only."""
     code = secrets.token_urlsafe(32)
     with tx() as c:
         now = time.time()
         c.execute("delete from invites where expires < ?", (now,))
-        c.execute("insert into invites values (?, ?, ?, 1)", (key_hash(code), email, now + JOIN_MINUTES * 60))
+        c.execute("insert into invites (code_hash, owner, expires, once, via) values (?, ?, ?, 1, ?)", (key_hash(code), email, now + JOIN_MINUTES * 60, via))
     return code
+
+
+def drop_agent_codes(via):
+    """The link with this mark is gone: the codes handed out through it are too. Codes of this computer stay."""
+    with tx() as c:
+        c.execute("delete from invites where via = ?", (via,))
 
 
 def wolt_by_key(key):
@@ -1548,7 +1560,7 @@ def main():
         code = secrets.token_urlsafe(32)
         with tx() as c:  # a new invite replaces their old one
             c.execute("delete from invites where owner = ? and expires is null", (owner,))
-            c.execute("insert into invites values (?, ?, null, 0)", (key_hash(code), owner))
+            c.execute("insert into invites (code_hash, owner, expires, once) values (?, ?, null, 0)", (key_hash(code), owner))
         lodge = {"room_url": a.url, "invite": code}
         if os.environ.get("SHELLPHONE_CF_ID"):  # the guest lodge's Cloudflare service token, if the room is behind one
             lodge.update(cf_client_id=os.environ["SHELLPHONE_CF_ID"], cf_client_secret=os.environ["SHELLPHONE_CF_SECRET"])

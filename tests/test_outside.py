@@ -1,6 +1,6 @@
 """A room linked through a tunnel of its own (shellphone/outside.py): who gets in by which key, what an unlink leaves
 behind, and where an agent's calls may go. No tunnel, no site and no network: stand-ins for both."""
-import hashlib, hmac, http.client, http.server, json, os, re, socket, subprocess, sys, tempfile, threading, types, unittest, urllib.error
+import contextlib, hashlib, hmac, http.client, http.server, json, os, re, socket, subprocess, sys, tempfile, threading, types, unittest, urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,10 +26,10 @@ class Door(unittest.TestCase):
         cls.proc.terminate()
         cls.proc.communicate(timeout=10)
 
-    def ask(self, method, path, host=HOST, cookie=None, body=None, headers=None):
+    def ask(self, method, path, host=HOST, cookie=None, body=None, headers=None, raw=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.keys["port"], timeout=10)
-        h = {"Host": host, **({"Cookie": cookie} if cookie else {}), **({"Content-Type": "application/json"} if body is not None else {}), **(headers or {})}
-        conn.request(method, path, body=json.dumps(body) if body is not None else None, headers=h)
+        h = {"Host": host, **({"Cookie": cookie} if cookie else {}), **({"Content-Type": "application/json"} if body is not None or raw is not None else {}), **(headers or {})}
+        conn.request(method, path, body=raw if raw is not None else json.dumps(body) if body is not None else None, headers=h)
         res = conn.getresponse()
         raw = res.read()
         conn.close()
@@ -69,6 +69,19 @@ class Door(unittest.TestCase):
         self.assertEqual(self.ask("GET", "/api/link")[0], 403)
         self.assertEqual(self.ask("POST", "/api/messages", cookie=cookie, body={"text": "x"}, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)  # another site's page can't post as the host
         self.assertEqual(self.ask("POST", "/api/messages", cookie=cookie, body={"text": "from outside"})[0], 200)
+
+    def test_no_post_from_outside_reaches_the_switch_whatever_its_body(self):
+        _, _, cookie = self.enter(k=self.keys["host"])
+        for raw in ("null", "", "{}", "[]", "0", '{"on": true}', '{"on": false}'):
+            status, out, _ = self.ask("POST", "/api/link", cookie=cookie, raw=raw)
+            self.assertEqual((status, "invite" in out, "link" in out), (403, False, False), raw)
+        self.assertEqual(self.ask("GET", "/api/link", cookie=cookie)[1]["linked"], True)  # and nothing was switched
+
+    def test_an_agents_code_from_the_link_works_through_the_link_only(self):
+        _, _, cookie = self.enter(k=self.keys["host"])
+        code = self.ask("GET", "/join", cookie=cookie)[1].split("#a.")[1].split("'")[0].split("&")[0]
+        self.assertEqual(self.ask("POST", "/lodge/join", host="127.0.0.1", body={"wolt": "sideways"}, headers={"Authorization": "Bearer " + code})[0], 401)
+        self.assertEqual(self.ask("POST", "/lodge/join", body={"wolt": "straight"}, headers={"Authorization": "Bearer " + code})[0], 200)  # refused at the wrong door, it wasn't used up
 
     def test_the_cookie_is_kept_from_scripts_and_other_sites(self):
         _, _, cookie = self.ask("POST", "/api/enter", body={"k": self.keys["host"]})
@@ -156,6 +169,37 @@ class AfterUnlink(unittest.TestCase):
             proc.terminate()
             proc.communicate(timeout=10)
 
+    def test_an_agents_code_from_before_does_not_work_once_the_room_is_shared_again(self):
+        proc = subprocess.Popen([sys.executable, str(REPO / "tests" / "outside_room.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONUNBUFFERED": "1"})
+        try:
+            keys = json.loads(proc.stdout.readline())
+
+            def ask(method, path, host=HOST, headers=None, body=None):
+                conn = http.client.HTTPConnection("127.0.0.1", keys["port"], timeout=10)
+                conn.request(method, path, body=json.dumps(body) if body is not None else None, headers={"Host": host, **({"Content-Type": "application/json"} if body is not None else {}), **(headers or {})})
+                res = conn.getresponse()
+                raw = res.read()
+                conn.close()
+                return res.status, raw
+
+            def code(host_key):
+                return ask("GET", "/join", headers={"Cookie": "spo=" + host_key})[1].decode().split("#a.")[1].split("'")[0].split("&")[0]
+            old, older = code(keys["host"]), code(keys["host"])
+            for stop in ("unlink", "relink"):
+                proc.stdin.write(stop + "\n"); proc.stdin.flush()
+                answer = proc.stdout.readline().strip()
+            new = json.loads(answer)["host"]
+            self.assertEqual(ask("GET", "/api/state", headers={"Cookie": "spo=" + new})[0], 200)  # shared again, with new keys
+            for stale in (old, older):
+                self.assertEqual(ask("POST", "/lodge/join", body={"wolt": "late"}, headers={"Authorization": "Bearer " + stale})[0], 401)
+                self.assertEqual(ask("POST", "/lodge/join", host="127.0.0.1", body={"wolt": "late"}, headers={"Authorization": "Bearer " + stale})[0], 401)
+            self.assertEqual(ask("POST", "/lodge/join", body={"wolt": "fresh"}, headers={"Authorization": "Bearer " + code(new)})[0], 200)
+            self.assertEqual(ask("POST", "/lodge/join", host="127.0.0.1", body={"wolt": "homebody"}, headers={"Authorization": "Bearer " + keys["code"]})[0], 200)  # this computer's own code is untouched
+        finally:
+            proc.terminate()
+            proc.communicate(timeout=10)
+
 
 def room(td, tell):
     o = Outside(None, Path(td), True, "https://site.example", 1, "host")
@@ -217,6 +261,66 @@ class Unlink(unittest.TestCase):
             o._tell = lambda *a, **kw: told.append(kw) or None
             self.assertEqual(o._settle(), (0, True))
             self.assertEqual((told[0]["room"], told[0]["gone"], o._unwritten), ("synthetic-room", True, []))
+
+    def kept(self, td, owed=False):
+        """A kept room's folder as a run left it: shared through a tunnel, and (owed) unlinked without the keys being removed."""
+        was = {"site": "https://site.example", "room": "old-room", "secret": "old-secret", "host_token": "old-host-key", "invite_token": "old-invite", "guests": {"old-guest-key": "guest@x"}}
+        (Path(td) / FILE).write_text(json.dumps(was))
+        if owed:
+            (Path(td) / OWED).write_text(json.dumps([{k: was[k] for k in ("site", "room", "secret")}]))
+        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)
+        o._keep_telling = lambda: None
+        return o
+
+    def test_an_unlink_that_was_written_down_holds_whatever_the_site_answers_and_whatever_is_left_on_disk(self):
+        # the room stopped after writing the unlink down and before its keys were removed; at the next start the site
+        # can't be told it is unlinked, yet takes the room's address: the old keys must stay dead
+        for removable in (True, False):
+            with tempfile.TemporaryDirectory() as td:
+                o = self.kept(td, owed=True)
+                o._tell = lambda url, gone=False, **kw: "site unreachable" if gone else None
+                o._up = lambda: None
+                with contextlib.nullcontext() if removable else patch.object(Path, "unlink", side_effect=OSError("read-only")):
+                    self.assertIsNone(o.saved())
+                    status, info = o.on()
+                    o._stop.set()
+                    self.assertEqual((status, info["linked"]), (200, True))
+                    self.assertNotEqual(o.room, "old-room")
+                    self.assertNotIn("old-room", info["link"])
+                    for key in ("old-host-key", "old-guest-key"):
+                        self.assertIsNone(o.who(key))
+                    self.assertEqual(o.enter({"i": "old-invite", "name": "x"})[0], 403)
+                    self.assertEqual(json.loads((Path(td) / OWED).read_text())[0]["room"], "old-room")  # still owed to the site
+
+    def test_an_unlink_stays_written_down_for_as_long_as_its_keys_are_on_disk(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.kept(td, owed=True)
+            o._tell = lambda *a, **kw: None  # the site is told at once
+            with patch.object(Path, "unlink", side_effect=OSError("read-only")):
+                self.assertEqual(o._settle()[0], 1)
+                self.assertIsNone(o.saved())
+            self.assertEqual(o._settle(), (0, True))  # the file can go now: nothing is owed any more
+            self.assertFalse((Path(td) / FILE).exists() or (Path(td) / OWED).exists())
+            self.assertIsNone(o.saved())
+
+    def test_stopping_a_kept_share_that_wasnt_opened_in_this_run_still_ends_its_address(self):
+        with tempfile.TemporaryDirectory() as td:
+            o, told = self.kept(td), []
+            o._tell = lambda url, gone=False, room=None, secret=None: told.append((url, gone, room, secret)) or None
+            self.assertEqual(o.saved()["room"], "old-room")
+            status, info = o.off()
+            self.assertEqual((status, info["linked"], info.get("note")), (200, False, None))
+            self.assertEqual(told, [("", True, "old-room", "old-secret")])
+            self.assertFalse((Path(td) / FILE).exists() or (Path(td) / OWED).exists())
+        with tempfile.TemporaryDirectory() as td:  # and when the site can't be told: owed, written down, and the keys gone
+            o = self.kept(td)
+            o._tell = lambda *a, **kw: "site unreachable"
+            status, info = o.off()
+            self.assertEqual(status, 200)
+            self.assertIn("couldn't be told yet", info["note"])
+            self.assertEqual(json.loads((Path(td) / OWED).read_text())[0]["room"], "old-room")
+            self.assertFalse((Path(td) / FILE).exists())
+            self.assertIsNone(Outside(None, Path(td), True, "https://site.example", 1, "host").saved())
 
     def test_keys_that_cant_be_removed_are_reported_and_open_nothing_meanwhile(self):
         with tempfile.TemporaryDirectory() as td:
