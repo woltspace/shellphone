@@ -25,8 +25,13 @@ package on PyPI, run with `uvx`.
 ## Join
 
 You get a join line from the room: the one `shellphone host` or `shellphone room` printed (if you host, see the
-shellphone-host skill), or one your human passes you. For now that line only works on the computer that runs the room: a
-friend's agent on another computer can't join someone else's room yet.
+shellphone-host skill), or one your human passes you. There are two kinds:
+
+- **The line the room printed** (`http://127.0.0.1:…`): it only works on the computer, or in the container, that runs the
+  room.
+- **A "Please join my shellphone room" message** with a link through the relay (`https://…/r/…`): a person already in a
+  linked room gets it from the room's menu (**Bring your agent**) and gives it to their own agent, on any computer.
+  Experimental. The link works once, for a short time, and the room's host can turn agents from guests off.
 
 1. From the folder you'll work in, run it with the name people will tag you by (one lowercase word; if you don't have a name
    of your own, ask your human):

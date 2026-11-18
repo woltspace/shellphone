@@ -654,6 +654,22 @@ class ThroughTheRelay(unittest.TestCase):
         fake = self.page(f"{base}#h.{secret_part}.{self.token}", helloWait=400)
         self.assertEqual(fake(cmd="request", method="GET", path="/api/state"), {"failed": "refused"})
 
+    def test_the_host_renames_a_chat_through_the_relay_and_a_guest_cannot(self):
+        link = self.link()
+        self.host(link)
+        base, me = link.split("#")[0], self.page(link)
+        said = me(cmd="request", method="POST", path="/api/messages", body={"text": "plans for the weekend", "cid": "r0000001"})
+        self.assertEqual(said["status"], 200)
+        chat = said["body"]["id"]
+        got = me(cmd="request", method="POST", path="/api/rename", body={"thread": chat, "name": "  Weekend   plans "})
+        self.assertEqual((got["status"], got["body"]), (200, {"thread": chat, "name": "Weekend plans"}))
+        self.assertEqual(me(cmd="request", method="GET", path="/api/state?after=0")["body"]["names"], {chat: "Weekend plans"})
+        key = me(cmd="request", method="GET", path="/api/invite")["body"]["key"]
+        token = self.page(f"{base}#{key}")(cmd="request", method="POST", path="/api/guest", body={"name": "Ali"})["body"]["token"]
+        ali = self.page(f"{base}#i.{key.split('.')[1]}.{token}")
+        self.assertEqual(ali(cmd="request", method="POST", path="/api/rename", body={"thread": chat, "name": "Mine now"})["status"], 403)
+        self.assertEqual(ali(cmd="request", method="GET", path="/api/state?after=0")["body"]["names"], {chat: "Weekend plans"})  # a guest sees the name, and can't change it
+
     def test_a_room_has_one_host_and_the_relay_can_be_locked(self):
         link = self.link()
         self.host(link)
@@ -814,6 +830,13 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertFalse((Path(keep) / "link.json").exists())
 
 
+def entered(test, manager):
+    """TestCase.enterContext, which only exists from Python 3.11: enter now, leave when the test is over."""
+    value = manager.__enter__()
+    test.addCleanup(manager.__exit__, None, None, None)
+    return value
+
+
 @E2E
 class RoomCap(unittest.TestCase):
     """The relay's desk: only so many rooms at once and per day, and counts for whoever holds the host key."""
@@ -865,7 +888,7 @@ class RoomCap(unittest.TestCase):
             return no.exception.response.status_code
         mine, other = "m" * 43, "o" * 43
         me, copy = "p" * 22, "q" * 22  # two processes
-        first = self.enterContext(host(mine, me))
+        first = entered(self, host(mine, me))
         self.assertTrue(up())
         self.assertEqual(refused(mine), 409)  # its own claim, but no process named: it waits for this one to go quiet
         self.assertEqual(refused(mine, copy), 409)  # another copy of the room, in another process: it waits too
@@ -880,7 +903,7 @@ class RoomCap(unittest.TestCase):
         self.assertFalse(up())
         self.assertEqual(refused(other), 409)
         self.assertEqual(refused(), 409)
-        second = self.enterContext(host(mine))  # the room's own host, on a new connection
+        second = entered(self, host(mine))  # the room's own host, on a new connection
         self.assertTrue(up())
         with self.assertRaises(ConnectionClosed) as closed:
             first.recv(timeout=5)
@@ -889,16 +912,16 @@ class RoomCap(unittest.TestCase):
         self.assertEqual(second.recv(timeout=5), '{"pong":1}')
         second.close()
         # a host that shows no claim is the host of before: silent for as long, it is still the room, and stays
-        old = self.enterContext(host())
+        old = entered(self, host())
         time.sleep(2.5)
         self.assertTrue(up())
         self.assertEqual(refused(mine), 409)
         old.close()
         # the same process on a new connection is in at once, and its old connection is put out
-        third = self.enterContext(host(mine, me))
+        third = entered(self, host(mine, me))
         third.send('{"ping":1}')
         self.assertEqual(third.recv(timeout=5), '{"pong":1}')
-        fourth = self.enterContext(host(mine, me))
+        fourth = entered(self, host(mine, me))
         with self.assertRaises(ConnectionClosed) as closed:
             third.recv(timeout=5)
         self.assertEqual(closed.exception.rcvd.code, 4409)
