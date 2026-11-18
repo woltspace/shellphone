@@ -199,6 +199,13 @@ export class Desk extends DurableObject {
     this.sql.exec("create table if not exists signs (id text primary key, claim text not null, proof text not null, url text not null, at integer not null, seq integer not null, gone integer not null default 0)");
     this.sql.exec("create table if not exists sign_days (day text primary key, made integer not null default 0, moved integer not null default 0, lookups integer not null default 0, refused integer not null default 0)");
     this.sql.exec("create table if not exists days (day text primary key, rooms_opened integer not null default 0, connections integer not null default 0, frames integer not null default 0, refused integer not null default 0)");
+    // The totals so far begin with what the desk already knows: once, from the per-day rows it has kept.
+    if (!this.sql.exec("select n from counters where name = 'ever_seeded'").toArray().length) {
+      const relay = this.sql.exec("select coalesce(sum(rooms_opened), 0) as n from days").one().n, tunnel = this.sql.exec("select coalesce(sum(made), 0) as n from sign_days").one().n;
+      const first = this.sql.exec("select min(day) as day from (select day from days where rooms_opened > 0 union all select day from sign_days where made > 0)").one().day;
+      this.sql.exec("insert into counters (name, n) values ('ever_relay', ?), ('ever_tunnel', ?), ('ever_seeded', 1) on conflict (name) do nothing", relay, tunnel);
+      if (first) this.sql.exec("insert into counters (name, n) values ('ever_since', ?) on conflict (name) do nothing", Date.parse(first + "T00:00:00Z"));
+    }
   }
 
   day(now) { return new Date(now).toISOString().slice(0, 10); }
@@ -208,7 +215,6 @@ export class Desk extends DurableObject {
   }
   tidy(now) {
     this.sql.exec("delete from rooms where (open = 1 and at < ?) or (open = 0 and at < ?)", now - stale(this.env), now - REOPEN);
-    this.sql.exec("delete from days where day < ?", this.day(now - 90 * 86400 * 1000));
     this.sql.exec("delete from taps where day < ?", this.day(now - 90 * 86400 * 1000));
   }
   count() { return this.sql.exec("select count(*) as n from rooms where open = 1").one().n; }
@@ -262,8 +268,9 @@ export class Desk extends DurableObject {
     this.sql.exec("update rooms set open = 0, at = ? where id = ? and gen = ?", now, id, gen);
   }
 
-  // Rooms shared so far, by way: totals that are never cleared (the per-day rows go after 90 days). They start at
-  // nothing on the day this was first deployed (ever_since), and say nothing about which rooms. Only in stats().
+  // Rooms shared so far, by way: totals that are never cleared, and neither are the per-day rows (one small row a
+  // day). They live in the desk's own storage, which a deploy doesn't touch. They begin with the days the desk had
+  // kept when this was first deployed (see the constructor), and say nothing about which rooms. Only in stats().
   ever(now, what) {
     this.sql.exec("insert into counters (name, n) values ('ever_since', ?) on conflict (name) do nothing", now);
     this.sql.exec("insert into counters (name, n) values (?, 1) on conflict (name) do update set n = n + 1", what);
@@ -288,7 +295,6 @@ export class Desk extends DurableObject {
   // that arrives late changes nothing.
   point(id, claim, check, url, gone, seq) {
     const now = Date.now();
-    this.sql.exec("delete from sign_days where day < ?", this.day(now - 90 * 86400 * 1000));
     const known = this.sql.exec("select claim, url, seq, gone from signs where id = ?", id).toArray()[0];
     if (known && !same(known.claim, claim)) return { ok: false, status: 403, why: "this address belongs to another room" };
     if (known && known.gone) return gone ? { ok: true } : { ok: false, status: 410, why: "this room was unlinked: its address is closed for good" };
@@ -303,7 +309,7 @@ export class Desk extends DurableObject {
       }
       this.sql.exec("insert into signs (id, claim, proof, url, at, seq, gone) values (?, ?, ?, ?, ?, ?, ?)", id, claim, check, url, now, seq, gone ? 1 : 0);
       this.signed(now, "made");
-      if (!gone) this.ever(now, "ever_tunnel");
+      this.ever(now, "ever_tunnel");
       return { ok: true };
     }
     if (url && url !== known.url) this.signed(now, "moved");
