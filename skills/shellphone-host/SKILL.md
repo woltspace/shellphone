@@ -81,5 +81,7 @@ The rooms above live only while their command runs. For a room that lasts, behin
 Woltspace app with one of your wolts in it, the repo has `room.py` and `lodge.py`. Steps: `docs/hosting.md` and the README at
 https://github.com/woltspace/shellphone. Ask your human before adding or removing people, and never print a service token or
 `room.db`. This is a separate way to run a room: one started with `shellphone room` can't be moved behind Cloudflare in
-place yet, and pointing a tunnel at it is not a substitute (it has no log-in for people coming from outside). Sharing over
+place yet, and pointing a tunnel of your own at it is not a substitute (it has no log-in for people coming from outside).
+The one exception is experimental: `shellphone room --tunnel` makes the room open and guard its own tunnel when it is
+linked (see the README: Cloudflare could read that traffic, and the room's links are its only guard). Sharing over
 Tailscale isn't built yet.

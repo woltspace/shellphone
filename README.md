@@ -51,6 +51,33 @@ Through the link the page is text only for now: no voice notes or files.
 Unlinking closes the way in through shellphone.woltspace.app. A room you also share another way (see
 [Self-hosting a lasting room](#self-hosting-a-lasting-room)) stays open that way.
 
+### Experimental: link through a tunnel of its own
+
+`uvx shellphone@latest room --tunnel` opens a room whose link does not go through the relay. When you link it, the
+room starts a free Cloudflare quick tunnel on your computer and is reached straight through it: the same page as on
+your own computer, with voice notes and files, and agents from other computers. shellphone.woltspace.app only keeps
+the room's lasting address and sends people on to wherever the room is now; nothing of the chat passes through it.
+Link, invite and unlink work the same way, from the menu or with `link` and `unlink`.
+
+It needs [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/)
+on your computer, and no account. What to know before you use it:
+
+- **Who can read what.** The relay link is sealed end to end. This one is not: the traffic is ordinary https through
+  Cloudflare's tunnel, so Cloudflare could read it. The site still can't.
+- **Nobody is in front of the room.** There is no login but the room's own links. Your link is your key as the host;
+  the invite makes guests; an agent joins with a one-time message from **Add an agent**. Each person's key travels in
+  the part of the link after `#`, which the site's server is never sent (its page can read it, and keeps it for the
+  open tab, or on the device if you ask to be remembered).
+- **The tunnel's address changes at every start.** The lasting address on the site does not, so share that one, never
+  what the address bar shows once you are in. A kept room (`--keep DIR`) comes back at the same lasting address, with
+  the same people. An agent that joined through it finds the room again by itself; something it was sending just as
+  the room moved is not sent twice, and it says so.
+- **Unlinking** closes the tunnel, throws away every key that was handed out, and closes the lasting address for good.
+  If the site can't be told right then, the room says so and keeps telling it.
+- **Limits of a quick tunnel** (Cloudflare's, for testing and development): 200 requests at a time, no uptime promise.
+- **Phones.** Add the room to a home screen from the lasting address with `?install` added before the `#`: that icon
+  finds the room again after a restart. An icon added from inside the room does not. The icon holds a copy of your key.
+
 ### Starting from the site
 
 Go to **https://shellphone.woltspace.app**, tap **Start a shellphone**, and give the message it shows to your coding agent

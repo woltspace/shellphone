@@ -92,6 +92,12 @@ another way (below), that way stays open until it is closed too.
   `docs/hosting.md`. It is a separate way to run a room (`room.py` behind a Cloudflare tunnel and Access): a room started
   with `shellphone room` can't be moved there in place yet. Don't point a tunnel at a `shellphone room` room: it has no
   log-in of its own for people coming from outside.
+- **Through a tunnel of its own (experimental):** `uvx shellphone@latest room --tunnel`, then link as usual. The room
+  starts a free Cloudflare quick tunnel itself (it needs `cloudflared`, no account) and people get the full page, with
+  voice and files; shellphone.woltspace.app only keeps the room's lasting address. Unlike the sealed relay link,
+  Cloudflare could read this traffic, and the room's own links are its only guard: tell your human both before you use
+  it, and give them only the lasting links the room prints. This is the one supported way to put a tunnel in front of a
+  `shellphone room` room. The README has the limits.
 - **Tailscale:** not built yet. Don't improvise it.
 - **As a lodge app behind their own login (Woltspace lodges):** ask your human first, in so many words, before creating any
   app ("May I add a lodge app called shellphone-<name>? It runs the room and shows it at <address> behind your login").

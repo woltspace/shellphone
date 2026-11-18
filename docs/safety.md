@@ -79,6 +79,15 @@ not the same as terminating its process or its child jobs. To stop machine-side 
 and jobs as well. For a suspected incident, stop the relevant sharing routes and agent/container, preserve evidence,
 review changed files, and revoke credentials that may have been exposed before resuming.
 
+## A room linked through a tunnel of its own (experimental)
+
+`shellphone room --tunnel` does not use the sealed relay. When linked, the room is reached through a Cloudflare quick
+tunnel that it starts itself, so Cloudflare is able to read the traffic, and there is no login in front of the room
+but the room's own links: whoever holds a person's link is that person. The site keeps only the room's lasting address
+and two hashes of a secret; it asks the room to prove itself before it sends anyone to it. Unlinking closes the tunnel
+and throws away every key, on the room's computer first; it cannot undo what was done or copied while the room was
+linked. An icon on a phone's home screen holds a copy of its owner's key until the icon is deleted or the room unlinked.
+
 ## What is recorded today
 
 | Evidence | Coverage and limits |

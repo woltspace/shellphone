@@ -2,10 +2,11 @@
 // Kept apart from LinkRoom.tsx so it can be tested without a browser: node --test web/tests/linkroom.test.mjs
 
 // What the row says: that it's working, else why the last try failed (the room's own reason, or that the room
-// couldn't be reached at all), else what linking does. `warn` marks a failure, so the row can show it as one.
+// couldn't be reached at all), else what the room says is still unfinished about an unlink (info.note: the site
+// hasn't been told yet), else what linking does. `warn` marks a failure or a warning, so the row can show it as one.
 export function unlinkedWords(info, note, busy) {
   if (busy) return { text: "Linking the room…", warn: false };
-  const failed = info.error || note;
+  const failed = info.error || note || info.note;
   if (failed) return { text: failed, warn: true };
   return { text: `To invite someone, the room is linked to ${info.relay || "the site"} first. You can unlink it any time.`, warn: false };
 }

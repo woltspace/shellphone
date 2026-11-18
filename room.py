@@ -33,6 +33,7 @@ SPEECH_KEY = os.environ.get("SHELLPHONE_SPEECH_KEY", "")  # for a hosted speech 
 LOCK = threading.RLock()
 DEV = False
 LINKER = None  # set by the `shellphone` command: the room's switch between "only on this computer" and "linked" (info, on, off)
+OUTSIDE = None  # set by the `shellphone` command while the room is linked through a tunnel (shellphone/outside.py): its address there, and who each outside link belongs to
 LOCAL = {}  # `shellphone room` (a room on this computer only): login token -> email. The token comes in the link the host opens.
 # Behind Cloudflare Access: the team domain and the Access app's audience tag. With both set, people must carry a valid Access login.
 ACCESS_TEAM = os.environ.get("SHELLPHONE_ACCESS_TEAM", "")
@@ -853,7 +854,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def person(self):
         """Behind Cloudflare Access the email comes from Access. In --dev, ?as= or a cookie picks who you are."""
         if LOCAL:  # a room on this computer only: the link's token says who you are, never a header or an address
-            email = LOCAL.get(self.local_token(), "") if self.local_host() else ""
+            email = LOCAL.get(self.local_token(), "") if self.local_host() else (OUTSIDE.who(self.outside_token()) or "") if self.outside_host() else ""
         elif ACCESS_TEAM and ACCESS_AUD:  # trust the signed login, not a header anyone on this computer could send
             email = access_email(self.headers.get("Cf-Access-Jwt-Assertion") or "")
         else:
@@ -870,6 +871,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Only this computer's own address counts, so another site can't point a name of its own at the room."""
         return (self.headers.get("Host") or "").rsplit(":", 1)[0] in ("127.0.0.1", "localhost")
 
+    def outside_host(self):
+        """The room's own address through its tunnel, while it has one: the only other name it answers people on."""
+        return bool(OUTSIDE and OUTSIDE.open and OUTSIDE.host and (self.headers.get("Host") or "").lower() == OUTSIDE.host)
+
+    def outside_token(self):
+        """Through the tunnel the token is only ever in the cookie: it came in the link's fragment, which no server sees."""
+        cookie = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+        return cookie.get("spo", "")
+
+    def enter(self):
+        """Someone with a link from outside: their own token, or the invite and a name. A cookie from here on."""
+        status, out, token = OUTSIDE.enter(json.loads(self.body() or b"{}"))
+        data = json.dumps(out).encode()
+        self.send_response(status)
+        if token:
+            self.send_header("Set-Cookie", f"spo={token}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax")
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def local_token(self):
         """The token from the link (?k=), or from the cookie the first visit left. One cookie per port: rooms don't mix."""
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -881,7 +904,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return key_hash(auth[7:].strip()) if auth.startswith("Bearer ") else None
 
     def lodge(self):
-        row = q("select wolt, owner, creature, voice, paused from wolts where key_hash = ?", self.bearer())
+        row = q("select wolt, owner, creature, voice, paused, via from wolts where key_hash = ?", self.bearer())
+        if row and LOCAL and not self.local_host():  # from outside: only an agent that joined through the link the room has now
+            if not self.outside_host() or row[0]["via"] != OUTSIDE.via():
+                return None
         return row[0] if row else None
 
     def invite(self):
@@ -907,7 +933,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         if path.startswith("/lodge/"):
-            if path == "/lodge/connector.py" and self.invite():
+            if path == "/lodge/connector.py" and self.invite() and (not LOCAL or self.local_host() or self.outside_host()):
                 return self.send(200, (HERE / "connector.py").read_bytes(), "text/x-python; charset=utf-8")
             l = self.lodge()
             if not l:
@@ -922,6 +948,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", "0")
             return self.end_headers()
+        if path == "/api/up" and self.outside_host():  # the site asks, before it sends anyone here: is this that room, and is it open?
+            return self.send(200, {"shellphone": True, "room": OUTSIDE.room, "proof": OUTSIDE.proof(q.get("n", [""])[0])})
+        if path == "/enter" and self.outside_host():  # where the room's lasting address sends people: the key in the link becomes a cookie, and is gone from the address bar
+            return self.send(200, OUTSIDE.enter_page().encode(), "text/html; charset=utf-8")
         email, p = self.person()
         app_files = {"/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript; charset=utf-8",
                      "/icon-180.png": "image/png", "/icon-512.png": "image/png", "/room-icon.png": "image/png"}
@@ -930,6 +960,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path in app_files and p:  # what makes the room a home-screen app
             return self.send(200, (HERE / path[1:]).read_bytes(), app_files[path])
         if path in ("/", "/index.html"):
+            if not p and self.outside_host():  # no cookie yet: the page that takes the token from the link, or asks a guest's name
+                return self.send(200, OUTSIDE.enter_page().encode(), "text/html; charset=utf-8")
             if not p:
                 who = f" You're signed in as {self.seen}." if self.seen else ""
                 return self.send(403, f"You're not on this room's list.{who}".encode(), "text/plain; charset=utf-8")
@@ -937,7 +969,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/join":  # a logged-in person gets one message to paste to their own wolt, wherever they talk to it
             if not p:
                 return self.send(403, b"You're not on this room's list.", "text/plain; charset=utf-8")
-            return self.send(200, join_page(email, p["name"]).encode(), "text/html; charset=utf-8")
+            return self.send(200, join_page(email, p["name"], OUTSIDE.agent_steps(email) if self.outside_host() else None).encode(), "text/html; charset=utf-8")
         if not p:
             return self.send(403, {"error": "not on this room's list"})
         if path == "/api/link":  # whether the room can be reached from outside: the host's to see, on this computer only
@@ -951,7 +983,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             if path == "/lodge/join":
-                return self.send(*join_wolt(self.bearer(), json.loads(self.body() or b"{}")))
+                if LOCAL and not self.local_host() and not self.outside_host():
+                    return self.send(401, {"error": "unknown lodge key"})
+                got = join_wolt(self.bearer(), json.loads(self.body() or b"{}"))
+                if got[0] == 200 and self.outside_host():  # it came in through the tunnel: its key counts through this link only
+                    with tx() as c:
+                        c.execute("update wolts set via = ? where wolt = ?", (OUTSIDE.via(), got[1]["wolt"]))
+                return self.send(*got)
             if path.startswith("/lodge/"):
                 l = self.lodge()
                 if not l:
@@ -959,6 +997,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(*for_wolt(self.call("POST"), l))
             if self.headers.get("Origin") == "null" or self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
                 return self.send(403, {"error": "only the room's own page can post"})  # e.g. a shared web page, which runs sandboxed
+            if path == "/api/enter" and self.outside_host():
+                return self.enter()
             email, p = self.person()
             if not p:
                 return self.send(403, {"error": "not on this room's list"})
@@ -1416,7 +1456,10 @@ def wolt_by_key(key):
     return row[0] if row else None
 
 
-def join_page(email, name):
+def join_page(email, name, steps=None):
+    if steps:  # asked through the tunnel: the agent is on another computer, and gets the room's lasting address
+        esc = steps.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return JOIN_PAGE.replace("{{NAME}}", name.replace("<", "&lt;")).replace("{{TEXT}}", esc).replace("{{MINUTES}}", str(JOIN_MINUTES))
     code = agent_code(email)
     lodge = {"room_url": os.environ.get("SHELLPHONE_URL", "http://127.0.0.1:4090"), "invite": code}
     if os.environ.get("SHELLPHONE_CF_ID"):
