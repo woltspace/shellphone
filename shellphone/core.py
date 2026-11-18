@@ -42,6 +42,7 @@ RULES = {
     "guests_invite.set": ({HOST}, False),  # whether guests may invite people
     "invite.end": ({HOST}, False),         # end the open ones: nobody new comes in by them; who is in stays in
     "invite.list": ({HOST}, False),        # which are open: when they end, how many places are left. Never the links themselves
+    "push.test": ({HOST, MEMBER}, False),  # a test notification to yourself, a few seconds later (the menu's Testing rows)
 }
 ONLY_HOST = "only the room's host can do that"
 ONLY_HERE = "only the room's host can do that, on the computer the room runs on"

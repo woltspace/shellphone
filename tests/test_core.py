@@ -66,6 +66,7 @@ ALLOWED = {
     "guests_invite.set": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "invite.end": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "invite.list": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
+    "push.test": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}, MEMBER: {LOCAL, TUNNEL, RELAY, ACCESS}},
 }
 
 

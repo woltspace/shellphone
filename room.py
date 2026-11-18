@@ -1115,6 +1115,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(*self.invites_call(email, path, json.loads(self.body() or b"{}"), True))
             if path == "/api/agent-invite":
                 return self.send(*self.agent_message(email))
+            if path == "/api/test-push":  # test notifications: the room's rule (shellphone/core.py), not this door's
+                no = rules().refusal(email, "push.test", self.via())
+                if no:
+                    return self.send(*no)
             if path == "/api/guests-invite":  # the host lets guests invite people, or stops that
                 body = json.loads(self.body() or b"{}")
                 if not (LOCAL and LINKER):
