@@ -1363,12 +1363,13 @@ def for_person(req, email):
             delay = max(3, min(60, int(json.loads(req.read(1000) or b"{}").get("in", 10))))
         except (ValueError, TypeError, AttributeError):
             return reply(400, {"error": "in is a number of seconds"})
-        rows = [(r["id"], json.loads(r["data"])) for r in q("select id, data from messages where kind in ('human', 'wolt') order by n desc limit 400")]
+        with tx() as c:  # (q is this call's query string here)
+            rows = [(r["id"], json.loads(r["data"])) for r in c.execute("select id, data from messages where kind in ('human', 'wolt') order by n desc limit 400")]
+            subs = [json.loads(r["sub"]) for r in c.execute("select sub from push where email = ?", (email,))]
         main = next((i for i, d in rows if not d.get("thread")), None)
         reply_ = next(((i, d["thread"]) for i, d in rows if d.get("thread")), None)
         tests = ([{"title": "🧪 test · main chat", "body": "Tap me: I should land on the newest message in the main chat.", "url": f"./#m={main}"}] if main else []) + \
                 ([{"title": "🧪 test · thread 🧵", "body": "Tap me: I should open the newest thread reply.", "url": f"./#m={reply_[0]}&t={reply_[1]}"}] if reply_ else [])
-        subs = [json.loads(r["sub"]) for r in q("select sub from push where email = ?", email)]
         if not subs:
             return reply(400, {"error": "turn notifications on first"})
         def later():  # only to the person who asked, even while their page is open
