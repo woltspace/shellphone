@@ -59,6 +59,7 @@ WAYS = (LOCAL, TUNNEL, RELAY, ACCESS)
 ALLOWED = {
     "share.see": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "share.switch": {HOST: {LOCAL}},
+    "room.close": {HOST: {LOCAL}},
     "invite.see": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "guest_agents.set": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "agent.invite": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}, MEMBER: {LOCAL, TUNNEL, RELAY, ACCESS}, GUEST: {LOCAL, TUNNEL, RELAY, ACCESS}},
@@ -150,7 +151,8 @@ class Invites(unittest.TestCase):
             self.assertEqual(self.core.make_invite("host@x", TUNNEL, MARK, **bad)[0], 400, bad)
         now = time.time()
         plain = self.make()
-        self.assertTrue(now + core.DAY - 5 < plain["expires"] < now + core.DAY + 5)  # a day, unless said otherwise
+        self.assertEqual(core.USUAL, 30 * 60)
+        self.assertTrue(now + core.USUAL - 5 < plain["expires"] < now + core.USUAL + 5)  # 30 minutes, unless said otherwise
         self.assertEqual((plain["uses_left"], self.make(ends_in=None)["expires"]), (None, None))
         personal = self.make(for_name="  Ada   Lovelace ", uses=9)
         self.assertEqual((personal["for"], personal["uses_left"]), ("Ada Lovelace", 1))  # one named person: one place
@@ -260,6 +262,24 @@ class Invites(unittest.TestCase):
         self.core.adopt(MARK, "the-first-invite")  # a restart, a second look: an ended invite is not made again
         self.assertFalse(self.core.invite_open(MARK, "the-first-invite"))
         self.assertEqual(self.come_in("the-first-invite", "Late")[0], 403)
+
+    def test_the_invite_a_way_of_sharing_comes_with_works_for_30_minutes_and_a_restart_doesnt_put_its_end_off(self):
+        from unittest.mock import patch
+        began = time.time()
+        self.core.adopt(MARK, "the-first-invite")
+        first = self.core.list_invites("host@x", TUNNEL, MARK)[1]["invites"][0]
+        self.assertTrue(began + core.USUAL - 5 < first["expires"] < began + core.USUAL + 5)
+        with patch.object(core.time, "time", lambda: began + core.USUAL - 60):  # 29 minutes on: still open, and looked at again (a restart)
+            self.core.adopt(MARK, "the-first-invite")
+            self.assertTrue(self.core.invite_open(MARK, "the-first-invite"))
+            self.assertEqual(self.core.list_invites("host@x", TUNNEL, MARK)[1]["invites"][0]["expires"], first["expires"])  # its end stays where it was
+            self.assertEqual(self.come_in("the-first-invite", "Ada")[0], 200)
+        with patch.object(core.time, "time", lambda: began + core.USUAL + 1):  # 30 minutes on: over
+            self.assertFalse(self.core.invite_open(MARK, "the-first-invite"))
+            self.assertEqual(self.come_in("the-first-invite", "Late")[0], 403)
+            self.core.adopt(MARK, "the-first-invite")  # and no restart brings it back
+            self.assertFalse(self.core.invite_open(MARK, "the-first-invite"))
+            self.assertEqual(self.core.list_invites("host@x", TUNNEL, MARK)[1]["invites"], [])
         self.assertEqual(self.room.con.execute("select count(*) from people_invites").fetchone()[0], 1)
 
     def test_stopping_a_way_of_sharing_ends_its_invites_and_no_others(self):

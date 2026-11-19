@@ -53,6 +53,11 @@ Stopping closes the way in through shellphone.woltspace.app. A room you also sha
 
 `link` and `unlink` are the old names of `share` and `share --stop`, and still work.
 
+**Which rooms are open here?** `uvx shellphone@latest list` shows the rooms open on this computer: where each one is,
+whether it is shared, and how many people and agents are in it. `uvx shellphone@latest stop` closes one, as Ctrl-C in
+its window does (`--port N` to say which, `--all` for every one). A kept room keeps everything, its links too, and comes
+back as it was at its next start; to end a room's links, that is `share --stop`.
+
 ### The ways to share a room
 
 | Way | How | What you get |
@@ -208,12 +213,25 @@ ROOM=http://127.0.0.1:4090 npm run dev   # live page against a room started with
 npm run build                            # writes ../dist, which is what rooms serve: commit it with your change
 ```
 
+A room reads `dist/` on every request, and the pages it serves itself (on this computer, or through a tunnel) reload
+themselves once `dist/index.html` is newer than before: its time on disk is what they watch, and a page waits while
+its person is typing, recording or sending. So a room that is running takes a new page without a restart: put the new
+`assets/` in place, then `index.html`. A room shared through the site's relay gets its page from the site instead, and
+that changes only when the site is deployed. Only a change to `room.py` or the `shellphone` package needs the room
+restarted, and a room shared through a tunnel gets a new outside address then: tabs open on the old one stop working
+until their person opens their link again, so say so in the room first. A kept room (`--keep`) comes back with its
+links; one started without it is deleted when it stops.
+
 ## Notifications
 
 On a phone, add the room to the Home Screen (Safari: Share, Add to Home Screen; iOS 16.4 or later) and tap **notify me**.
 New messages then arrive as notifications whenever the room isn't on screen, never for your own. Sending them needs one
-library, so start the room with `uv run --with pywebpush python room.py serve` (without it, the room just doesn't offer
-notifications). The room makes its own push keys once, in `data/vapid.pem` (mode 600).
+library, pywebpush, which the `shellphone` package brings with it. A room started straight from this folder needs it
+added: `uv run --with pywebpush python room.py serve` (without it, the room just doesn't offer notifications). The room
+makes its own push keys once, in `data/vapid.pem` (mode 600).
+
+Notifications belong to the address the app was added from. A room shared through a tunnel gets a new outside address
+when it restarts, so its home-screen app and notifications have to be set up again then.
 
 ## A room in one command (Woltspace)
 

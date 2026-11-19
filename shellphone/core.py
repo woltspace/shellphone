@@ -35,6 +35,7 @@ TRANSPORTS = {v.transport: v for v in (LOCAL, TUNNEL, RELAY, ACCESS)}
 RULES = {
     "share.see": ({HOST}, False),          # whether the room is shared, and through what
     "share.switch": ({HOST}, True),        # share the room, or stop: being the host is not enough, it takes the room's own computer
+    "room.close": ({HOST}, True),          # close the room itself, as Ctrl-C in its window does: the host, on the room's own computer
     "invite.see": ({HOST}, False),         # the link that lets people in as guests
     "guest_agents.set": ({HOST}, False),   # whether guests may bring agents of their own
     "agent.invite": ({HOST, MEMBER, GUEST}, False),  # a message for one of the caller's own agents (guests: while the host allows it)
@@ -54,6 +55,7 @@ NO_GUEST_INVITES = "the host hasn't let guests invite people to this room"
 GUEST_LONGEST, GUEST_USES, GUEST_OPEN, GUEST_HOURLY = 86400, 10, 5, 10
 NOT_SHARED = "share the room first: an invite is a link through what the room is shared by"
 DAY = 86400
+USUAL = 30 * 60  # how long an invite for people works when nobody says: long enough to pass on and open, short enough that a link left lying about is dead
 LONGEST = 30 * DAY  # an invite that ends, ends within this; the host may also make one with no end
 # A people invite is a row here, never a fixed key: who made it, who it is for (nobody named: anyone), when it ends,
 # how many places are left, and the mark of what the room was shared by when it was made (it works through that only).
@@ -163,12 +165,14 @@ class Core:
         return bool(row) and row["ended"] is None and (row["expires"] is None or row["expires"] > now) and (row["uses_left"] is None or row["uses_left"] > 0)
 
     def adopt(self, mark, token, made_by=None):
-        """The one invite a way of sharing comes with becomes a record like any other: the host's, with no end. Done
-        once for that invite: asked again (a restart, a second look) it changes nothing, so an invite that was ended
-        stays ended and places that were taken stay taken."""
+        """The one invite a way of sharing comes with becomes a record like any other: the host's, and it works for
+        as long as an invite does when nobody says (USUAL). Done once for that invite: asked again (a restart, a
+        second look) it changes nothing, so an invite that ended stays ended, its end is not put off, and places that
+        were taken stay taken."""
+        now = time.time()
         with self._tx() as c:
-            c.execute("insert or ignore into people_invites (id, token_hash, made_by, mark, created, legacy) values (?, ?, ?, ?, ?, 1)",
-                      (secrets.token_hex(8), token_hash(token), made_by or self.host_email or self.r.host(), mark, time.time()))
+            c.execute("insert or ignore into people_invites (id, token_hash, made_by, expires, mark, created, legacy) values (?, ?, ?, ?, ?, ?, 1)",
+                      (secrets.token_hex(8), token_hash(token), made_by or self.host_email or self.r.host(), now + USUAL, mark, now))
 
     def invite(self, mark, token):
         """The record of this invite as it came through what the room is shared by now, open or not; None if there is none."""
@@ -181,7 +185,7 @@ class Core:
     def invite_open(self, mark, token):
         return self._open(self.invite(mark, token), time.time())
 
-    def make_invite(self, email, via, mark, ends_in=DAY, uses=None, for_name=None):
+    def make_invite(self, email, via, mark, ends_in=USUAL, uses=None, for_name=None):
         """A new invite. ends_in: seconds from now, or None for no end. uses: how many people it lets in (None: as
         many as the room has room for). for_name: one named person; then it lets in one, under that name.
         Returns (200, {"id", "token", ...}): the token is said here once and kept nowhere."""

@@ -170,7 +170,7 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
       className={`flex w-full text-left bg-transparent border-0 border-b-2 border-line px-3 py-4 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
       {/* the wallpaper shows around it; what you read sits on solid ground: the title in its own band, then the latest message
           in the colour of whoever said it */}
-      <span className="flex-1 min-w-0 rounded-2xl border-2 overflow-hidden shadow-[0_2px_8px_#18100a24]" style={{ borderColor: color + "99" }}>
+      <span className="flex-1 min-w-0 rounded-2xl border-2 overflow-hidden shadow-[0_2px_8px_#18100a24]" style={{ borderColor: here ? color : color + "99", boxShadow: here ? `0 0 0 3px ${color}66, 0 2px 8px #18100a24` : undefined }}>
         <span className="flex items-center gap-2 px-3.5 py-2 border-b-2 font-mono text-[14px] font-bold" style={{ borderColor: color + "55", background: mix(color, "#ffffff", 0.9) }}>
           <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : lobby ? "# lobby" : "# main chat"}</span>
           {n > 0 && count(n)}

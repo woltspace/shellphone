@@ -29,7 +29,7 @@ export function People({ people, me, host, faces = {}, sec }: { people: Person[]
   const hatOf = (e: string) => (faces[e]?.startsWith("hat-") ? faces[e].slice(4) : "");
   const list = [...people].sort((a, b) => (a.email === me ? -1 : b.email === me ? 1 : a.name.localeCompare(b.name)));
   return <>
-    <div className={sec}>People</div>
+    <div className={sec}>Humans</div>
     {list.map((p) => { const mine = p.email === me && !p.guest, face = <img src={personAvatar(p.name, p.color, hatOf(p.email))} alt="" className="w-[30px] h-[30px]" />;
       return <div key={p.email}>
         <div className="flex items-center gap-2.5 px-4 py-2">

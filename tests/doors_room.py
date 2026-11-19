@@ -1,6 +1,6 @@
 """For tests/test_doors.py: one room on this computer and its doors (a tunnel's switch, relay links), driven in this
 process without any tunnel, relay or site. Runs the cases and prints what happened, as one line of JSON."""
-import argparse, json, os, re, sys
+import argparse, json, os, re, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shellphone import cli
@@ -77,6 +77,16 @@ def relay_cases():
     rv["is_in"] = two.answer("i", "GET", "/api/state", None, newcomer[1].get("token"))[0]
     rv["once"] = two.answer("i", "POST", "/api/guest", {"name": "Bob"}, secret)[0]
     rv["at_another_link"] = other.answer("i", "POST", "/api/guest", {"name": "Bob"}, secret)[0]
+    now = time.time()
+    plain = two.answer("h", "POST", "/api/invites", {}, two.token)[1]  # no length said, through the relay: the same 30 minutes as at the room's own door
+    rv["default_length"] = now + 1795 < plain.get("expires", 0) < now + 1805
+    with_none = two.answer("h", "POST", "/api/invites", {"ends_in": None}, two.token)[1]
+    rv["no_end_when_said"] = "expires" in with_none and with_none["expires"] is None
+    from unittest.mock import patch
+    from shellphone import core as rules_mod
+    with patch.object(rules_mod.time, "time", lambda: now + 1801):  # half an hour on, nobody comes in by the plain one
+        rv["default_over_after_30_minutes"] = two.answer("i", "POST", "/api/guest", {"name": "Late"}, plain.get("link", ".").rsplit(".", 1)[1])[0]
+    two.answer("h", "POST", "/api/invites/end", {"id": plain.get("id")}, two.token), two.answer("h", "POST", "/api/invites/end", {"id": with_none.get("id")}, two.token)
     rv["guest_makes"] = two.answer("i", "POST", "/api/invites", {}, guest)[0]
     rv["guest_sets_the_switch"] = two.answer("i", "POST", "/api/guests-invite", {"on": True}, guest)[0]
     rv["host_sets_the_switch"] = two.answer("h", "POST", "/api/guests-invite", {"on": True}, two.token)
@@ -315,7 +325,7 @@ def command(**kw):
     said = io.StringIO()
     with contextlib.redirect_stdout(said):
         try:
-            cli.invite(argparse.Namespace(**{"keep": None, "port": None, "end": False, "name": None, "hours": None, "uses": None, "forever": False, "guests": None, **kw}))
+            cli.invite(argparse.Namespace(**{"keep": None, "port": None, "end": False, "name": None, "hours": None, "minutes": None, "uses": None, "forever": False, "guests": None, **kw}))
         except SystemExit as exc:
             return "refused: " + str(exc)
     return said.getvalue()
@@ -389,12 +399,18 @@ inv["command_says"] = ("for Ada, once" in said, "for 2 hours" in said, "https://
 inv["command_link_works"] = t.enter({"i": said.split("#i.")[1].split()[0], "name": "x"})[1].get("name")
 inv["command_forever"] = "with no end" in command(forever=True, uses=3) and "for up to 3 people" in command(forever=True, uses=3)
 inv["command_bad"] = command(hours=0.001)[:8]
+inv["command_lengths"] = ("for anyone who has it, for 30 minutes:" in command(), "for 5 minutes:" in command(minutes=5), "for 1 hour:" in command(minutes=60), "for 3 days:" in command(hours=72), "for 90 minutes:" in command(hours=1.5))
+inv["command_one_length"] = [command(**kw)[:8] for kw in ({"minutes": 5, "hours": 1}, {"minutes": 5, "forever": True}, {"hours": 1, "forever": True}, {"minutes": 5, "end": True}, {"minutes": 5, "guests": "on"})]
+now = time.time()
+made = tell("POST", "/api/invites", "127.0.0.1", here, {})[1]
+inv["page_default"] = now + 1795 < made["expires"] < now + 1805
 
 people_before = len(r.people())
 status, ended = tell("POST", "/api/invites/end", t.host, host_out, {})
 inv["ended"] = (status, ended.get("ended"))
 inv["first_invite_after_end"] = t.enter({"i": "v" * 32, "name": "Late"})[0]
 inv["first_invite_gone_from_the_menu"] = "invite" not in tell("GET", "/api/link", "127.0.0.1", here)[1]
+inv["share_says_how_long"] = "for the next" not in cli.linked_words({"link": "L", "invite": "I"}) and all("works for 30 minutes from when it is made" in cli.linked_words(i) for i in ({"link": "L", "invite": "I"}, {"link": "L"}))  # the usual length, never a promise of how long this one has left
 inv["command_words_without_an_invite"] = "The invite this room came with has ended" in cli.linked_words(t.info()) and "#i." not in cli.linked_words(t.info())
 inv["command_end"] = command(end=True)[:22]
 inv["guests_stay_after_end"] = len(r.people()) == people_before and tell("GET", "/api/state", t.host, "spo=" + visitor)[0] == 200

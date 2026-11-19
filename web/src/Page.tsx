@@ -3,7 +3,7 @@
 // policy first in it). It reaches the room through one door only: it hands the app changes to its board, and the app
 // hands it back the changes the room confirmed, in order, each stamped by the room with who made it.
 import { useEffect, useRef, useState } from "react";
-import { FileCode2, X } from "lucide-react";
+import { ExternalLink, FileCode2, X } from "lucide-react";
 import { call, relayRoom } from "./relay";
 import { send, type Msg, type PageRef } from "./room";
 import { changeGate, look, sealed, type Got, type Open } from "./pages.js";
@@ -31,7 +31,7 @@ const get = async (url: string): Promise<Got> => {
 };
 
 // mark: where the room says this page stands ({v, n} from /api/state); when it moves, the viewer asks for what's new
-export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: number; n: number }; ctx: Ctx; close: () => void }) {
+export function PageViewer({ id, mark, ctx, close, tab }: { id: string; mark?: { v: number; n: number }; ctx: Ctx; close: () => void; tab?: boolean }) {  // tab: the page alone in a browser tab of its own
   const frame = useRef<HTMLIFrameElement>(null);
   const [page, setPage] = useState<{ title?: string; by?: string; v: number; html: string } | null>(null);
   const [trouble, setTrouble] = useState<"" | "missing" | "unreachable">("");
@@ -92,16 +92,20 @@ export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: n
     onTouchMove: (e: React.TouchEvent) => { if (from.current !== null) setDy(Math.max(0, e.touches[0].clientY - from.current)); },
     onTouchEnd: () => { from.current = null; if (dy > 90) close(); else setDy(0); },
   };
-  return <div className="fixed inset-0 z-[2900] flex flex-col bg-paper" role="dialog" aria-label={page?.title || "Page"}
-    style={{ transform: dy ? `translateY(${dy}px)` : undefined, transition: from.current === null ? "transform .2s" : "none" }}>
-    <div {...pull} className="flex-none touch-none border-b border-line bg-panel pt-[env(safe-area-inset-top)]">
-      <div className="mx-auto mt-2 h-[5px] w-10 rounded-full bg-line" />
+  // on a computer screen: a window over the chat, the chat faded behind it (a click outside closes it); on a phone, the whole screen
+  const wide = !tab && typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches;
+  const sheet = <div className={wide ? "relative z-[1] flex flex-col bg-paper w-[min(1100px,92vw)] h-[88vh] rounded-2xl overflow-hidden shadow-[0_24px_70px_#18100a59] animate-[pop_.2s_cubic-bezier(.2,.8,.2,1)]" : "fixed inset-0 z-[2900] flex flex-col bg-paper"} role="dialog" aria-label={page?.title || "Page"}
+    style={wide ? undefined : { transform: dy ? `translateY(${dy}px)` : undefined, transition: from.current === null ? "transform .2s" : "none" }}>
+    <div {...(wide || tab ? {} : pull)} className="flex-none touch-none border-b border-line bg-panel pt-[env(safe-area-inset-top)]">
+      {wide || tab ? <div className="h-2" /> : <div className="mx-auto mt-2 h-[5px] w-10 rounded-full bg-line" />}
       <div className="flex items-center gap-2 px-4 pb-2 pt-1">
         <div className="min-w-0 flex-1">
           <div className="truncate text-base font-semibold">{page?.title || (trouble === "missing" ? "This page is gone" : "Opening…")}</div>
-          <div className="truncate font-mono text-[11px] text-dim">{page ? `by ${page.by || "an agent"} · v${page.v} · swipe down for the chat` : " "}</div>
+          <div className="truncate font-mono text-[11px] text-dim">{page ? `by ${page.by || "an agent"} · v${page.v}${wide || tab ? "" : " · swipe down for the chat"}` : " "}</div>
         </div>
-        <button type="button" aria-label="Close the page" onClick={close} className="grid h-10 w-10 flex-none place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={22} /></button>
+        {!tab && <a href={`${location.pathname}#page=${encodeURIComponent(id)}`} target="_blank" rel="noopener" title="Open in a new tab" aria-label="Open in a new tab"
+          className="grid h-10 w-10 flex-none place-items-center text-dim hover:text-ink"><ExternalLink size={19} /></a>}
+        {!tab && <button type="button" aria-label="Close the page" onClick={close} className="grid h-10 w-10 flex-none place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={22} /></button>}
       </div>
     </div>
     {page ? <iframe ref={frame} key={page.v} title={page.title} srcDoc={page.html} sandbox="allow-scripts" referrerPolicy="no-referrer" allow=""
@@ -110,6 +114,11 @@ export function PageViewer({ id, mark, ctx, close }: { id: string; mark?: { v: n
     {page && trouble === "unreachable" && <div className="flex-none text-center font-mono text-[11px] text-acc">Can't reach the room, trying again…</div>}
     <div className="flex-none px-4 pb-[max(10px,env(safe-area-inset-bottom))] text-center font-mono text-[10.5px] text-dim">
       🔒 Sealed: it can only save this board. It can't read the chat, your phone or the internet.</div>
+  </div>;
+  if (!wide) return sheet;
+  return <div className="fixed inset-0 z-[2900] grid place-items-center">
+    <div onClick={close} className="absolute inset-0 bg-[#18100a59] backdrop-blur-[3px] animate-[fadein_.18s_ease-out]" />
+    {sheet}
   </div>;
 }
 

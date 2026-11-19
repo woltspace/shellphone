@@ -84,7 +84,7 @@ class Link:
         body = body if isinstance(body, dict) else {}
         if path.endswith("/end"):
             return self.core.end_invites(email, THROUGH_RELAY, mark, body.get("id"))
-        status, out = self.core.make_invite(email, THROUGH_RELAY, mark, body.get("ends_in", 86400), body.get("uses"), body.get("for"))
+        status, out = self.core.make_invite(email, THROUGH_RELAY, mark, uses=body.get("uses"), for_name=body.get("for"), **({"ends_in": body["ends_in"]} if "ends_in" in body else {}))  # no length said: the rules' usual one, as at the room's own door
         if status == 200:
             out["link"] = self.invite_link(out.pop("token"))
         return status, out

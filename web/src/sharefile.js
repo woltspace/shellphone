@@ -49,6 +49,8 @@ export async function share(url, name, env = globalThis) {
   }
 }
 
+export function save(file, env = globalThis) { download(file, env); }  // the file, downloaded (Download in the viewer)
+
 function download(file, env) {
   const a = env.document.createElement("a"), href = env.URL.createObjectURL(file);
   a.href = href; a.download = file.name; a.rel = "noopener";

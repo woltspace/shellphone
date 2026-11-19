@@ -2,7 +2,7 @@
 // in the whole room). Tapped, a sheet with a switch per agent. The room keeps the switches (/api/state "who") and hands
 // a thread's messages only to the agents in it. People flip them; a room pause wins over all of them.
 // An older room without switches: they're kept on this phone only, as a mock, and say so.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { say, type Msg, type Wolt } from "./room";
 import { woltColor, type Ctx, woltFace } from "./Message";
@@ -25,12 +25,13 @@ function guess(list: Msg[], wolts: Wolt[]): Record<string, Mark> {
   return out;
 }
 
-export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
+export function ThreadWho({ thread, list, ctx, room, fallback, host, main, inline }: {
   thread: string; list: Msg[]; ctx: Ctx;
   room?: Record<string, "in" | "paused">;  // the room's switches for this thread; undefined: the room has none (mock)
   fallback?: "in" | "out";                 // the room's rule for an agent with no switch here (none given: not in yet)
   host?: string;
   main?: string | null;  // the room's main agent: in every thread unless switched off there
+  inline?: boolean;      // just the switches, in a side pane (a computer screen), no faces button and no sheet
 }) {
   const real = room !== undefined;
   const [mock, setMock] = useState(load), [open, setOpen] = useState(false);
@@ -43,10 +44,13 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
   // same rights as a room pause: the host on every agent, otherwise your own, a guest's too (the room decides; this only hides what it would refuse)
   const may = (w: Wolt) => !real || (!guest && ctx.me === host) || w.owner === ctx.me;
 
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
   const flip = async (wolt: string, m: Mark) => {
     if (!real) { const next = { ...mock, [thread]: { ...(mock[thread] || {}), [wolt]: m } }; setMock(next); save(next); return; }
     setBusy(wolt); setNote(""); setSent((s) => ({ ...s, [wolt]: m }));
     const err = await say("/api/thread-who", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread, wolt, state: m }) });
+    if (!alive.current) return;
     if (err) { setNote(err); setSent((s) => { const { [wolt]: _, ...rest } = s; return rest; }); }
     setBusy("");
   };
@@ -55,36 +59,25 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
     if (real && Object.entries(sent).some(([w, m]) => room![w] === m)) setSent((s) => Object.fromEntries(Object.entries(s).filter(([w, m]) => room![w] !== m)));
   }, [room]);
 
+  useEffect(() => {  // Escape closes the switches' sheet
+    if (!open) return;
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
+    addEventListener("keydown", key, true); return () => removeEventListener("keydown", key, true);
+  }, [open]);
   const face = (w: Wolt) => woltFace(w.wolt, w.creature);
+  const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches;  // a window in the middle on a computer screen
   const on = (w: Wolt) => marks[w.wolt] === "in" && !w.paused;
   const shown = ctx.wolts.filter((w) => marks[w.wolt] !== "out");
   const first = shown.slice(0, 3), more = shown.length - first.length;
   if (!ctx.wolts.length) return null;
 
-  return <>
-    <button type="button" aria-label="Who's in this thread" onClick={(e) => { e.stopPropagation(); setOpen(true); }}
-      className="flex-none flex items-center h-10 px-1 border-0 bg-transparent cursor-pointer">
-      {first.length ? first.map((w, i) => <span key={w.wolt} className="relative" style={{ marginLeft: i ? -10 : 0, zIndex: 3 - i }}>
-        <img src={face(w)} alt={w.wolt} className={`pixel block w-[28px] h-[28px] rounded-full border-2 border-[#fffdf6] bg-[#fbe9df] ${on(w) ? "" : "grayscale opacity-50"}`} />
-        {on(w) && <i className="absolute -right-px -bottom-px w-[9px] h-[9px] rounded-full bg-[#3aa45b] border-[1.5px] border-[#fffdf6]" />}
-      </span>)
-        : <span className="grid place-items-center w-[28px] h-[28px] rounded-full border-2 border-dashed border-line text-dim text-sm">+</span>}
-      {more > 0 && <span className="ml-1 font-mono text-[11px] text-dim">+{more}</span>}
-    </button>
-    {open && <div className="fixed inset-0 z-[2950]" onClick={(e) => { e.stopPropagation(); setOpen(false); }}>
-      <div className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
-      <div role="dialog" aria-label="Who's in this thread" onClick={(e) => e.stopPropagation()}
-        className="absolute inset-x-0 bottom-0 max-w-[640px] mx-auto bg-paper rounded-t-[18px] px-4 pt-2 pb-[max(14px,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]">
-        <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />
-        <div className="flex items-center">
-          <b className="flex-1 font-mono text-[13px] text-dim tracking-wide">WHO'S IN THIS THREAD</b>
-          <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={18} /></button>
-        </div>
+  const rows = <>
         {ctx.wolts.map((w) => {
           const m = marks[w.wolt], yes = on(w), locked = !!w.paused || !may(w) || busy === w.wolt;
           return <div key={w.wolt} className="flex items-center gap-2.5 py-2 border-t border-line">
-            <img src={face(w)} alt="" className={`pixel w-[30px] h-[30px] rounded-full ${yes ? "" : "grayscale opacity-50"}`} />
-            <span className="flex-1 min-w-0">
+            <button type="button" onClick={() => { setOpen(false); ctx.openWho?.("w:" + w.wolt); }} aria-label={`${w.wolt}'s card`} className="flex-none p-0 border-0 bg-transparent cursor-pointer hover:-translate-y-0.5 transition-transform">
+              <img src={face(w)} alt="" className={`pixel block w-[30px] h-[30px] rounded-full ${yes ? "" : "grayscale opacity-50"}`} /></button>
+            <span className="flex-1 min-w-0 cursor-pointer" onClick={() => { setOpen(false); ctx.openWho?.("w:" + w.wolt); }}>
               <span className={`block truncate font-mono text-sm ${yes ? "" : "text-dim"}`} style={yes ? { color: woltColor(w.wolt, ctx.wolts) } : undefined}>{w.wolt}</span>
               <small className="block text-xs text-dim">{(w.owner === ctx.me ? "yours" : `${ctx.person(w.owner).name}'s`) + " · "}{w.paused ? "paused in the room" : yes ? (w.wolt === main ? "main · in every thread unless you switch it off" : "in this thread") : m === "paused" ? "paused here · still active elsewhere" : "not in this thread"}</small>
             </span>
@@ -95,6 +88,29 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main }: {
             </button>
           </div>;
         })}
+  </>;
+  if (inline) return <div>{rows}{note && <p className="mt-2 mb-0 text-xs text-acc">{note}</p>}</div>;
+  return <>
+    <button type="button" aria-label="Who's in this thread" onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+      className="flex-none flex items-center h-10 px-1 border-0 bg-transparent cursor-pointer">
+      {first.length ? first.map((w, i) => <span key={w.wolt} className="relative" style={{ marginLeft: i ? -10 : 0, zIndex: 3 - i }}>
+        <img src={face(w)} alt={w.wolt} className={`pixel block w-[28px] h-[28px] rounded-full border-2 border-[#fffdf6] bg-[#fbe9df] ${on(w) ? "" : "grayscale opacity-50"}`} />
+        {on(w) && <i className="absolute -right-px -bottom-px w-[9px] h-[9px] rounded-full bg-[#3aa45b] border-[1.5px] border-[#fffdf6]" />}
+      </span>)
+        : <span className="grid place-items-center w-[28px] h-[28px] rounded-full border-2 border-dashed border-line text-dim text-sm">+</span>}
+      {more > 0 && <span className="ml-1 font-mono text-[11px] text-dim">+{more}</span>}
+    </button>
+    {open && <div className={`fixed inset-0 z-[2950] ${wide ? "grid place-items-center px-4" : ""}`} onClick={(e) => { e.stopPropagation(); setOpen(false); }}>
+      <div className={`absolute inset-0 animate-[fadein_.15s_ease-out] ${wide ? "bg-[#18100a59] backdrop-blur-[3px]" : "bg-[#18100a55]"}`} />
+      <div role="dialog" aria-label="Who's in this thread" onClick={(e) => e.stopPropagation()}
+        className={wide ? "relative w-[min(520px,100%)] max-h-[84vh] overflow-y-auto bg-paper rounded-2xl px-5 pt-3 pb-4 shadow-[0_24px_70px_#18100a59] animate-[pop_.2s_cubic-bezier(.2,.8,.2,1)]"
+          : "absolute inset-x-0 bottom-0 max-w-[640px] mx-auto bg-paper rounded-t-[18px] px-4 pt-2 pb-[max(14px,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]"}>
+        {!wide && <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />}
+        <div className="flex items-center">
+          <b className="flex-1 font-mono text-[13px] text-dim tracking-wide">WHO'S IN THIS THREAD</b>
+          <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={18} /></button>
+        </div>
+        {rows}
         {note && <p className="mt-2 mb-0 text-xs text-acc">{note}</p>}
         <p className="mt-2 mb-0 text-xs text-dim">Paused here: gets nothing from this thread, still active elsewhere. Tagging an agent brings it in.</p>
         {!real && <p className="mt-1.5 mb-0 font-mono text-[11px] text-acc">Mock: switches are kept on this phone only. Agents aren't really paused yet.</p>}

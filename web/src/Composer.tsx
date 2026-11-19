@@ -111,14 +111,15 @@ export function Composer({ draft, wolts, people = [], working = {}, host, me, on
             : <div className="h-20 max-w-40 px-2 rounded-lg border border-line bg-paper flex items-center gap-1 text-[12px] font-mono"><FileIcon size={16} className="flex-none text-acc" /><span className="truncate">{x.f.name}</span></div>}
           <button type="button" aria-label={"Remove " + x.f.name} onClick={() => unattach(i)} className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-ink grid place-items-center border-0 cursor-pointer"><X size={14} className="text-white" /></button>
         </div>))}</div>}
-      <div className="flex items-center gap-2">
-        <button type="button" aria-label={soon ? "Close" : "Attach"} onClick={() => relayRoom ? comingSoon() : pick.current?.click()} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent cursor-pointer">
+      {/* the buttons stay at the bottom of the box as it grows, where the thumb is */}
+      <div className="flex items-end gap-2">
+        <button type="button" aria-label={soon ? "Close" : "Attach"} onClick={() => relayRoom ? comingSoon() : pick.current?.click()} className="flex-none w-9 h-[46px] grid place-items-center border-0 bg-transparent cursor-pointer">
           {soon ? <X size={23} className="text-acc" /> : <Paperclip size={23} className="text-acc" />}
         </button>
         <input ref={pick} type="file" multiple hidden onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; if (f.length) attach(f); }} />
         {/* the words are drawn by the layer underneath, so an @name shows in the room's colour as you type, like in a sent message;
             the box on top stays a plain textarea (its own letters are transparent, its caret and selection are not) */}
-        <div className="relative flex-1 min-w-0">
+        <div className="relative flex-1 min-w-0 mb-px">
           <div ref={mirror} aria-hidden className="absolute inset-0 overflow-hidden pointer-events-none bg-paper border border-transparent rounded-[10px] px-3 py-2.5 text-base leading-snug text-ink whitespace-pre-wrap break-words">
             {text.split(/((?:^|\s)@[\w-]+)/g).map((part, i) => { const m = part.match(/^(\s?)@([\w-]+)$/);
               return m && known.has(m[2].toLowerCase()) ? <span key={i}>{m[1]}<span className="text-acc">@{m[2]}</span></span> : part; })}{"\u200b"}
