@@ -829,7 +829,7 @@ export function App() {
           <div className="flex-none flex items-center gap-1 pl-1 pr-3 pt-[env(safe-area-inset-top)] min-h-12 border-b border-line">
             <button type="button" aria-label="Back to the chat" onClick={() => setPhoneSide(false)} className="w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>
             <b className="text-[15px]">About this chat</b></div>
-          <div className="flex-1 min-h-0 flex [&>aside]:w-full [&>aside]:border-l-0"><ChatSide thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} /></div>
+          <div className="flex-1 min-h-0 flex [&>aside]:w-full [&>aside]:border-l-0"><ChatSide key={thread} thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} /></div>
         </div>}</div>
         : <Sidebar full onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu}
           onMenu={() => setMenu(!menu)} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />)
@@ -843,7 +843,7 @@ export function App() {
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
       </div>}
       {twoPane && <div className="flex-1 min-w-0 relative flex">{thread ? <><div className="flex-1 min-w-0 relative">{chatSheet(true)}</div>
-        {sideOn && <ChatSide thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}</> : <div className="flex-1 h-full grid place-items-center text-center px-8">
+        {sideOn && <ChatSide key={thread} thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}</> : <div className="flex-1 h-full grid place-items-center text-center px-8">
         <div><div className="font-mono text-acc font-semibold">Pick a chat</div><div className="text-dim text-[13px] mt-1">or start a new one.</div></div></div>}</div>}
       </div> : <>
         {chatsHome && <button type="button" onClick={() => setLobby(false)} className="flex-none flex items-center gap-1 px-3 py-2 border-0 border-b border-line bg-panel font-mono text-[12px] text-acc text-left cursor-pointer">

@@ -8,6 +8,7 @@ import type { Msg, State } from "./room";
 import { personAvatar, verbs, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mood, type Who } from "./WoltStrip";
+import { handle } from "./mentions.js";
 import { Busy, ThreadHat, ago, rootFresh, threadColor, threadTitle } from "./Threads";
 
 type Item = { id: string; r: Msg; list: Msg[]; last: Msg; n: number; why: string; busy: boolean };
@@ -29,16 +30,16 @@ export function Sidebar({ full, onInvite, state, ctx, roots, replies, seen, curr
   const anyBusy = wolts.some((w) => mood(w, state).busy);
   useEffect(() => { if (!anyBusy) return; const t = setInterval(() => setTick((x) => x + 1), 2400); return () => clearInterval(t); }, [anyBusy]);
 
-  const me = state.me, myName = ctx.person(me).name.toLowerCase();
+  const me = state.me, myTag = handle(ctx.person(me).name).toLowerCase();  // how an @ names you: the composer's rule (mentions.js)
   const items: Item[] = useMemo(() => roots.map((r) => {
     const rs = replies.get(r.id) || [], list = [r, ...rs], last = list.at(-1)!;
     const fresh = rs.filter((m) => m.n > (seen[r.id] || 0) && !(m.kind === "human" && m.email === me));
     if (rootFresh(r, seen, me)) fresh.unshift(r);
     // waiting on you, guessed from what's there: someone tagged you, or someone answered in a chat you're part of
-    const tagged = fresh.some((m) => new RegExp(`@${myName.replace(/[^\w-]/g, "")}\\b`, "i").test(m.text || ""));
+    const tagged = !!myTag && fresh.some((m) => new RegExp(`(^|[^\\w-])@${myTag}(?![\\w-])`, "i").test(m.text || ""));
     const why = tagged ? "mentions you" : "";
     return { id: r.id, r, list, last, n: fresh.length, why, busy: (ctx.busy?.(r.id) || []).length > 0 };
-  }).sort((a, b) => b.last.at - a.last.at), [roots, replies, seen, me, myName, state.working, state.working_in]);
+  }).sort((a, b) => b.last.at - a.last.at), [roots, replies, seen, me, myTag, state.working, state.working_in]);
 
   const found = q.trim() ? items.filter((i) => threadTitle(i.r).toLowerCase().includes(q.trim().toLowerCase())) : items;
   const needs = found.filter((i) => i.why);

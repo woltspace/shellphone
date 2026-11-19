@@ -13,9 +13,12 @@ export async function roomInvite(): Promise<{ url?: string; why?: string }> {
   }
   try {
     const r = await fetch("/api/link", { cache: "no-store" });
-    if (!r.ok) return { why: "Only the room's host can invite humans." };
-    const info = await r.json();
-    if (info?.linked && info.invite) return { url: info.invite };
+    if (r.status === 403 || r.status === 404) return { why: "Only the room's host can invite humans." };
+    if (!r.ok) return { why: "Couldn't read whether this room is shared. Try again." };
+    const info = await r.json().catch(() => null);
+    if (!info || typeof info !== "object") return { why: "Couldn't read whether this room is shared. Try again." };
+    if (info.linked && info.invite) return { url: info.invite };
+    if (info.linked) return { why: "This room is shared, but its invite was ended. Make a new one on the computer the room runs on: shellphone invite" };
     return { why: "This room isn't shared yet. Open the menu, then Share → Anyone with the link." };
   } catch { return { why: "Couldn't reach the room. Try again." }; }
 }
