@@ -488,60 +488,133 @@ if __name__ == "__main__":
 
 
 class Carries(unittest.TestCase):
-    """A tunnel whose program still runs but which carries nothing (the computer slept, the network changed) is replaced."""
+    """A tunnel whose program still runs but which carries nothing (the computer slept, the network changed) is replaced,
+    within limits: longer waits between tries, and an end to them."""
 
-    def shared(self, td, answers):
-        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)
-        o.open, o.room, o.host = True, "room-1", "old-name.trycloudflare.com"
+    def shared(self, td, answers=(), ups=(), online=True):
+        from shellphone import outside as mod
+        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: o.said.append(a[0]))
+        o.said, o.open, o.room, o.host, o.mod = [], True, "room-1", "old-name.trycloudflare.com", mod
 
         class Running:
             stopped = False
             def alive(self): return not self.stopped
             def stop(self): self.stopped = True
-        o.tunnel, o.first, o.ups = Running(), None, []
+        o.Running, o.tunnel, o.ups, answers, ups = Running, Running(), [], list(answers), list(ups)
         o.first = o.tunnel
 
         def up():
-            o.ups.append(1)
-            o.tunnel, o.host = Running(), "new-name.trycloudflare.com"
-        o._up, o._answers = up, lambda: answers.pop(0)
+            why = ups.pop(0) if ups else None
+            o.ups.append(why)
+            if not why:
+                o.tunnel, o.host = Running(), "new-name.trycloudflare.com"
+            return why
+        o._up, o._answers, o._online = up, lambda: answers.pop(0), lambda: online if isinstance(online, bool) else online.pop(0)
         return o
 
     def test_two_misses_in_a_row_while_online_and_the_tunnel_is_replaced(self):
         with tempfile.TemporaryDirectory() as td:
             o = self.shared(td, [False, False, True])
-            self.assertIsNone(o._check())  # one miss could be a hiccup
+            self.assertIsNone(o._check(now=0))  # one miss could be a hiccup
             self.assertEqual((o.ups, o.first.stopped), ([], False))
-            self.assertEqual(o._check(), "reopened")
-            self.assertEqual((o.ups, o.first.stopped, o.host), ([1], True, "new-name.trycloudflare.com"))  # the old program is ended, not left running
-            self.assertIsNone(o._check())
-            self.assertEqual(o.ups, [1])
+            self.assertEqual(o._check(now=60), "reopened")
+            self.assertEqual((o.ups, o.first.stopped, o.host), ([None], True, "new-name.trycloudflare.com"))  # the old program is ended, not left running
+            self.assertIsNone(o._check(now=120))
+            self.assertEqual((o.ups, o._tries, o._next), ([None], 0, 0))  # seen to carry: settled
 
     def test_a_miss_then_an_answer_starts_the_count_again(self):
         with tempfile.TemporaryDirectory() as td:
             o = self.shared(td, [False, True, False, True, False])
-            for _ in range(5):
-                self.assertIsNone(o._check())
+            for i in range(5):
+                self.assertIsNone(o._check(now=60 * i))
             self.assertEqual((o.ups, o.first.stopped), ([], False))
 
-    def test_a_computer_that_is_cut_off_keeps_its_tunnel(self):
+    def test_a_computer_that_is_cut_off_keeps_its_tunnel_and_uses_up_no_tries(self):
         with tempfile.TemporaryDirectory() as td:
             o = self.shared(td, [None] * 6)  # no way out at all: a new tunnel would mend nothing
-            for _ in range(6):
-                self.assertIsNone(o._check())
+            for i in range(6):
+                self.assertIsNone(o._check(now=60 * i))
             self.assertEqual((o.ups, o.first.stopped), ([], False))
         with tempfile.TemporaryDirectory() as td:
             o = self.shared(td, [False, None, False, False])  # cut off in between: the earlier miss still counts once it is back
-            self.assertEqual([o._check() for _ in range(3)], [None, None, "reopened"])
+            self.assertEqual([o._check(now=60 * i) for i in range(3)], [None, None, "reopened"])
+        with tempfile.TemporaryDirectory() as td:  # the tunnel's program died while the computer is cut off: waited for, however long
+            o = self.shared(td, online=False)
+            o.tunnel.stopped = True
+            for i in range(500):
+                self.assertIsNone(o._mend(now=3 * i))
+            self.assertEqual((o.ups, o._tries, o._gave_up), ([], 0, None))
 
     def test_a_room_that_isnt_shared_or_whose_tunnel_ended_is_left_to_the_other_watch(self):
         with tempfile.TemporaryDirectory() as td:
             o = self.shared(td, [])  # nothing is even asked
             o.open = False
-            self.assertIsNone(o._check())
+            self.assertIsNone(o._check(now=0))
             o.open, o.tunnel.stopped = True, True
-            self.assertIsNone(o._check())
+            self.assertIsNone(o._check(now=0))
             self.assertEqual(o.ups, [])
+
+    def test_each_failed_try_waits_longer_and_after_ten_it_stops_and_says_so(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, ups=["no tunnel"] * 50)
+            o.tunnel.stopped = True  # its program died, and no new one can be opened
+            tried, now = [], 0
+            while now < 6 * 3600:  # looked at every three seconds for six hours, as the watch does
+                if o._mend(now):
+                    tried.append(now)
+                now += 3
+            WAITS, TRIES = o.mod.WAITS, o.mod.TRIES
+            self.assertEqual(len(tried), TRIES)
+            gaps = [b - a for a, b in zip(tried, tried[1:])]
+            for gap, wait in zip(gaps, list(WAITS) + [WAITS[-1]] * 10):
+                self.assertTrue(wait <= gap < wait + 3, (gaps, wait))
+            self.assertEqual(o._gave_up, "no tunnel")
+            self.assertIn("stops trying", o.said[-1])
+            status, info = 200, o.info()
+            self.assertEqual((info["linked"], info["state"]), (True, "down"))
+            self.assertIn("couldn't be reopened", info["note"])
+
+    def test_a_tunnel_that_opens_and_drops_again_counts_as_a_try_too(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, answers=[False] * 400)  # every new tunnel opens, and none is ever seen to carry
+            opened, now = 0, 0
+            while now < 6 * 3600:
+                if o._check(now=now) == "reopened":
+                    opened += 1
+                now += 60
+            self.assertEqual(opened, o.mod.TRIES)  # it kept trying for a while, more and more slowly, and then stopped
+            self.assertEqual(o._gave_up, "each new tunnel stopped carrying")
+            self.assertEqual(o.info()["state"], "down")
+            self.assertFalse(o.tunnel.stopped)  # the last tunnel is left as it is: it may yet come back
+            o._answers = lambda: True
+            self.assertIsNone(o._check(now=now))  # and when it is seen to carry after all, the room says it is up again
+            self.assertEqual((o.info()["state"], o._gave_up, o._tries), ("up", None, 0))
+
+    def test_one_look_that_finds_it_carrying_settles_everything(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, answers=[False, False, True], ups=["no tunnel"])
+            o._check(now=0)
+            self.assertEqual(o._check(now=60), "failed")
+            self.assertEqual((o._tries, o._next), (1, 60 + o.mod.WAITS[0]))
+            self.assertIsNone(o._mend(now=61))             # not yet
+            self.assertEqual(o._mend(now=60 + o.mod.WAITS[0]), "reopened")
+            self.assertEqual(o._tries, 2)                  # opened, but not yet seen to carry
+            self.assertIsNone(o._check(now=200))           # it answers
+            self.assertEqual((o._tries, o._next, o._missed), (0, 0, 0))
+
+    def test_sharing_again_after_it_stopped_trying_starts_over(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, ups=["no tunnel"] * 10)
+            o.tunnel.stopped = True
+            now = 0
+            while not o._gave_up:
+                o._mend(now); now += 3
+            self.assertEqual(len(o.ups), 10)
+            o.core = lambda: types.SimpleNamespace(invite_open=lambda *a: False, guest_count=lambda *a: 0)
+            o.door_mark = lambda: "mark"
+            o.r, o.site, o.host_token = None, "https://site.example", "k"
+            status, info = o.on()  # the host asks again: a new tunnel is tried at once (it opens this time)
+            self.assertEqual((status, info["state"], o._gave_up, len(o.ups), o.ups[-1]), (200, "up", None, 11, None))
 
     def test_what_counts_as_an_answer(self):
         from shellphone import outside as mod
