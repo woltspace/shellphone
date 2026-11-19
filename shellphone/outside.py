@@ -324,7 +324,12 @@ class Outside:
         if tunnel:
             tunnel.stop()
         self.say("The tunnel isn't carrying (the computer slept, or the network changed). Opening a new one…", flush=True)
-        why = self._up()
+        began = time.time()
+        try:
+            why = self._up()
+        except Exception as exc:  # a try that went wrong on the way is a failed try like any other: counted, and waited after
+            why = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        now += max(0, time.time() - began)  # the wait before the next try runs from when this one ended, however long it took
         self._tries += 1  # counted until a look finds the new one carrying (see _check): one that opens and then drops is no success
         if not why:
             self._next = now + WAITS[min(self._tries - 1, len(WAITS) - 1)]
@@ -386,7 +391,7 @@ class Outside:
 
     def on(self):
         with self.lock:
-            if self.open and self._gave_up:  # it had stopped trying to reopen its tunnel: asked again, it starts over
+            if self.open and self._gave_up:  # it had stopped trying to reopen its tunnel: asked again, it starts over. Its links stay as they are
                 self._tries, self._next, self._gave_up = 0, 0, None
                 self._mend(time.time())
             if self.open:

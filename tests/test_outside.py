@@ -567,7 +567,7 @@ class Carries(unittest.TestCase):
             self.assertEqual(len(tried), TRIES)
             gaps = [b - a for a, b in zip(tried, tried[1:])]
             for gap, wait in zip(gaps, list(WAITS) + [WAITS[-1]] * 10):
-                self.assertTrue(wait <= gap < wait + 3, (gaps, wait))
+                self.assertTrue(wait <= gap < wait + 6, (gaps, wait))  # looked at every three seconds; a try itself takes a moment
             self.assertEqual(o._gave_up, "no tunnel")
             self.assertIn("stops trying", o.said[-1])
             status, info = 200, o.info()
@@ -595,14 +595,15 @@ class Carries(unittest.TestCase):
             o = self.shared(td, answers=[False, False, True], ups=["no tunnel"])
             o._check(now=0)
             self.assertEqual(o._check(now=60), "failed")
-            self.assertEqual((o._tries, o._next), (1, 60 + o.mod.WAITS[0]))
+            self.assertEqual(o._tries, 1)
+            self.assertAlmostEqual(o._next, 60 + o.mod.WAITS[0], delta=0.5)
             self.assertIsNone(o._mend(now=61))             # not yet
-            self.assertEqual(o._mend(now=60 + o.mod.WAITS[0]), "reopened")
+            self.assertEqual(o._mend(now=61 + o.mod.WAITS[0]), "reopened")
             self.assertEqual(o._tries, 2)                  # opened, but not yet seen to carry
             self.assertIsNone(o._check(now=200))           # it answers
             self.assertEqual((o._tries, o._next, o._missed), (0, 0, 0))
 
-    def test_sharing_again_after_it_stopped_trying_starts_over(self):
+    def test_sharing_again_after_it_stopped_trying_starts_over_through_the_real_switch_and_keeps_the_links(self):
         with tempfile.TemporaryDirectory() as td:
             o = self.shared(td, ups=["no tunnel"] * 10)
             o.tunnel.stopped = True
@@ -612,9 +613,57 @@ class Carries(unittest.TestCase):
             self.assertEqual(len(o.ups), 10)
             o.core = lambda: types.SimpleNamespace(invite_open=lambda *a: False, guest_count=lambda *a: 0)
             o.door_mark = lambda: "mark"
-            o.r, o.site, o.host_token = None, "https://site.example", "k"
-            status, info = o.on()  # the host asks again: a new tunnel is tried at once (it opens this time)
-            self.assertEqual((status, info["state"], o._gave_up, len(o.ups), o.ups[-1]), (200, "up", None, 11, None))
+            o.r, o.site, o.host_token, o.secret = None, "https://site.example", "host-key", "s3cret"
+            o.saved = lambda: {"room": o.room}
+            share = cli.Share({"relay": types.SimpleNamespace(info=lambda: {"linked": False}, saved=lambda: None), "tunnel": o}, "relay")
+            self.assertEqual(share.info()["state"], "down")
+            status, info = share.on()  # what `shellphone share` and the menu reach: the room's one switch
+            self.assertEqual((status, info["linked"], info["state"], info["via"]), (200, True, "up", "tunnel"))
+            self.assertEqual((o._gave_up, len(o.ups), o.ups[-1]), (None, 11, None))  # one new try, at once, and it opened
+            self.assertEqual((o.room, o.host_token, o.secret), ("room-1", "host-key", "s3cret"))  # the same room, the same keys: no link was ended
+            self.assertIn("/t/room-1#k.host-key", info["link"])
+            status, info = share.on()  # and asked once more while it is up: nothing is touched
+            self.assertEqual((status, info["state"], len(o.ups)), (200, "up", 11))
+
+    def test_a_try_that_raises_is_a_failed_try_counted_and_waited_after(self):
+        import http.client
+        with tempfile.TemporaryDirectory() as td:
+            o, calls = self.shared(td), []
+            o.tunnel.stopped = True
+
+            def broken():
+                calls.append(1)
+                raise http.client.IncompleteRead(b"x")
+            o._up = broken
+            tried, now = [], 0
+            while now < 6 * 3600:  # through the watch's own round, every three seconds, as it runs
+                if o._look(o._mend, now):
+                    tried.append(now)
+                now += 3
+            self.assertEqual((len(calls), len(tried)), (o.mod.TRIES, o.mod.TRIES))
+            gaps = [b - a for a, b in zip(tried, tried[1:])]
+            for gap, wait in zip(gaps, list(o.mod.WAITS) + [o.mod.WAITS[-1]] * 10):
+                self.assertTrue(wait <= gap < wait + 6, (gaps, wait))  # looked at every three seconds; a try itself takes a moment
+            self.assertIn("IncompleteRead", o._gave_up)
+            self.assertEqual(o.info()["state"], "down")
+
+    def test_the_wait_runs_from_when_a_try_ended_not_from_when_it_began(self):
+        with tempfile.TemporaryDirectory() as td:
+            o, clock, began = self.shared(td), [0], []
+            o.tunnel.stopped = True
+
+            def slow():
+                began.append(clock[0])
+                clock[0] += 100  # a tunnel that takes 100 seconds to fail
+                return "no tunnel"
+            o._up = slow
+            with patch.object(o.mod.time, "time", lambda: clock[0]):
+                self.assertEqual(o._mend(0), "failed")
+                self.assertEqual(o._next, 100 + o.mod.WAITS[0])
+                self.assertIsNone(o._mend(clock[0]))  # just ended: not again at once
+                self.assertIsNone(o._mend(100 + o.mod.WAITS[0] - 1))
+                self.assertEqual(o._mend(100 + o.mod.WAITS[0]), "failed")
+                self.assertEqual((began, o._next), ([0, 100], 230 + o.mod.WAITS[1]))  # it ended at 230: the second wait runs from there
 
     def test_what_counts_as_an_answer(self):
         from shellphone import outside as mod
