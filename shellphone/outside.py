@@ -271,13 +271,16 @@ class Outside:
         if not url:
             return f"couldn't open a tunnel: {tunnel.why}"
         self.tunnel, self.host = tunnel, urllib.parse.urlsplit(url).netloc.lower()
-        why = self._tell(url)
-        for _ in range(4):  # the site asks the room at its new address before it takes it down: a moment too early, it says so
-            if not why or "doesn't answer" not in why:
-                break
-            time.sleep(3)
+        try:
             why = self._tell(url)
-        if why:
+            for _ in range(4):  # the site asks the room at its new address before it takes it down: a moment too early, it says so
+                if not why or "doesn't answer" not in why:
+                    break
+                time.sleep(3)
+                why = self._tell(url)
+        except Exception as exc:  # telling the site went wrong on the way: the site doesn't have this address, so this tunnel is no use to anyone
+            why = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        if why:  # a tunnel the site wasn't told of is never left running: the room would answer on it while its lasting link leads nowhere
             tunnel.stop()
             self.tunnel = self.host = None
             return f"couldn't register the room with {urllib.parse.urlsplit(self.site).netloc}: {why}"

@@ -665,6 +665,38 @@ class Carries(unittest.TestCase):
                 self.assertEqual(o._mend(100 + o.mod.WAITS[0]), "failed")
                 self.assertEqual((began, o._next), ([0, 100], 230 + o.mod.WAITS[1]))  # it ended at 230: the second wait runs from there
 
+    def test_a_new_tunnel_the_site_couldnt_be_told_of_is_closed_not_left_running(self):
+        import http.client
+        from shellphone import outside as mod
+        with tempfile.TemporaryDirectory() as td:
+            o, opened = self.shared(td), []
+            o.tunnel.stopped = True  # the old one died
+            o._up = mod.Outside._up.__get__(o)  # the real thing: open a tunnel, tell the site
+
+            class NewTunnel(o.Running):
+                why = ""
+                def __init__(self, port): opened.append(self)
+                def start(self): return "https://new-name.trycloudflare.com"
+            told = []
+
+            def cut_short(url, **kw):
+                told.append(url)
+                raise http.client.IncompleteRead(b"{")
+            o._tell = cut_short
+            with patch.object(mod, "Tunnel", NewTunnel):
+                self.assertEqual(o._look(o._mend, 0), "failed")
+            self.assertEqual((len(opened), opened[0].stopped, o.tunnel, o.host), (1, True, None, None))  # closed, and the room holds no tunnel
+            self.assertEqual((o._tries, told), (1, ["https://new-name.trycloudflare.com"]))
+            self.assertIn("IncompleteRead", o.said[-1])
+            # nothing is left for a look to find carrying: the count stands until the site really has an address
+            o._answers = lambda: self.fail("there is no tunnel to look at")
+            self.assertIsNone(o._check(now=60))
+            self.assertEqual(o._tries, 1)
+            o._tell = lambda url, **kw: None  # the site answers again
+            with patch.object(mod, "Tunnel", NewTunnel):
+                self.assertEqual(o._mend(60 + mod.WAITS[0]), "reopened")
+            self.assertEqual((len(opened), opened[1].stopped, o.host), (2, False, "new-name.trycloudflare.com"))
+
     def test_what_counts_as_an_answer(self):
         from shellphone import outside as mod
         import http.client
