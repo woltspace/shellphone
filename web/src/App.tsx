@@ -841,15 +841,18 @@ export function App() {
       </header>}
       {!(chatsHome && !lobby) && <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />}
       {chatsHome && !lobby ? <div className="flex-1 min-h-0 min-w-0 flex relative">
-      {oneUI && !roomy ? (thread ? <div ref={swipe.el} {...swipe.handlers} className="flex-1 min-w-0 relative bg-paper">{chatSheet(true)}
+      {/* on a phone the chat list stays underneath an open chat, so swiping the chat away shows where you're going */}
+      {oneUI && !roomy ? <>
+        <div className="flex-1 min-w-0 flex" aria-hidden={thread ? true : undefined} inert={!!thread}>
+          <Sidebar full onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu}
+            onMenu={() => setMenu(!menu)} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} /></div>
+        {thread && <div ref={swipe.el} {...swipe.handlers} className="absolute inset-0 z-[20] min-w-0 flex bg-paper"><div className="flex-1 min-w-0 relative">{chatSheet(true)}
         {phoneSide && <div ref={sideSwipe.el} {...sideSwipe.handlers} onTouchStart={(e) => { e.stopPropagation(); sideSwipe.handlers.onTouchStart(e); }} className="absolute inset-0 z-[1590] flex flex-col bg-paper animate-[fadein_.15s_ease-out]">
           <div className="flex-none flex items-center gap-1 pl-1 pr-3 pt-[env(safe-area-inset-top)] min-h-12 border-b border-line">
             <button type="button" aria-label="Back to the chat" onClick={() => setPhoneSide(false)} className="w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>
             <b className="text-[15px]">About this chat</b></div>
           <div className="flex-1 min-h-0 flex [&>aside]:w-full [&>aside]:border-l-0"><ChatSide key={thread} thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} /></div>
-        </div>}</div>
-        : <Sidebar full onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu}
-          onMenu={() => setMenu(!menu)} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />)
+        </div>}</div></div>}</>
       : twoPane ? <Sidebar onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu} desk={desk}
         onMenu={() => setMenu(!menu)} onDesk={wide && DESK_BUTTON ? () => setDesk(!desk) : undefined} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />
       : <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
