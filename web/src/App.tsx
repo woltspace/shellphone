@@ -761,6 +761,17 @@ export function App() {
   const deskWolts = state.members.wolts.filter((w) => !w.paused && (!thread || !state.who || (state.main === w.wolt && state.who[thread]?.[w.wolt] !== "paused") || state.who[thread]?.[w.wolt] === "in"));
   // the chats on the left and the open chat docked beside them, on a computer screen (not beside the desk: that column is narrow)
   const twoPane = roomy && !desk && chatsHome && !lobby;
+  // keys on a computer: Esc closes the open chat, N starts a new one (not while typing, not over a sheet)
+  useEffect(() => {
+    if (!twoPane) return;
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement, typing = t.closest?.("input,textarea,[contenteditable=true]");
+      if (who || starting || menu || paging || viewing || adding) return;
+      if (e.key === "Escape" && thread && !typing) setThread("");
+      else if ((e.key === "n" || e.key === "N") && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); setStarting(true); }
+    };
+    addEventListener("keydown", key); return () => removeEventListener("keydown", key);
+  }, [twoPane, thread, who, starting, menu, paging, viewing, adding]);
   const chatSheet = (docked: boolean) => (
 <ThreadSheet key={thread} docked={docked} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
