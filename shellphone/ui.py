@@ -7,7 +7,9 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
-ACC, GREEN, AMBER, DIM = "#c4531e", "#2f7d6d", "#c98b2a", "#7d7466"  # the page's colours: its orange, the green of a wolt's name, a warning, quiet words
+# From the site's own palette: its teal (the sea a shell comes from) for what stands out, its green for what is shared
+# and well, its yellow for a warning, its muted brown for quiet words. Each reads on a dark terminal and on a light one.
+ACC, GREEN, AMBER, DIM = "#179299", "#40a02b", "#df8e1d", "#8a7a68"
 
 
 def console(err=False):
@@ -25,10 +27,10 @@ def can_draw(text, out):
         return False
 
 
-def grid(rows, first=ACC):
+def grid(rows, first=None):
     """Two columns with no lines: a short thing on the left, what it is on the right."""
     t = Table.grid(padding=(0, 3))
-    t.add_column(style=f"bold {first}", no_wrap=True)
+    t.add_column(style=f"bold {first or ACC}", no_wrap=True)
     t.add_column()
     for a, b in rows:
         t.add_row(a, b)

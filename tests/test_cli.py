@@ -950,7 +950,7 @@ class Colour(unittest.TestCase):
     def test_a_terminal_gets_colour_and_no_color_takes_it_away(self):
         loud = self.out(FORCE_COLOR="1", COLORTERM="truecolor")
         self.assertIn("\x1b[", loud.stdout)
-        self.assertIn("38;2;196;83;30", loud.stdout)  # the room's own orange
+        self.assertIn("38;2;23;146;153", loud.stdout)  # the site's teal
         quiet = self.out(FORCE_COLOR="1", NO_COLOR="1")
         self.assertNotIn("38;2;", quiet.stdout)
         strip = lambda s: re.sub(r"\x1b\[[0-9;]*m", "", s)

@@ -841,7 +841,7 @@ def hello():
     out = ui.console()
     out.print()
     if ui.can_draw(BANNER, out.file):
-        for line in BANNER.split("\n"):  # the spiral in the room's orange, the words beside it as they are
+        for line in BANNER.split("\n"):  # the spiral in the site's teal, the words beside it as they are
             dots = max((i for i, ch in enumerate(line) if 0x2800 <= ord(ch) <= 0x28FF), default=-1) + 1
             words = line[dots:]
             out.print(ui.Text.assemble((line[:dots], ui.ACC), (words, "bold" if "s h e l l" in words else "")))
