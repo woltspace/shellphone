@@ -472,6 +472,7 @@ export function App() {
   const [paging, setPaging] = useState("");  // the page open full screen, by id
   // the desk: on a wide screen, your wolts' terminals beside the chat (Desk.tsx). Remembered on this computer.
   const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 1100px)").matches;
+  const pageTab = typeof location !== "undefined" ? decodeURIComponent((location.hash.match(/^#page=([\w-]+)/) || [])[1] || "") : "";
   // a computer screen: the chats on the left, the open chat beside them (the phone keeps its one screen at a time)
   const [roomy, setRoomy] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches);
   useEffect(() => { const m = window.matchMedia("(min-width: 900px)"), on = () => setRoomy(m.matches); m.addEventListener("change", on); return () => m.removeEventListener("change", on); }, []);
@@ -851,6 +852,8 @@ export function App() {
       {paging && <PageViewer key={paging} id={paging} mark={state.pages?.[paging]} ctx={ctx} close={() => setPaging("")} />}
     </div>
   );
+  // a page opened in a tab of its own (#page=ID): just the page, sealed as in the chat, its board saved to the room
+  if (pageTab) return <div className="h-full">{!loading && <PageViewer tab id={pageTab} mark={state.pages?.[pageTab]} ctx={ctx} close={() => window.close()} />}</div>;
   if (!desk) return room;
   return <div className="h-full flex">
     <Suspense fallback={<div className="flex-1 bg-[#2a231c]" />}>
