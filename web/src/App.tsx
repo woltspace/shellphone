@@ -9,6 +9,7 @@ import { drop, keep, waiting, type Outgoing } from "./outbox";
 import { LORE, woltAvatar } from "./sprites";
 import { wear, worn } from "./hats";
 import { WoltStrip, usePullDown, type Who } from "./WoltStrip";
+import { Sidebar } from "./Sidebar";
 import { Profile } from "./Profile";
 import { UPPER } from "./Sky";
 import { AddAgentSheet } from "./AddAgent";
@@ -773,7 +774,7 @@ export function App() {
     addEventListener("keydown", key); return () => removeEventListener("keydown", key);
   }, [twoPane, thread, who, starting, menu, paging, viewing, adding]);
   const chatSheet = (docked: boolean) => (
-<ThreadSheet key={thread} docked={docked} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
+<ThreadSheet key={thread} docked={docked} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={docked ? undefined : threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />
@@ -784,8 +785,8 @@ export function App() {
       </ThreadSheet>
   );
   const room = (
-    <div className="h-full flex flex-col relative bg-paper" {...menuSwipe.screen}>
-      <header ref={hdr} {...pull} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-paper border-b border-line">
+    <div className={`h-full flex ${twoPane ? "" : "flex-col"} relative bg-paper`} {...menuSwipe.screen}>
+      {!twoPane && <header ref={hdr} {...pull} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-paper border-b border-line">
         {/* ☰ stays above the menu and turns into ✕, so tapping the same spot opens and closes it */}
         <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={() => setMenu(!menu)}
           className={`relative ${menu ? "z-[1720]" : ""} flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-[10px]`}>
@@ -802,16 +803,18 @@ export function App() {
         {!chatsHome && <button type="button" aria-label="Inbox" onClick={() => setListOpen(!listOpen)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
         </button>}
-      </header>
+      </header>}
       {!(chatsHome && !lobby) && <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />}
       {chatsHome && !lobby ? <div className="flex-1 min-h-0 flex relative">
-      <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
-        className={`${twoPane ? "w-[400px] flex-none border-r border-line" : "flex-1"} min-h-0 overflow-y-auto overscroll-contain pb-24`}>
+      {twoPane ? <Sidebar state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu} desk={desk}
+        onMenu={() => setMenu(!menu)} onDesk={wide ? () => setDesk(!desk) : undefined} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />
+      : <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
+        className={`flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24`}>
         <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
         {chatRows({ main: [], all: [], roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread,
           onMain: () => {}, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
-      </div>
+      </div>}
       {twoPane && <div className="flex-1 min-w-0 relative">{thread ? chatSheet(true) : <div className="h-full grid place-items-center text-center px-8">
         <div><div className="font-mono text-acc font-semibold">Pick a chat</div><div className="text-dim text-[13px] mt-1">or start a new one. <kbd className="font-mono text-[11px] border border-line rounded px-1">N</kbd></div></div></div>}</div>}
       </div> : <>
@@ -819,9 +822,9 @@ export function App() {
           <ChevronLeft size={16} /> chats <span className="text-dim">· lobby: the old main chat. Anything you say here starts a chat.</span></button>}
         <Feed list={lobbyList} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
       </>}
-      {(!thread || twoPane) && (chatsHome && !lobby
+      {!thread && !twoPane && (chatsHome && !lobby
         ? <button type="button" aria-label="New chat" onClick={() => setStarting(true)}
-          className={`absolute ${twoPane ? "left-[226px]" : "right-4"}`+" bottom-[calc(18px+env(safe-area-inset-bottom))] z-[1400] flex items-center gap-1.5 h-14 pl-4 pr-5 rounded-full border-0 bg-acc text-white font-mono font-bold text-[15px] shadow-[0_4px_14px_#18100a40] cursor-pointer active:scale-95 transition-transform"}>
+          className={"absolute right-4 bottom-[calc(18px+env(safe-area-inset-bottom))] z-[1400] flex items-center gap-1.5 h-14 pl-4 pr-5 rounded-full border-0 bg-acc text-white font-mono font-bold text-[15px] shadow-[0_4px_14px_#18100a40] cursor-pointer active:scale-95 transition-transform"}>
           <span className="text-2xl leading-none">＋</span>New chat</button>
         : composer)}
       {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} fallback={state.who_default} host={state.host} onStart={startChat} onClose={() => setStarting(false)} />}
