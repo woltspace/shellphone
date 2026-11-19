@@ -2,7 +2,7 @@
 // everywhere), then the chats sorted by what they need from you: the ones waiting on you, the ones a wolt is working in,
 // then the rest. The phone keeps its own home; this only shows at 900px and wider.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Menu as MenuIcon, Monitor, Search } from "lucide-react";
+import { Menu as MenuIcon, Monitor, Plus, Search } from "lucide-react";
 import { mix, woltColor, woltFace, type Ctx } from "./Message";
 import type { Msg, State } from "./room";
 import { personAvatar, verbs, woltAvatar } from "./sprites";
@@ -15,8 +15,8 @@ type Item = { id: string; r: Msg; list: Msg[]; last: Msg; n: number; why: string
 const preview = (m: Msg) => ((m.text && m.text.replace(/\*\*|`/g, "")) || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
 const short = (s: string) => s.replace(/ ago$/, "").replace("just now", "now");
 
-export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu, desk, onMenu, onDesk, onOpen, onNew, onPick, onAgent }: {
-  state: State; ctx: Ctx; roots: Msg[]; replies: Map<string, Msg[]>; seen: Record<string, number>; current: string; title: string;
+export function Sidebar({ full, state, ctx, roots, replies, seen, current, title, menu, desk, onMenu, onDesk, onOpen, onNew, onPick, onAgent }: {
+  full?: boolean; state: State; ctx: Ctx; roots: Msg[]; replies: Map<string, Msg[]>; seen: Record<string, number>; current: string; title: string;
   menu: boolean; desk?: boolean; onMenu: () => void; onDesk?: () => void; onOpen: (id: string) => void; onNew: () => void; onPick: (who: Who) => void; onAgent: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -59,11 +59,13 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
     </button>;
   };
   const list = [...needs, ...found.filter((i) => !i.why)];
-  return <aside aria-label="Chats" className="w-[300px] flex-none h-full flex flex-col bg-[#efe9de] border-r border-line">
-    <div className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-2.5 pb-2">
+  return <aside aria-label="Chats" className={`${full ? "w-full min-w-0 flex-1" : "w-[300px] flex-none border-r border-line"} h-full flex flex-col bg-[#efe9de]`}>
+    <div className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2">
       <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={onMenu} className={`relative ${menu ? "z-[1720]" : ""} w-9 h-9 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-lg hover:bg-[#ffffff80]`}><MenuIcon size={20} /></button>
       <img src="/room-icon.png" alt="" className="w-8 h-8 rounded-full ring-1 ring-line bg-[#f5f1e8]" />
       <div className="flex-1 min-w-0 font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span>{title}</div>
+      <button type="button" aria-label="New chat" title="New chat" onClick={onNew}
+        className="w-9 h-9 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-lg hover:bg-[#ffffff80]"><Plus size={20} /></button>
       {onDesk && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={onDesk}
         className={`w-9 h-9 grid place-items-center border-0 cursor-pointer rounded-lg ${desk ? "bg-acc text-white" : "bg-transparent text-acc hover:bg-[#ffffff80]"}`}><Monitor size={18} /></button>}
     </div>
@@ -92,12 +94,9 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
         <span className="font-mono text-[10.5px]">add</span>
       </button>
     </div>
-    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-2">
+    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pt-2 pb-[calc(8px+env(safe-area-inset-bottom))]">
       {list.map(row)}
-      {!found.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">{q ? "No chat by that name" : "No chats yet. Start one below."}</p>}
+      {!found.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">{q ? "No chat by that name" : "No chats yet. Start one with +."}</p>}
     </div>
-    <button type="button" onClick={onNew} className="flex-none m-3 mt-1 flex items-center justify-center gap-2 py-2.5 rounded-[10px] border-0 bg-acc text-white font-mono font-bold text-[14px] cursor-pointer shadow-[0_2px_8px_#18100a30] active:scale-[.98]">
-      ＋ New chat
-    </button>
   </aside>;
 }

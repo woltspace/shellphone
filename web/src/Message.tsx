@@ -139,9 +139,9 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
   if (ctx.rows) {
     const voice = human ? who.color : woltColor(m.wolt, ctx.wolts);  // each sender their own light colour, as on the phone
     return (
-      <div className={`flex items-end gap-2 px-5 ${firstOfRun ? "mt-3" : "mt-[3px]"} ${mine ? "justify-end" : ""}`} id={m.cid || m.id}>
+      <div className={`flex items-end gap-2 px-3 md:px-5 ${firstOfRun ? "mt-3" : "mt-[3px]"} ${mine ? "justify-end" : ""}`} id={m.cid || m.id}>
         {!mine && (firstOfRun ? <img src={avatar} alt="" className="pixel w-9 h-9 flex-none self-start" /> : <span className="flex-none w-9" />)}
-        <div data-bubble className={`min-w-0 max-w-[min(68%,720px)] px-3.5 py-2 border rounded-[18px] shadow-[0_1px_1.5px_#18100a14] ${mine
+        <div data-bubble className={`min-w-0 max-w-[82%] md:max-w-[min(68%,720px)] px-3.5 py-2 border rounded-[18px] shadow-[0_1px_1.5px_#18100a14] ${mine
           ? (firstOfRun ? "rounded-tr-[5px]" : "") : (firstOfRun ? "rounded-tl-[5px]" : "")}`}
           style={{ background: mix(voice, "#ffffff", mine ? 0.8 : human ? 0.86 : 0.9), borderColor: mix(voice, "#ffffff", 0.6) }}>
           {!mine && firstOfRun && <div className="flex items-baseline gap-1.5 mb-0.5">
