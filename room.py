@@ -511,7 +511,8 @@ def as_mp3(f):
     return out
 
 
-# Push notifications for the home-screen app (Web Push). Optional: they need pywebpush (`uv run --with pywebpush`).
+# Push notifications for the home-screen app (Web Push). They need pywebpush: the shellphone package brings it; room.py
+# run on its own (`python room.py serve`) works without it and then offers none (`uv run --with pywebpush` adds it).
 try:
     import pywebpush
 except ImportError:

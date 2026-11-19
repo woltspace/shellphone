@@ -781,6 +781,12 @@ class FrontDoor(unittest.TestCase):
         self.assertFalse(gone.exists())
         self.assertTrue(stays.exists())
 
+class Package(unittest.TestCase):
+    def test_the_package_brings_what_notifications_need(self):
+        import re
+        deps = re.search(r"^dependencies = \[(.*?)^\]", (REPO / "pyproject.toml").read_text(), re.S | re.M).group(1)
+        self.assertIn('"pywebpush', deps)  # a room started with the command offers notifications without anything added by hand
+
 
 if __name__ == "__main__":
     unittest.main()

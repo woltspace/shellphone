@@ -212,8 +212,12 @@ npm run build                            # writes ../dist, which is what rooms s
 
 On a phone, add the room to the Home Screen (Safari: Share, Add to Home Screen; iOS 16.4 or later) and tap **notify me**.
 New messages then arrive as notifications whenever the room isn't on screen, never for your own. Sending them needs one
-library, so start the room with `uv run --with pywebpush python room.py serve` (without it, the room just doesn't offer
-notifications). The room makes its own push keys once, in `data/vapid.pem` (mode 600).
+library, pywebpush, which the `shellphone` package brings with it. A room started straight from this folder needs it
+added: `uv run --with pywebpush python room.py serve` (without it, the room just doesn't offer notifications). The room
+makes its own push keys once, in `data/vapid.pem` (mode 600).
+
+Notifications belong to the address the app was added from. A room shared through a tunnel gets a new outside address
+when it restarts, so its home-screen app and notifications have to be set up again then.
 
 ## A room in one command (Woltspace)
 

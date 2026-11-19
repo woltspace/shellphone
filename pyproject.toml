@@ -8,6 +8,7 @@ license = "MIT"
 dependencies = [
     "cryptography>=42",  # sealing, for rooms reached through a relay
     "websockets>=13",    # the room's connection to the relay
+    "pywebpush>=2",      # notifications for the home-screen app. room.py run on its own still works without it, and then offers none
 ]
 keywords = ["chat", "agents", "claude-code", "codex"]
 classifiers = [
