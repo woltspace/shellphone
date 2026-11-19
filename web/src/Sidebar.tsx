@@ -62,15 +62,15 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
   const row = (i: Item) => {
     const here = i.id === current, busy = ctx.busy?.(i.id) || [], color = threadColor(i.id), who = crew(i);
     return <button key={i.id} type="button" onClick={() => onOpen(i.id)} aria-current={here || undefined} title={`${name(i.last)}: ${preview(i.last)}`}
-      className={`flex w-[calc(100%-12px)] mx-1.5 items-start gap-2.5 py-[7px] px-2.5 rounded-lg border-0 text-left cursor-pointer ${here ? "" : "bg-transparent hover:bg-[#ffffff90]"}`}
+      className={`flex w-[calc(100%-12px)] mx-1.5 items-start gap-2.5 py-3 px-2.5 my-0.5 rounded-xl border-0 text-left cursor-pointer ${here ? "" : "bg-transparent hover:bg-[#ffffff90]"}`}
       style={here ? { background: mix(color, "#ffffff", 0.82) } : undefined}>
       <i className="flex-none w-2.5 h-2.5 mt-[6px] rounded-full" style={{ background: color }} />
       <span className="flex-1 min-w-0">
         <span className={`block truncate text-[14px] leading-[22px] ${i.n ? "font-bold text-ink" : "text-[#5a5047]"}`}>{threadTitle(i.r)}</span>
-        <span className={`block truncate text-[12.5px] leading-[17px] ${i.n ? "text-[#4a4038]" : "text-dim"}`}>{name(i.last)}: {preview(i.last)}</span>
+        <span className={`block truncate mt-0.5 text-[13px] leading-[18px] ${i.n ? "text-[#4a4038]" : "text-dim"}`}>{name(i.last)}: {preview(i.last)}</span>
       </span>
-      <span className="flex-none flex items-center pl-1 h-[22px]" title={who.map((f) => f.name).join(", ")}>
-        {who.slice(0, 4).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-[22px] h-[22px] -ml-1.5 rounded-full" style={{ filter: "drop-shadow(0 0 1px #efe9de)" }} />)}
+      <span className="flex-none flex items-center pl-2 h-[24px]" title={who.map((f) => f.name).join(", ")}>
+        {who.slice(0, 4).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-[26px] h-[26px] -ml-2 rounded-full" style={{ filter: "drop-shadow(0 0 1px #efe9de)" }} />)}
         {who.length > 4 && <span className="ml-0.5 font-mono text-[10px] text-dim">+{who.length - 4}</span>}</span>
       {i.why ? <span className="flex-none mt-0.5 w-[18px] h-[18px] rounded-full bg-acc text-white text-[11px] font-bold leading-[18px] text-center" title="someone tagged you">@</span>
         : busy.length ? <span className="flex-none flex mt-px">{busy.slice(0, 2).map((w) => <img key={w.wolt} src={woltFace(w.wolt, w.creature)} alt={w.wolt + " working"} className="gnaw-img pixel w-5 h-5" />)}</span>
@@ -78,7 +78,7 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
     </button>;
   };
   const list = [...needs, ...found.filter((i) => !i.why)];
-  return <aside aria-label="Chats" className={`${full ? "w-full min-w-0 flex-1" : "w-[360px] flex-none border-r border-line"} h-full relative flex flex-col bg-[#efe9de]`}>
+  return <aside aria-label="Chats" className={`${full ? "w-full min-w-0 flex-1" : "w-[300px] flex-none border-r border-line"} h-full relative flex flex-col bg-[#efe9de]`}>
       <button type="button" aria-label="New chat" title="New chat" onClick={onNew}
         className="absolute right-3 bottom-[calc(14px+env(safe-area-inset-bottom))] z-10 flex items-center gap-1 h-10 pl-3 pr-4 rounded-full border-0 bg-acc text-white font-semibold text-[14px] cursor-pointer shadow-[0_3px_10px_#18100a40] hover:brightness-110 active:scale-95 transition"><Plus size={18} strokeWidth={2.6} />Chat</button>
     <div className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2">
