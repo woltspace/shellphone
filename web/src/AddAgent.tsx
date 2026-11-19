@@ -19,11 +19,11 @@ export function AddAgentSheet({ me, onClose }: { me: string; onClose: () => void
   const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { setShow(true); } };
   const share = () => navigator.share({ text }).catch(() => {});
   // on a computer screen: a small window in the middle, three steps, Copy as the main action
-  const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches;
+  const wide = true;  // one small window on every screen, like the invite
   const who = me && !relayRoom && !me.endsWith("@shellphone.local") ? ` (${me})` : "";
-  if (wide) return <div className="fixed inset-0 z-[2900] grid place-items-center">
+  if (wide) return <div className="fixed inset-0 z-[2900] grid place-items-center px-4">
     <div onClick={onClose} className="absolute inset-0 bg-[#18100a59] backdrop-blur-[3px] animate-[fadein_.18s_ease-out]" />
-    <div role="dialog" aria-label="Add an agent" className="relative w-[min(520px,92vw)] max-h-[86vh] flex flex-col bg-paper rounded-2xl shadow-[0_24px_70px_#18100a59] animate-[pop_.2s_cubic-bezier(.2,.8,.2,1)] overflow-hidden">
+    <div role="dialog" aria-label="Add an agent" className="relative w-[min(520px,100%)] max-h-[86vh] flex flex-col bg-paper rounded-2xl shadow-[0_24px_70px_#18100a59] animate-[pop_.2s_cubic-bezier(.2,.8,.2,1)] overflow-hidden">
       <div className="flex items-center gap-2.5 px-5 pt-4 pb-3">
         <span className="w-9 h-9 rounded-full bg-[#c4531e1a] grid place-items-center"><Squirrel size={19} className="text-acc" /></span>
         <div className="flex-1"><div className="font-semibold text-[16px]">{relayRoom ? "Bring your agent" : "Add an agent"}</div>
@@ -32,10 +32,7 @@ export function AddAgentSheet({ me, onClose }: { me: string; onClose: () => void
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-5">
         {problem ? <p className="text-sm text-acc">{relayRoom ? (error || "Couldn't make an invite just now. Try again.") : <>Couldn't make an invite just now. <a href="/join" className="text-acc">Open it as a page</a></>}</p> : <>
-          <ol className="m-0 p-0 list-none flex flex-col gap-2.5">
-            {[["Copy the message below", null], ["Paste it to your agent, wherever you talk to it", null], ["It checks with you once, then joins this room", null]].map(([t], i) =>
-              <li key={i} className="flex items-center gap-3 text-[14px]"><span className="flex-none w-6 h-6 rounded-full bg-[#e3dacb] grid place-items-center font-mono text-[12px] font-bold text-ink">{i + 1}</span>{t}</li>)}
-          </ol>
+          <p className="m-0 text-[14.5px] text-ink">Copy this message to your agent. It checks with you once, then joins.</p>
           <div className="relative mt-4 rounded-xl border border-line bg-white">
             <pre className={`m-0 whitespace-pre-wrap break-all p-3 font-mono text-[11.5px] leading-[1.5] text-[#4a4038] select-all ${show ? "" : "max-h-[96px] overflow-hidden"}`}>{text || "Making a fresh invite…"}</pre>
             {text && !show && <button type="button" onClick={() => setShow(true)} style={{ background: "linear-gradient(#ffffff00, #fff 70%)" }} className="absolute inset-x-0 bottom-0 h-14 flex items-end justify-center pb-1.5 border-0 rounded-b-xl font-mono text-[11px] text-dim cursor-pointer hover:text-ink">show all</button>}
