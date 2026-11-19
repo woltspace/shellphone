@@ -61,7 +61,7 @@ export function NewChatSheet({ ctx, people, wolts, main, fallback, host, onStart
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4">
-        <div className={sec}>People</div>
+        <div className={sec}>Humans</div>
         {people.map((p) => { const me = p.email === ctx.me, yes = me || folks[p.email];
           return row(p.email, personAvatar(p.name, ctx.person(p.email).color, worn.people[p.email]), p.name + (me ? " (you)" : ""), ctx.person(p.email).color, yes,
             me ? "starts the chat" : yes ? "in this chat" : "not in this chat",

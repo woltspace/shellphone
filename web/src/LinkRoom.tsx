@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { ChevronRight, Globe, Loader2, Lock, Smartphone, UserPlus } from "lucide-react";
 import { answered, settled, unlinkedWords, type Info } from "./linkwords.js";
+import { LinkModal } from "./InviteModal";
 
 async function ask(on?: boolean): Promise<Info | null> {
   try {
@@ -16,17 +17,11 @@ async function ask(on?: boolean): Promise<Info | null> {
   } catch { return null; }
 }
 
-// Hand a link over: the phone's own share sheet, or copied. Says what happened in the row's small print.
-async function pass(url: string, text: string, say: (note: string) => void) {
-  try { if (navigator.share) { await navigator.share({ title: "shellphone", text, url }); return; } }
-  catch (e) { if ((e as Error).name === "AbortError") return; }  // only a cancelled sheet ends here; anything else falls back to copying
-  try { await navigator.clipboard.writeText(url); say("Link copied"); } catch { say(url); }
-}
-
 export function LinkRoom({ open, row }: { open: boolean; row: string }) {
   const [info, setInfo] = useState<Info | null>(null);
   const [busy, setBusy] = useState<"" | "link" | "unlink">("");
   const [note, setNote] = useState(""), [said, setSaid] = useState(""), [mine, setMine] = useState("");
+  const [showing, setShowing] = useState<"" | "invite" | "mine">("");
   useEffect(() => { if (open) ask().then(setInfo); }, [open]);  // each time the menu opens: `shellphone share` may have changed it meanwhile
   if (!info) return null;
   if (info.unknown) return <div className={`${row} cursor-default`}><Lock size={20} className="text-dim" />
@@ -56,10 +51,12 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
         className="flex-none font-mono font-semibold text-xs text-acc bg-panel border border-line rounded-lg px-2 py-1.5 cursor-pointer">
         <option value="private">Private</option><option value="link">Anyone with the link</option></select>}</label>
     {info.linked && <>
-      <button type="button" onClick={() => info.invite && pass(info.invite, "Join my shellphone room", setSaid)} className={row}><UserPlus size={20} className="text-acc" />
-        <span className="flex-1">Invite people<small className={`${small} ${said.startsWith("http") ? "break-all" : ""}`}>{said || "The link to send to a friend"}</small></span><ChevronRight size={20} className="text-acc" /></button>
-      {info.link && <button type="button" onClick={() => info.link && pass(info.link, "My shellphone room", setMine)} className={row}><Smartphone size={20} className="text-acc" />
+      <button type="button" onClick={() => setShowing("invite")} className={row}><UserPlus size={20} className="text-acc" />
+        <span className="flex-1">Invite humans<small className={`${small} ${said.startsWith("http") ? "break-all" : ""}`}>{said || "The link to send to a friend"}</small></span><ChevronRight size={20} className="text-acc" /></button>
+      {info.link && <button type="button" onClick={() => setShowing("mine")} className={row}><Smartphone size={20} className="text-acc" />
         <span className="flex-1">Open it on your phone<small className={`${small} ${mine.startsWith("http") ? "break-all" : ""}`}>{mine || "Your own link, as host: keep it to yourself"}</small></span><ChevronRight size={20} className="text-acc" /></button>}
     </>}
+    {showing === "invite" && info.invite && <LinkModal title="Invite humans" sub="Anyone with this link comes in and picks a name" get={async () => ({ url: info.invite })} note="They come in as a guest. You can end invites from this computer with: shellphone invite --end" onClose={() => setShowing("")} />}
+    {showing === "mine" && info.link && <LinkModal title="Open it on your phone" sub="Your own link, as host: keep it to yourself" get={async () => ({ url: info.link })} onClose={() => setShowing("")} />}
   </>;
 }

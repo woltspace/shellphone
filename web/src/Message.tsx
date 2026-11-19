@@ -5,12 +5,14 @@ import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
 import { PageTile } from "./Page";
 import { ShareButton } from "./Share";
+import { share } from "./sharefile.js";
+import { FileView, canPreview } from "./FileView";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void };
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean; tint?: string; openWho?: (who: string) => void };  // openWho: a face tapped anywhere opens its card ("p:email" or "w:name")  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -108,8 +110,22 @@ function File({ f, ctx }: { f: FileInfo; ctx: Ctx }) {
     <video src={f.url} controls playsInline preload="metadata" className="block max-w-[min(260px,68vw)] rounded-lg" />
     <ShareButton url={f.url} name={f.name} className="absolute top-1.5 right-1.5 bg-[#000a] text-white border-0" />
   </div>;
-  return <div className="flex items-center gap-1 mb-1"><a href={f.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 px-2.5 py-2 border border-line rounded-[10px] bg-paper no-underline text-ink">
-    <span className="text-xl">📄</span><span className="min-w-0"><span className="block font-semibold truncate">{f.name}</span><span className="block font-mono text-[11px] text-dim">{f.type.toUpperCase()} · {Math.max(1, Math.round(f.size / 1024))} KB</span></span>
+  return <FileCard f={f} />;
+}
+
+// In the home-screen app a link opens in a separate Safari window that isn't signed in to the room, so the file can't
+// load there: a tap gets the file here instead and hands it to the phone's share sheet (Quick Look, Save to Files…)
+const homeApp = () => typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true);
+function FileCard({ f }: { f: FileInfo }) {
+  const [note, setNote] = useState(""), [viewing, setViewing] = useState(false);
+  const tap = (e: React.MouseEvent) => {
+    if (canPreview(f)) { e.preventDefault(); setViewing(true); return; }  // PDFs, text and code open right here
+    if (!homeApp()) return;  // in a browser the link downloads as usual
+    e.preventDefault(); setNote("Opening…");
+    share(f.url, f.name).then((r) => setNote(r === "again" ? "Tap again to open" : "")).catch(() => { setNote("Couldn't get it"); setTimeout(() => setNote(""), 2500); });
+  };
+  return <div className="flex items-center gap-1 mb-1">{viewing && <FileView f={f} onClose={() => setViewing(false)} />}<a href={f.url} target="_blank" rel="noopener noreferrer" onClick={tap} className="flex min-w-0 items-center gap-2 px-2.5 py-2 border border-line rounded-[10px] bg-paper no-underline text-ink">
+    <span className="text-xl">📄</span><span className="min-w-0"><span className="block font-semibold truncate">{f.name}</span><span className="block font-mono text-[11px] text-dim">{note || <>{f.type.toUpperCase()} · {Math.max(1, Math.round(f.size / 1024))} KB</>}</span></span>
   </a><ShareButton url={f.url} name={f.name} className="flex-none bg-transparent border-0 text-dim" /></div>;
 }
 
@@ -134,9 +150,43 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
   const readers = mine ? ctx.seen[m.id] || [] : [];
   const solid: CSSProperties = mine ? { backgroundColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
     : !human ? { backgroundColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : {};
+  // on a computer screen: bubbles like WhatsApp or Instagram. Yours on the right in the chat's own colour; everyone else on
+  // the left on white, their name in their colour on the first of a run, with their face (hat and all) beside it
+  if (ctx.rows) {
+    const voice = human ? who.color : woltColor(m.wolt, ctx.wolts);  // each sender their own light colour, as on the phone
+    return (
+      <div className={`flex items-end gap-2 px-3 md:px-5 ${firstOfRun ? "mt-3" : "mt-[3px]"} ${mine ? "justify-end" : ""}`} id={m.cid || m.id}>
+        {!mine && (firstOfRun ? <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.openWho?.(human ? "p:" + m.email : "w:" + m.wolt); }} aria-label={`${human ? who.name : m.wolt}'s card`}
+          className="flex-none self-start p-0 border-0 bg-transparent cursor-pointer hover:-translate-y-0.5 transition-transform"><img src={avatar} alt="" className="pixel w-9 h-9" /></button> : <span className="flex-none w-9" />)}
+        <div data-bubble className={`min-w-0 max-w-[82%] md:max-w-[min(68%,720px)] px-3.5 py-2 border rounded-[18px] shadow-[0_1px_1.5px_#18100a14] ${mine
+          ? (firstOfRun ? "rounded-tr-[5px]" : "") : (firstOfRun ? "rounded-tl-[5px]" : "")}`}
+          style={{ background: mix(voice, "#ffffff", mine ? 0.8 : human ? 0.86 : 0.9), borderColor: mix(voice, "#ffffff", 0.6) }}>
+          {!mine && firstOfRun && <div className="flex items-baseline gap-1.5 mb-0.5">
+            <b className="text-[13px]" style={{ color: voice }}>{human ? who.name : m.wolt}</b>
+            {!human && <span className="font-mono text-[10.5px] text-dim">{owner === ctx.me ? "yours" : who.name + "'s"}</span>}
+            {human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="font-mono text-[10.5px] px-1 rounded border border-line text-dim">guest</span>}</div>}
+          {m.files?.length ? relayRoom ? <div className="font-mono text-xs opacity-80 mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
+          {m.audio ? <div className="min-w-[260px]"><Voice m={m} ctx={ctx} /></div> : m.text ? <div className="text-[14.5px] leading-[1.45] whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
+          {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
+          <Card msg={m} all={ctx.all} />
+          {m.page && <PageTile m={m} ctx={ctx} />}
+          {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
+            className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
+            style={{ color: voice, borderColor: mix(voice, "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}
+          <div className="flex justify-end items-center gap-1 -mb-0.5 font-mono text-[10px] text-dim">
+            {time(m.at)}
+            {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
+              {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltFace(r, w?.creature)} />; })}</span>}
+          </div>
+          {footer}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
-      <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
+      <button type="button" data-tap disabled={!firstOfRun} onClick={(e) => { e.stopPropagation(); ctx.openWho?.(human ? "p:" + m.email : "w:" + m.wolt); }} aria-label={`${human ? who.name : m.wolt}'s card`}
+        className={`flex-none p-0 border-0 bg-transparent cursor-pointer ${firstOfRun ? "" : "invisible"}`}><img src={avatar} alt="" className="pixel w-7 h-7 rounded-full" /></button>
       {/* a message with a thread sits in a frame of the thread's wallpaper; the message itself stays on its own solid color */}
       <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border ${wallpaper ? "px-2.5 pt-2.5 pb-1.5 bg-paper" : `px-2.5 py-1.5 ${solid.backgroundColor ? "" : "bg-panel"}`} border-line`}
         style={wallpaper ? { ...wallpaper } : solid}>

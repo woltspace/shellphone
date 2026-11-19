@@ -1,8 +1,8 @@
 // The ☰ menu: this room's settings (people and agents live on their own cards, pulled down on the chats). It slides in from the left, like Slack's.
 import { useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronRight, Moon, Squirrel, Sun, UserPlus } from "lucide-react";
-import { useSky } from "./Sky";
-import { call, inviteLink, relayHost, relayRoom } from "./relay";
+import { Bell, BellOff, BellRing, Check, ChevronRight, Squirrel, UserPlus } from "lucide-react";
+import { call, relayHost, relayRoom } from "./relay";
+import { LinkModal, roomInvite } from "./InviteModal";
 import { LinkRoom } from "./LinkRoom";
 import type { Person, Wolt } from "./room";
 
@@ -11,7 +11,7 @@ const sec = "px-4 pt-4 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08e
 
 export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts, people, push, freshCount, onThreads, onAgent, onEveryone, guestAgents }: {
   open: boolean; panel: React.RefObject<HTMLElement | null>; scrim: React.RefObject<HTMLDivElement | null>; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string; host?: string; wolts: Wolt[]; people: Person[];
-  push: { state: "ask" | "on" | "off"; turnOn: () => void }; freshCount: number; onThreads: () => void; onAgent: () => void; onEveryone: () => void; main?: string | null;
+  push: { state: "ask" | "on" | "off" | "none"; turnOn: () => void }; freshCount: number; onThreads: () => void; onAgent: () => void; onEveryone: () => void; main?: string | null;
   looks?: Record<string, Record<string, string>>; faces?: Record<string, string>; guestAgents?: boolean;  // undefined: a host from before 0.0.7, which can't take agents through the relay
 }) {
   // while a finger drags it, App moves these two directly; otherwise the classes below decide
@@ -32,33 +32,26 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         <div className={sec}>This room</div>
         {!relayRoom && <button type="button" onClick={push.state === "ask" ? push.turnOn : undefined} className={row}>
           {push.state === "on" ? <BellRing size={20} className="text-acc" /> : push.state === "ask" ? <Bell size={20} className="text-acc" /> : <BellOff size={20} className="text-dim" />}
-          <span className="flex-1">Notifications<small className="block text-xs text-dim">{push.state === "on" ? "On for this phone" : push.state === "ask" ? "Tap to turn on for this phone" : "Not available here (add the app to your home screen)"}</small></span>
+          <span className="flex-1">Notifications<small className="block text-xs text-dim">{push.state === "on" ? "On for this phone" : push.state === "ask" ? "Tap to turn on for this phone" : push.state === "none" ? "This shell doesn't send notifications yet" : "Not available here (add the app to your home screen)"}</small></span>
           {push.state === "on" ? <Check size={20} className="text-go" /> : push.state === "ask" ? <span className="font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">turn on</span> : null}
         </button>}
         {!relayRoom && <LinkRoom open={open} row={row} />}
         {relayHost && <Invite row={row} />}
-        {relayRoom && !relayHost && <div className={`${row} cursor-default`}><UserPlus size={20} className="text-dim" /><span className="flex-1 text-dim">Invite people<small className="block text-xs">Only {people.find((p) => p.email === host)?.name || "the host"} can invite people. Message them to ask.</small></span></div>}
+        {relayRoom && !relayHost && <div className={`${row} cursor-default`}><UserPlus size={20} className="text-dim" /><span className="flex-1 text-dim">Invite humans<small className="block text-xs">Only {people.find((p) => p.email === host)?.name || "the host"} can invite humans. Message them to ask.</small></span></div>}
         {!relayRoom && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayRoom && guestAgents !== undefined && (relayHost || guestAgents) && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Bring your agent<small className="block text-xs text-dim">Experimental: your own agent, from your computer</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayHost && guestAgents !== undefined && <GuestAgents row={row} on={guestAgents} />}
-        <Theme />
       </div>
     </aside>
   </>;
 }
 
-// The host passes the room's invite link on: shared from the phone's own sheet, or copied. Whoever opens it picks a name.
+// The host passes the room's invite link on: a small window with the link, Copy and Share. Whoever opens it picks a name.
 function Invite({ row }: { row: string }) {
-  const [note, setNote] = useState("Send it to a friend: they open it and pick a name");
-  const go = async () => {
-    const link = await inviteLink();
-    if (!link) return setNote("Couldn't get the link from the room. Try again.");
-    try { if (navigator.share) { await navigator.share({ title: "shellphone", text: "Join my shellphone room", url: link }); return; } }
-    catch (e) { if ((e as Error).name === "AbortError") return; }  // only a cancelled sheet ends here; any other failure falls back to copying
-    try { await navigator.clipboard.writeText(link); setNote("Link copied"); } catch { setNote(link); }
-  };
-  return <button type="button" onClick={go} className={row}><UserPlus size={20} className="text-acc" />
-    <span className="flex-1">Invite people<small className="block text-xs text-dim break-all">{note}</small></span><ChevronRight size={20} className="text-acc" /></button>;
+  const [open, setOpen] = useState(false);
+  return <><button type="button" onClick={() => setOpen(true)} className={row}><UserPlus size={20} className="text-acc" />
+    <span className="flex-1">Invite humans<small className="block text-xs text-dim break-all">Send it to a friend: they open it and pick a name</small></span><ChevronRight size={20} className="text-acc" /></button>
+    {open && <LinkModal title="Invite humans" sub="Anyone with this link comes in and picks a name" get={roomInvite} onClose={() => setOpen(false)} />}</>;
 }
 
 // The host's switch for agents that guests bring: off cuts them off at once (their keys stop working through the relay)
@@ -74,14 +67,3 @@ function GuestAgents({ row, on }: { row: string; on: boolean }) {
     <span className={`font-mono font-semibold text-xs rounded-lg px-2.5 py-1 ${on ? "text-white bg-acc" : "text-dim bg-panel border border-line"}`}>{on ? "on" : "off"}</span></button>;
 }
 
-// Light or dark: for now it's the sky over everyone at the top of the chats. It follows the clock and the phone's
-// dark mode until you flip it here (the same as tapping the sun or moon).
-function Theme() {
-  const [sky, flip] = useSky(), dark = sky === "night";
-  return <button type="button" role="switch" aria-checked={dark} onClick={flip} className={row}>
-    {dark ? <Moon size={20} className="text-acc" /> : <Sun size={20} className="text-acc" />}
-    <span className="flex-1">Dark mode<small className="block text-xs text-dim">{dark ? "Night sky over the chats" : sky === "sunset" ? "Sunset sky over the chats" : "Day sky over the chats"}</small></span>
-    <span className={`w-[42px] h-[25px] rounded-full relative flex-none transition-colors ${dark ? "bg-go" : "bg-line"}`}>
-      <i className={`absolute top-[3px] w-[19px] h-[19px] rounded-full bg-white shadow transition-[left] ${dark ? "left-[20px]" : "left-[3px]"}`} /></span>
-  </button>;
-}
