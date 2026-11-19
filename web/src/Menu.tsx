@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { Bell, BellOff, BellRing, Check, ChevronRight, Moon, Squirrel, Sun, UserPlus } from "lucide-react";
 import { useSky } from "./Sky";
-import { call, inviteLink, relayHost, relayRoom } from "./relay";
+import { call, relayHost, relayRoom } from "./relay";
+import { LinkModal, roomInvite } from "./InviteModal";
 import { LinkRoom } from "./LinkRoom";
 import type { Person, Wolt } from "./room";
 
@@ -47,18 +48,12 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
   </>;
 }
 
-// The host passes the room's invite link on: shared from the phone's own sheet, or copied. Whoever opens it picks a name.
+// The host passes the room's invite link on: a small window with the link, Copy and Share. Whoever opens it picks a name.
 function Invite({ row }: { row: string }) {
-  const [note, setNote] = useState("Send it to a friend: they open it and pick a name");
-  const go = async () => {
-    const link = await inviteLink();
-    if (!link) return setNote("Couldn't get the link from the room. Try again.");
-    try { if (navigator.share) { await navigator.share({ title: "shellphone", text: "Join my shellphone room", url: link }); return; } }
-    catch (e) { if ((e as Error).name === "AbortError") return; }  // only a cancelled sheet ends here; any other failure falls back to copying
-    try { await navigator.clipboard.writeText(link); setNote("Link copied"); } catch { setNote(link); }
-  };
-  return <button type="button" onClick={go} className={row}><UserPlus size={20} className="text-acc" />
-    <span className="flex-1">Invite humans<small className="block text-xs text-dim break-all">{note}</small></span><ChevronRight size={20} className="text-acc" /></button>;
+  const [open, setOpen] = useState(false);
+  return <><button type="button" onClick={() => setOpen(true)} className={row}><UserPlus size={20} className="text-acc" />
+    <span className="flex-1">Invite humans<small className="block text-xs text-dim break-all">Send it to a friend: they open it and pick a name</small></span><ChevronRight size={20} className="text-acc" /></button>
+    {open && <LinkModal title="Invite humans" sub="Anyone with this link comes in and picks a name" get={roomInvite} onClose={() => setOpen(false)} />}</>;
 }
 
 // The host's switch for agents that guests bring: off cuts them off at once (their keys stop working through the relay)

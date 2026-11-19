@@ -11,6 +11,7 @@ import { wear, worn } from "./hats";
 import { WoltStrip, usePullDown, type Who } from "./WoltStrip";
 import { Sidebar } from "./Sidebar";
 import { ChatSide } from "./ChatSide";
+import { LinkModal, roomInvite } from "./InviteModal";
 import { Profile } from "./Profile";
 import { UPPER } from "./Sky";
 import { AddAgentSheet } from "./AddAgent";
@@ -776,6 +777,7 @@ export function App() {
   // one set of pieces for every screen: the chats list, the chat, the side pane. Side by side on a computer, one at a time on a phone
   const oneUI = !desk && chatsHome && !lobby, twoPane = roomy && oneUI;
   const [phoneSide, setPhoneSide] = useState(false);
+  const [inviting, setInviting] = useState(false);
   // Escape closes whatever pops up on top (a page, a card, the new chat sheet, the menu…), the top one first. Not the chat itself.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -830,9 +832,9 @@ export function App() {
             <b className="text-[15px]">About this chat</b></div>
           <div className="flex-1 min-h-0 flex [&>aside]:w-full [&>aside]:border-l-0"><ChatSide thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} /></div>
         </div>}</div>
-        : <Sidebar full onInvite={() => setMenu(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu}
+        : <Sidebar full onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu}
           onMenu={() => setMenu(!menu)} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />)
-      : twoPane ? <Sidebar onInvite={() => setMenu(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu} desk={desk}
+      : twoPane ? <Sidebar onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu} desk={desk}
         onMenu={() => setMenu(!menu)} onDesk={wide && DESK_BUTTON ? () => setDesk(!desk) : undefined} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />
       : <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
         className={`flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24`}>
@@ -859,6 +861,7 @@ export function App() {
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
       {thread && !oneUI && chatSheet(false)}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} onEveryone={() => { setThread(""); setLobby(false); setStrip(true); }} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
+      {inviting && <LinkModal title="Invite humans" sub="Anyone with this link comes in and picks a name" get={roomInvite} onClose={() => setInviting(false)} />}
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}
