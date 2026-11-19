@@ -10,6 +10,7 @@ import { LORE, woltAvatar } from "./sprites";
 import { wear, worn } from "./hats";
 import { WoltStrip, usePullDown, type Who } from "./WoltStrip";
 import { Sidebar } from "./Sidebar";
+import { ChatSide } from "./ChatSide";
 import { Profile } from "./Profile";
 import { UPPER } from "./Sky";
 import { AddAgentSheet } from "./AddAgent";
@@ -19,7 +20,7 @@ import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWal
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
-import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, PanelRight, X } from "lucide-react";
 const Desk = lazy(() => import("./Desk"));  // terminals and their library load only on a computer that opens the desk
 import { usePush } from "./push";
 
@@ -247,7 +248,7 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 // Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
 // A thread pops up over the main chat, like the voice-note sheet: you're still in the room, just looking closer.
 // Drag the handle down, tap above it, or tap ✕ to drop back.
-function ThreadSheet({ docked, startFull, chat, name, onRename, color, wallpaper, title, count, close, who, children }: { docked?: boolean; startFull?: boolean; chat?: boolean; name?: string; onRename?: (name: string) => void; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
+function ThreadSheet({ docked, side, startFull, chat, name, onRename, color, wallpaper, title, count, close, who, children }: { docked?: boolean; side?: { on: boolean; flip: () => void }; startFull?: boolean; chat?: boolean; name?: string; onRename?: (name: string) => void; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
   const [drag, setDrag] = useState<{ y: number; dy: number; t: number } | null>(null), [full, setFull] = useState(!!startFull);
   const [editing, setEditing] = useState(false);  // renaming the chat: its title becomes a box
   const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
@@ -283,6 +284,8 @@ function ThreadSheet({ docked, startFull, chat, name, onRename, color, wallpaper
           <div className="font-mono text-[11px] text-dim">{`chat · ${count + 1} ${count ? "messages" : "message"}`}</div>
         </div>
         {who}
+        {side && <button type="button" aria-label={side.on ? "Hide the side pane" : "Show the side pane"} title="Who's in it, pages, files" onClick={side.flip}
+          className={`flex-none w-9 h-9 grid place-items-center border cursor-pointer rounded-lg ${side.on ? "bg-white border-line text-ink" : "bg-transparent border-transparent text-dim hover:bg-panel"}`}><PanelRight size={18} /></button>}
         <button type="button" aria-label="Close the chat" title="Close (Esc)" onClick={close} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer rounded-lg hover:bg-panel"><X size={18} /></button>
       </div>
     </div>
@@ -762,6 +765,9 @@ export function App() {
   const deskWolts = state.members.wolts.filter((w) => !w.paused && (!thread || !state.who || (state.main === w.wolt && state.who[thread]?.[w.wolt] !== "paused") || state.who[thread]?.[w.wolt] === "in"));
   // the chats on the left and the open chat docked beside them, on a computer screen (not beside the desk: that column is narrow)
   const twoPane = roomy && !desk && chatsHome && !lobby;
+  // the side pane beside the open chat (who's in it, pages, files): open by default on a wide screen, remembered here
+  const [sideOn, setSideOn] = useState(() => { try { return localStorage.getItem("side") !== "0"; } catch { return true; } });
+  const setSide = (on: boolean) => { setSideOn(on); try { localStorage.setItem("side", on ? "1" : "0"); } catch { /* fine */ } };
   // keys on a computer: Esc closes the open chat, N starts a new one (not while typing, not over a sheet)
   useEffect(() => {
     if (!twoPane) return;
@@ -774,10 +780,10 @@ export function App() {
     addEventListener("keydown", key); return () => removeEventListener("keydown", key);
   }, [twoPane, thread, who, starting, menu, paging, viewing, adding]);
   const chatSheet = (docked: boolean) => (
-<ThreadSheet key={thread} docked={docked} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={docked ? undefined : threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
+<ThreadSheet key={thread} docked={docked} side={docked ? { on: sideOn, flip: () => setSide(!sideOn) } : undefined} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={docked ? undefined : threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
-        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />
+        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={docked ? { ...ctx, rows: true } : ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />
         {/* a chat just started: who will pick it up, and how to bring someone else in */}
         {chatsHome && root && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
           New chat started{state.main && state.who?.[thread]?.[state.main] !== "paused" ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
@@ -815,7 +821,8 @@ export function App() {
           onMain: () => {}, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
       </div>}
-      {twoPane && <div className="flex-1 min-w-0 relative">{thread ? chatSheet(true) : <div className="h-full grid place-items-center text-center px-8">
+      {twoPane && <div className="flex-1 min-w-0 relative flex">{thread ? <><div className="flex-1 min-w-0 relative">{chatSheet(true)}</div>
+        {sideOn && <ChatSide thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}</> : <div className="flex-1 h-full grid place-items-center text-center px-8">
         <div><div className="font-mono text-acc font-semibold">Pick a chat</div><div className="text-dim text-[13px] mt-1">or start a new one. <kbd className="font-mono text-[11px] border border-line rounded px-1">N</kbd></div></div></div>}</div>}
       </div> : <>
         {chatsHome && <button type="button" onClick={() => setLobby(false)} className="flex-none flex items-center gap-1 px-3 py-2 border-0 border-b border-line bg-panel font-mono text-[12px] text-acc text-left cursor-pointer">

@@ -10,7 +10,7 @@ import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void };
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean };  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -134,6 +134,31 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
   const readers = mine ? ctx.seen[m.id] || [] : [];
   const solid: CSSProperties = mine ? { backgroundColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
     : !human ? { backgroundColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : {};
+  // on a computer screen: one plain line per message, face and name on the first of a run, like Slack; hats and colours kept
+  if (ctx.rows) return (
+    <div className={`group flex gap-2.5 px-5 py-0.5 ${firstOfRun ? "mt-2.5" : ""} hover:bg-[#18100a08]`} id={m.cid || m.id}>
+      {firstOfRun ? <img src={avatar} alt="" className="pixel w-9 h-9 flex-none mt-0.5" />
+        : <span className="flex-none w-9 pt-0.5 text-right font-mono text-[10px] text-dim opacity-0 group-hover:opacity-100">{time(m.at).replace(/\s?[AP]M$/i, "")}</span>}
+      <div data-bubble className="min-w-0 flex-1 max-w-[860px]">
+        {firstOfRun && <div className="flex items-baseline gap-2">
+          <b className="text-[14px]" style={{ color: human ? (mine ? undefined : who.color) : woltColor(m.wolt, ctx.wolts) }}>{human ? who.name : m.wolt}</b>
+          {!human && <span className="font-mono text-[10.5px] text-dim">{owner === ctx.me ? "yours" : who.name + "'s"}</span>}
+          {human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="font-mono text-[10.5px] px-1 rounded border border-line text-dim">guest</span>}
+          <span className="font-mono text-[10.5px] text-dim">{time(m.at)}</span></div>}
+        {m.files?.length ? relayRoom ? <div className="font-mono text-xs text-dim mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
+        {m.audio ? <div className="max-w-[420px]"><Voice m={m} ctx={ctx} /></div> : m.text ? <div className="text-[14.5px] leading-[1.5] whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
+        {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
+        <div className="max-w-[560px]"><Card msg={m} all={ctx.all} /></div>
+        {m.page && <div className="max-w-[420px]"><PageTile m={m} ctx={ctx} /></div>}
+        {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
+          className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
+          style={{ color: woltColor(m.wolt, ctx.wolts), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}
+        {readers.length > 0 && <div className="flex justify-end gap-px mt-0.5" title={"Read by " + readers.join(", ")}>
+          {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltFace(r, w?.creature)} />; })}</div>}
+        {footer && <div className="max-w-[480px] rounded-xl border border-line bg-panel px-2.5 pb-1.5">{footer}</div>}
+      </div>
+    </div>
+  );
   return (
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
       <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />

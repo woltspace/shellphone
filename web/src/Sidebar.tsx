@@ -91,7 +91,7 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
       <kbd className="font-mono text-[10.5px] border border-line border-b-2 rounded px-1">⌘K</kbd>
     </label>
     {/* your wolts, faces with their hats: gnawing when they're on something, tap one for its card */}
-    <div className="flex-none flex gap-0.5 px-2 pb-2.5 overflow-x-auto [scrollbar-width:none] border-b border-line">
+    <div className="flex-none flex gap-0.5 px-2 pt-1.5 pb-2.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] border-b border-line">
       {[...wolts].sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)).map((w, i) => {
         const m = mood(w, state), color = woltColor(w.wolt, wolts), v = verbs(w.creature);
         return <button key={w.wolt} type="button" onClick={() => onPick("w:" + w.wolt)} aria-label={`${w.wolt}: ${m.word}`}
@@ -110,7 +110,7 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
         <span className="font-mono text-[10.5px]">add</span>
       </button>
     </div>
-    <div className="flex-none flex gap-1.5 px-3 pt-2.5 pb-1 overflow-x-auto [scrollbar-width:none]">
+    <div className="flex-none flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
       {chip("all", "All")}{chip("needs", "Needs you", needs.length)}{chip("agents", "Agents", found.filter((i) => i.busy).length)}{chip("unread", "Unread", found.filter((i) => i.n).length)}
     </div>
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-2">
