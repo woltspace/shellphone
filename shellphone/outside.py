@@ -36,6 +36,9 @@ class _Stay(urllib.request.HTTPRedirectHandler):
 STAY = urllib.request.build_opener(_Stay)
 
 
+CHECK, MISSES = 60, 2  # a shared room looks at its own outside address this often (seconds); this many misses in a row and its tunnel is replaced
+WAITS, TRIES = (30, 60, 120, 240, 480, 900), 10  # seconds the room waits after each new tunnel before the next (the last one repeats); new tunnels in a row with none seen to carry before it stops (about 75 minutes)
+
 class Tunnel:
     """One `cloudflared` quick tunnel to a port on this computer. start() gives its address, or None and why."""
 
@@ -63,15 +66,22 @@ class Tunnel:
         # its own empty settings: a tunnel someone set up on this computer for something else is none of this room's
         self.proc = subprocess.Popen([exe, "tunnel", "--no-autoupdate", "--config", os.devnull, "--url", f"http://127.0.0.1:{self.port}"],
                                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, start_new_session=True)
-        threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
-        self._found.wait(wait)
-        if not self.url or self.proc.poll() is not None:
-            self.why = self.why or "cloudflared gave no address"
+        try:  # from here on the program runs: whatever goes wrong before start() has answered, it is stopped. Nobody else holds it yet
+            threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
+            self._found.wait(wait)
+            if not self.url or self.proc.poll() is not None:
+                self.why = self.why or "cloudflared gave no address"
+                self.stop()
+                return None
+            self._ready.wait(20)  # the address is printed a moment before anything answers on it
+            self._named()
+            return self.url
+        except BaseException as exc:
             self.stop()
+            if not isinstance(exc, Exception):
+                raise
+            self.why = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
             return None
-        self._ready.wait(20)  # the address is printed a moment before anything answers on it
-        self._named()
-        return self.url
 
     def _named(self, wait=40):
         """A new tunnel's name takes a few seconds to exist. Asking for it too early is remembered as "no such name"
@@ -85,7 +95,7 @@ class Tunnel:
                     if json.loads(res.read()).get("Answer"):
                         time.sleep(1.5)
                         return True
-            except (OSError, ValueError):
+            except Exception:  # no answer, one cut short, one that isn't JSON: asked again
                 pass
             time.sleep(1)
         return False
@@ -110,7 +120,8 @@ class Outside:
         self.r, self.data, self.keep, self.site, self.port, self.host_email, self.say = r, data, keep, site.rstrip("/"), port, host_email, say
         self.lock, self.open, self.host, self.tunnel = threading.RLock(), False, None, None
         self.room = self.secret = self.host_token = self.invite_token = None
-        self.guests, self._stop, self._unwritten = {}, threading.Event(), []
+        self.guests, self._stop, self._unwritten, self._missed = {}, threading.Event(), [], 0
+        self._tries, self._next, self._gave_up = 0, 0, None  # tunnels opened in a row without one seen to carry; not before when the next; why it stopped trying
 
     # -- what is kept between runs
 
@@ -237,7 +248,8 @@ class Outside:
             return {"linked": False, "relay": where, "note": f"{where} couldn't be told yet that this room isn't shared any more: until it is, the old link shows the room as offline. Telling it again every minute" + (
                 f", but that couldn't be written down in {self.data}: keep this room open until it is told, or it never will be." if self._unwritten else ".")}
         first = self.r is None or self.core().invite_open(self.door_mark(), self.invite_token)  # the invite this address came with, while the host hasn't ended it
-        return {"linked": True, "state": "up", "relay": where, "link": f"{self.site}/t/{self.room}#k.{self.host_token}",
+        down = {"state": "down", "note": f"Nobody outside can reach this room right now: its tunnel couldn't be reopened ({self._gave_up}). Share it again to try anew."} if self._gave_up else {"state": "up"}
+        return {"linked": True, **down, "relay": where, "link": f"{self.site}/t/{self.room}#k.{self.host_token}",
                 **({"invite": self.invite_link(self.invite_token)} if first else {}),
                 "guests": len(self.guests) + (self.core().guest_count(self.via()) if self.r is not None else 0), "guest_agents": True, "tunnel": True}
 
@@ -266,29 +278,132 @@ class Outside:
         if not url:
             return f"couldn't open a tunnel: {tunnel.why}"
         self.tunnel, self.host = tunnel, urllib.parse.urlsplit(url).netloc.lower()
-        why = self._tell(url)
-        for _ in range(4):  # the site asks the room at its new address before it takes it down: a moment too early, it says so
-            if not why or "doesn't answer" not in why:
-                break
-            time.sleep(3)
+        try:
             why = self._tell(url)
-        if why:
+            for _ in range(4):  # the site asks the room at its new address before it takes it down: a moment too early, it says so
+                if not why or "doesn't answer" not in why:
+                    break
+                time.sleep(3)
+                why = self._tell(url)
+        except Exception as exc:  # telling the site went wrong on the way: the site doesn't have this address, so this tunnel is no use to anyone
+            why = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        if why:  # a tunnel the site wasn't told of is never left running: the room would answer on it while its lasting link leads nowhere
             tunnel.stop()
             self.tunnel = self.host = None
             return f"couldn't register the room with {urllib.parse.urlsplit(self.site).netloc}: {why}"
         return None
 
+    def _online(self):
+        """Has this computer a way out at all, right now?"""
+        try:
+            with STAY.open(urllib.request.Request("https://1.1.1.1/cdn-cgi/trace", headers={"User-Agent": "shellphone-room/1"}), timeout=8):
+                return True
+        except Exception:  # whatever went wrong on the way: no answer is no way out
+            return False
+
+    def _answers(self):
+        """Does the room answer at its own outside address, right now? True, False, or None when that can't be told
+        (this computer has no way out at the moment: nothing a new tunnel would mend)."""
+        host, room = self.host, self.room
+        if not host or not room:
+            return None
+        try:  # asked as the site asks before it sends anyone on: a number picked now, signed with the key only this room holds. No redirect is followed
+            n = secrets.token_hex(16)
+            req = urllib.request.Request(f"https://{host}/api/up?n={n}", headers={"User-Agent": "shellphone-room/1"})
+            with STAY.open(req, timeout=8) as res:
+                got = json.loads(res.read(2000)) if res.status == 200 else None
+            want = self.proof(n)
+            if isinstance(got, dict) and got.get("shellphone") is True and got.get("room") == room and want and isinstance(got.get("proof"), str) and hmac.compare_digest(got["proof"], want):
+                return True
+        except Exception:  # a refused connection, a name that isn't known, an answer cut short, anything that isn't this room's own answer: a miss
+            pass
+        return False if self._online() else None  # not answering: is it the tunnel, or is this computer cut off from everything?
+
+    def _mend(self, now):
+        """A new tunnel in place of one that is gone or carries nothing, within limits: after each try the room waits
+        longer before the next (WAITS), and after TRIES in a row with no tunnel that was then seen to carry, it stops
+        and says so: sharing again starts over. A computer with no way out is waited for and uses up no tries.
+        Returns None (not now), "reopened", "failed" or "gave up"."""
+        if self._gave_up or now < self._next or not self._online():
+            return None
+        if self._tries >= TRIES:  # the last tries did open a tunnel, and none of them was then seen to carry
+            self._gave_up = "each new tunnel stopped carrying"
+            self.say(f"The room's tunnel dropped again after {self._tries} new ones in a row: the room stops trying. It stays open on this computer; share it again to start over.", flush=True)
+            return "gave up"
+        tunnel, self.tunnel, self.host = self.tunnel, None, None
+        if tunnel:
+            tunnel.stop()
+        self.say("The tunnel isn't carrying (the computer slept, or the network changed). Opening a new one…", flush=True)
+        began = time.time()
+        try:
+            why = self._up()
+        except Exception as exc:  # a try that went wrong on the way is a failed try like any other: counted, and waited after
+            why = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        now += max(0, time.time() - began)  # the wait before the next try runs from when this one ended, however long it took
+        self._tries += 1  # counted until a look finds the new one carrying (see _check): one that opens and then drops is no success
+        if not why:
+            self._next = now + WAITS[min(self._tries - 1, len(WAITS) - 1)]
+            self.say("The room is reachable again, at the same link.", flush=True)
+            return "reopened"
+        if self._tries >= TRIES:
+            self._gave_up = why
+            self.say(f"Still not reachable: {why}. That was try {self._tries} in a row: the room stops trying. It stays open on this computer; share it again to start over.", flush=True)
+            return "gave up"
+        wait = WAITS[min(self._tries - 1, len(WAITS) - 1)]
+        self._next = now + wait
+        self.say(f"Still not reachable: {why}. Trying again in {wait // 60} min." if wait >= 60 else f"Still not reachable: {why}. Trying again in {wait} s.", flush=True)
+        return "failed"
+
+    def _check(self, now=None):
+        """One look at whether the tunnel still carries. Its program can stay running with nothing behind it (after
+        the computer slept, or the network changed): then the room would go on saying it is shared while nobody can
+        come in. Missed twice in a row while this computer is online: the tunnel is replaced (see _mend).
+        Returns what it did: None, or what _mend says."""
+        now = time.time() if now is None else now
+        with self.lock:
+            if not self.open or not (self.tunnel and self.tunnel.alive()):
+                self._missed = 0
+                return None
+            answers = self._answers()
+            if answers is not False:  # it answers, or there is no telling: nothing to mend
+                if answers:
+                    self._missed = self._tries = self._next = 0  # it carries: whatever was tried before is settled
+                    self._gave_up = None
+                return None
+            self._missed += 1
+            if self._missed < MISSES:
+                return None
+            self._missed = 0
+            return self._mend(now)
+
     def _watch(self, stop):
-        while not stop.wait(3):  # the tunnel's program died (the computer slept, the network changed): a new one, and the site is told
+        looked = time.time()
+        while not stop.wait(3):
             with self.lock:
-                if stop.is_set() or not self.open or (self.tunnel and self.tunnel.alive()):
+                if stop.is_set() or not self.open:
                     continue
-                self.say("The tunnel closed. Opening a new one…", flush=True)
-                why = self._up()
-                self.say("The room is reachable again, at the same link." if not why else f"Still not reachable: {why}. Trying again…", flush=True)
+                if self.tunnel and self.tunnel.alive():
+                    if time.time() - looked >= CHECK:  # its program runs: does it still carry?
+                        looked = time.time()
+                        self._look(self._check)
+                    continue
+                if self._look(self._mend, time.time()):  # the tunnel's program died
+                    looked = time.time()
+
+    def _look(self, what, *a):
+        """One round of the watch. Whatever goes wrong in it, the watch goes on: a room that stopped watching would
+        never mend its tunnel again."""
+        try:
+            return what(*a)
+        except Exception as exc:
+            self.say(f"Looking after the tunnel went wrong this time ({type(exc).__name__}: {exc}). Still watching.", flush=True)
+            return None
 
     def on(self):
         with self.lock:
+            if self.open and self._gave_up:  # it had stopped trying to reopen its tunnel: asked again, it starts over. Its links stay as they are
+                self._tries, self._next, self._gave_up = 0, 0, None
+                self._mend(time.time())
             if self.open:
                 return 200, self.info()
             if self._settle()[0]:  # an earlier unlink the site hasn't heard of yet
@@ -310,6 +425,8 @@ class Outside:
 
     def _down(self):
         self.open = False
+        self._missed = self._tries = self._next = 0
+        self._gave_up = None
         self._stop.set()
         tunnel, self.tunnel, self.host = self.tunnel, None, None
         if tunnel:
