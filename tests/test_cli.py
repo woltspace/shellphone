@@ -818,6 +818,23 @@ class QuietRoom(unittest.TestCase):
                 connector.wait(str(cfg), 0.3, 0.05)
             self.assertIn("timed out", out.getvalue())
 
+    def test_a_limit_of_nothing_is_a_limit_not_no_limit(self):
+        import connector
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "lodge.json"
+            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
+            calls, out = [], io.StringIO()
+
+            def call(*a, **kw):
+                calls.append(1)
+                if len(calls) > 50:
+                    raise AssertionError("--timeout 0 went on waiting")
+                return {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}
+            with patch.object(connector, "call", call), patch.object(connector.time, "sleep", lambda s: None), contextlib.redirect_stdout(out):
+                connector.wait(str(cfg), 0, 2)
+            self.assertIn("timed out", out.getvalue())
+            self.assertLessEqual(len(calls), 1)
+
     def test_the_command_asks_for_no_limit_by_default(self):
         src = (REPO / "connector.py").read_text()
         self.assertIn('s.add_argument("--timeout", type=float, default=None', src)

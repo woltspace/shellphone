@@ -240,7 +240,7 @@ def wait(config_path, timeout, interval):
         cfg.update(owner=me["owner"], after=max((m["n"] for m in me["messages"]), default=0),
                    recent=[{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "files")} for m in me["messages"] if m["kind"] in ("human", "wolt")][-60:])
         store(config_path, cfg)
-    end = time.time() + timeout if timeout else None  # no limit unless one is asked for: only a message ends the wait, so nothing wakes the agent for nothing
+    end = None if timeout is None else time.time() + timeout  # no limit unless one is asked for (0 is a limit: look once and end): only a message ends the wait, so nothing wakes the agent for nothing
     while end is None or time.time() < end:
         try:
             got = call(cfg, "GET", f"/lodge/messages?after={cfg['after']}")
