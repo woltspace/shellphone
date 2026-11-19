@@ -566,26 +566,33 @@ def listing(a):
     rooms = [describe(r) for r in open_rooms()]
     if a.json:
         return print(json.dumps(rooms, indent=2))
+    from . import ui
+    out = ui.console()
     if not rooms:
-        return print("No room is open on this computer. Open one with `shellphone room`.")
-    print(f"{len(rooms)} room{'s' if len(rooms) != 1 else ''} open on this computer\n")
-    for r in rooms:
-        if not r["answers"]:
-            print(f"  port {r['port']:<6} (doesn't answer)\n               {'kept in' if r['kept'] else 'in'} {r['dir']}\n")
-            continue
-        how = ("shared, " + WAYS[r["via"]] if r.get("via") else "shared") if r.get("shared") else "only on this computer"
-        if r.get("shared") and r.get("reachable") is False:
-            how += " (can't be reached from outside right now)"
-        count = lambda n, word: f"{n} {word if n == 1 else {'person': 'people'}.get(word, word + 's')}"
-        print(f"  port {r['port']:<6} {r.get('name') or 'shell'}\n               {how} · {count(r.get('people', 0), 'person')} · {count(r.get('agents', 0), 'agent')}\n"
-              f"               {'kept in ' + r['dir'] if r['kept'] else 'not kept: deleted when it closes'}\n")
-    print("Close one with `shellphone stop --port N`, all of them with `shellphone stop --all`.")
+        return out.print("No room is open on this computer. Open one with [bold]shellphone room[/bold].")
+    out.print(f"[bold]{len(rooms)} room{'s' if len(rooms) != 1 else ''} open on this computer[/bold]\n")
+    count = lambda n, word: f"{n} {word if n == 1 else {'person': 'people'}.get(word, word + 's')}"
+    for r in rooms:  # a few lines each, none of them cut or folded: a path stays whole to be copied
+        where = ("kept in " + r["dir"]) if r["kept"] else "not kept: deleted when it closes"
+        down = bool(r.get("shared")) and r.get("reachable") is False
+        colour = ui.AMBER if down or not r["answers"] else ui.GREEN if r.get("shared") else ui.DIM
+        out.print(ui.Text.assemble("  ", ("●", colour), " ", (f"port {r['port']}", "bold"), "  ", (r.get("name") or "shell") if r["answers"] else ("doesn't answer", ui.AMBER)))
+        if r["answers"]:
+            how = ("shared, " + WAYS[r["via"]] if r.get("via") else "shared") if r.get("shared") else "only on this computer"
+            if down:
+                how += " (can't be reached from outside right now)"
+            out.print(ui.Text.assemble("      ", (how, colour if r.get("shared") else ""), f" · {count(r.get('people', 0), 'person')} · {count(r.get('agents', 0), 'agent')}"))
+        out.print(ui.Text("      " + where, style=ui.DIM))
+        out.print()
+    out.print("Close one with [bold]shellphone stop --port N[/bold], all of them with [bold]shellphone stop --all[/bold].", style=ui.DIM)
 
 
 def stop_rooms(a):
     """`shellphone stop`: close rooms open on this computer, as Ctrl-C in their own window does. A kept room keeps
     everything, its links included: it comes back as it was at its next start. Nothing is unshared."""
     import time
+    from . import ui
+    out = ui.console()
     rooms = [r for r in open_rooms(a.keep) if a.port is None or r["port"] == a.port]
     if not rooms:
         sys.exit("no open room found" + (f" on port {a.port}" if a.port else " on this computer"))
@@ -594,13 +601,13 @@ def stop_rooms(a):
     failed = False
     for r in rooms:
         if ask_room(r, "/api/link") is None:  # what's written down doesn't answer as that room any more: not ours to end
-            print(f"The room on port {r['port']} doesn't answer: left alone.")
+            out.print(f"[{ui.AMBER}]![/] The room on port {r['port']} doesn't answer: left alone.")
             failed = True
             continue
         try:
             os.kill(r["pid"], signal.SIGTERM)
         except OSError as exc:
-            print(f"Couldn't close the room on port {r['port']}: {exc}")
+            out.print(f"[{ui.AMBER}]![/] Couldn't close the room on port {r['port']}: {ui.escape(str(exc))}")
             failed = True
             continue
         # closed: its program is gone, or (where whoever started it hasn't looked at it yet, so its number lingers) it took
@@ -609,12 +616,12 @@ def stop_rooms(a):
         while not gone() and time.time() < end:
             time.sleep(0.2)
         if not gone():
-            print(f"The room on port {r['port']} was asked to close and is still running.")
+            out.print(f"[{ui.AMBER}]![/] The room on port {r['port']} was asked to close and is still running.")
             failed = True
         elif r["kept"]:
-            print(f"Closed the room on port {r['port']}. It is kept in {r['dir']}: `shellphone room --keep {shlex.quote(r['dir'])}` brings it back as it was.")
+            out.print(f"[{ui.GREEN}]✓[/] Closed the room on port {r['port']}. It is kept in {ui.escape(r['dir'])}: [bold]shellphone room --keep {ui.escape(shlex.quote(r['dir']))}[/bold] brings it back as it was.")
         else:
-            print(f"Closed the room on port {r['port']}. It wasn't kept: it is gone.")
+            out.print(f"[{ui.GREEN}]✓[/] Closed the room on port {r['port']}. It wasn't kept: it is gone.")
     if failed:
         sys.exit(1)
 
@@ -812,31 +819,45 @@ BANNER = "\n".join((
 ))
 PLAIN = "  s h e l l p h o n e\n\n  a chat for you and your coding agents, on your own computer"  # for a terminal that can't draw the dots
 
-HELLO = """  shellphone room             open a shell on this computer
-  shellphone room --share     open one and share it, with a link and an invite
-  shellphone list             the shells open on this computer
-  shellphone stop             close one (--all: every one)
-  shellphone share            share the open shell (share --stop ends its links)
-  shellphone invite           an invite that ends, or is for one person
-  shellphone join '<link>'    join a shell as an agent, with its link
-
-  shellphone <command> -h     more about a command
-"""
+HELLO = (  # where to start: a command, and what it does
+    ("shellphone room", "open a shell on this computer"),
+    ("shellphone room --share", "open one and share it, with a link and an invite"),
+    ("shellphone list", "the shells open on this computer"),
+    ("shellphone stop", "close one (--all: every one)"),
+    ("shellphone share", "share the open shell (share --stop ends its links)"),
+    ("shellphone invite", "an invite that ends, or is for one person"),
+    ("shellphone join '<link>'", "join a shell as an agent, with its link"),
+)
 
 
 def hello():
     """`shellphone` with nothing after it: what it is, and where to start."""
+    from . import ui
     try:
         from importlib.metadata import version
         v = " " + version("shellphone")
     except Exception:
         v = ""
-    art = BANNER
-    try:
-        art.encode(sys.stdout.encoding or "ascii")
-    except (UnicodeError, LookupError):
-        art = PLAIN
-    print("\n" + art + "\n\n  shellphone" + v + "\n\n" + HELLO, end="")
+    out = ui.console()
+    out.print()
+    if ui.can_draw(BANNER, out.file):
+        for line in BANNER.split("\n"):  # the spiral in the room's orange, the words beside it as they are
+            dots = max((i for i, ch in enumerate(line) if 0x2800 <= ord(ch) <= 0x28FF), default=-1) + 1
+            words = line[dots:]
+            out.print(ui.Text.assemble((line[:dots], ui.ACC), (words, "bold" if "s h e l l" in words else "")))
+    else:
+        out.print(PLAIN, markup=False)
+    out.print()
+    out.print(ui.Text.assemble("  ", ("shellphone", "bold"), (v, ui.DIM)))
+    out.print()
+    out.print(_indent(ui.grid(HELLO)))
+    out.print()
+    out.print(_indent(ui.grid((("shellphone <command> -h", "more about a command"),), first=ui.DIM)))
+
+
+def _indent(what, by=2):
+    from rich.padding import Padding
+    return Padding(what, (0, 0, 0, by))
 
 
 def main():

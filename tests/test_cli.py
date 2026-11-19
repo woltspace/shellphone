@@ -932,3 +932,42 @@ class Hello(unittest.TestCase):
         got = subprocess.run([*CLI, "nonsense"], capture_output=True, text=True, timeout=30, env=ENV)
         self.assertEqual(got.returncode, 2)
         self.assertIn("usage:", got.stderr)
+
+
+class Colour(unittest.TestCase):
+    """The command's own screens are coloured for a person at a terminal, and plain everywhere else."""
+
+    def out(self, *args, **env):
+        with tempfile.TemporaryDirectory() as td:
+            return subprocess.run([*CLI, *args], capture_output=True, text=True, timeout=30, env={**ENV, "TMPDIR": td, **env}, cwd=td)
+
+    def test_piped_output_carries_no_colour_codes(self):
+        for args in ((), ("list",)):
+            got = self.out(*args)
+            self.assertEqual((got.returncode, got.stderr), (0, ""), args)
+            self.assertNotIn("\x1b[", got.stdout, args)
+
+    def test_a_terminal_gets_colour_and_no_color_takes_it_away(self):
+        loud = self.out(FORCE_COLOR="1", COLORTERM="truecolor")
+        self.assertIn("\x1b[", loud.stdout)
+        self.assertIn("38;2;196;83;30", loud.stdout)  # the room's own orange
+        quiet = self.out(FORCE_COLOR="1", NO_COLOR="1")
+        self.assertNotIn("38;2;", quiet.stdout)
+        strip = lambda s: re.sub(r"\x1b\[[0-9;]*m", "", s)
+        self.assertEqual([l.rstrip() for l in strip(loud.stdout).splitlines()], [l.rstrip() for l in strip(quiet.stdout).splitlines()])  # the same words either way
+
+    def test_a_path_with_brackets_is_shown_as_it_is(self):
+        with tempfile.TemporaryDirectory() as td:
+            env = {**ENV, "TMPDIR": td, "TEMP": td, "TMP": td}
+            kept = Path(td) / "my [red]rooms[/red]" / "one"
+            room = Room("--keep", str(kept), env=env)
+            try:
+                listed = subprocess.run([*CLI, "list"], capture_output=True, text=True, timeout=30, env=env)
+                self.assertIn("my [red]rooms[/red]", listed.stdout.replace("\n", ""))
+                done = subprocess.run([*CLI, "stop"], capture_output=True, text=True, timeout=40, env=env)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertIn("my [red]rooms[/red]", done.stdout.replace("\n", ""))
+                room.proc.wait(10)
+            finally:
+                if room.proc.poll() is None:
+                    room.proc.kill(); room.proc.communicate()
