@@ -1,27 +1,75 @@
 // Beside the open chat on a wide screen: who's in it (a switch per wolt), its pages and its files. On a phone the same
 // things stay where they were: the faces in the chat's header open the switches, pages and files open from the messages.
-import { useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import type { Msg } from "./room";
 import { ThreadWho } from "./ThreadWho";
-import { type Ctx } from "./Message";
+import { looksLikeDiff, woltColor, woltFace, type Ctx } from "./Message";
+import type { Note } from "./Code";
+
+const Code = lazy(() => import("./Code"));
 import { personAvatar } from "./sprites";
 import { worn } from "./hats";
 import { ago } from "./Threads";
 
-type Tab = "info" | "pages" | "files";
+type Tab = "info" | "pages" | "files" | "changes";
+
+// The whole change set of a chat, like a PR's "Files changed": every diff in it (```diff blocks, and .diff/.patch files
+// attached), cut into files, the latest version of each file kept, in the order they first came up.
+function byFile(diffs: string[]) {
+  const files = new Map<string, string>();
+  for (const d of diffs) for (const part of d.split(/^(?=diff --git )/m)) {
+    if (!/^(diff --git |--- |@@ )/m.test(part)) continue;
+    const name = (part.match(/^\+\+\+ (?:b\/)?(.+)$/m) || part.match(/^diff --git a\/\S+ b\/(.+)$/m) || [])[1] || `change ${files.size + 1}`;
+    files.set(name, part.trimEnd() + "\n");
+  }
+  return files;
+}
 
 export function ChatSide({ thread, list, ctx, room, fallback, host, main }: {
   thread: string; list: Msg[]; ctx: Ctx; room?: Record<string, "in" | "paused">; fallback?: "in" | "out"; host?: string; main?: string | null;
 }) {
   const [tab, setTab] = useState<Tab>("info");
+  const blocks = useMemo(() => list.flatMap((m) => [...(m.text || "").matchAll(/```([\w+-]*)\n?([\s\S]*?)```/g)].filter((x) => looksLikeDiff(x[1], x[2])).map((x) => x[2])), [list]);
+  const patchFiles = list.flatMap((m) => m.files || []).filter((f) => /\.(diff|patch)$/i.test(f.name));
+  const [patches, setPatches] = useState<string[]>([]);
+  useEffect(() => { Promise.all(patchFiles.map((f) => fetch(f.url).then((r) => (r.ok ? r.text() : "")).catch(() => ""))).then(setPatches); }, [patchFiles.map((f) => f.url).join()]);
+  const changed = useMemo(() => byFile([...patches, ...blocks]), [patches, blocks]);
+  const all = [...changed.values()].join("");
+  const added = (all.match(/^\+(?!\+\+)/gm) || []).length, removed = (all.match(/^-(?!--)/gm) || []).length;
+  // conversations on lines: a message quoting `file:line` starts one (or joins it); the agents it tags answer under it
+  // until the next human message
+  const notes = useMemo(() => {
+    const out = new Map<string, Note>(); let open: { key: string; tagged: string[] } | null = null;
+    const item = (m: Msg, text: string) => { const p = ctx.person(m.kind === "human" ? m.email : m.owner);
+      return { id: m.cid || m.id, name: m.kind === "human" ? p.name : m.wolt!, color: m.kind === "human" ? p.color : woltColor(m.wolt, ctx.wolts), face: m.kind === "human" ? personAvatar(p.name, p.color, worn.people[m.email!]) : woltFace(m.wolt, m.creature), text }; };
+    for (const m of list) {
+      const t = m.text || "", q = t.match(/^> `([^`]+):(\d+)`/m);
+      if (q) {
+        const key = q[1] + ":" + q[2], words = t.split("\n").filter((l) => !l.startsWith("> ")).join("\n").trim();
+        if (!out.has(key)) out.set(key, { file: q[1], line: q[2], items: [] });
+        out.get(key)!.items.push(item(m, words || "(comment)"));
+        open = { key, tagged: [...t.matchAll(/@([\w-]+)/g)].map((x) => x[1].toLowerCase()) };
+      } else if (open && m.kind === "wolt" && open.tagged.includes((m.wolt || "").toLowerCase())) out.get(open.key)!.items.push(item(m, t.trim()));
+      else if (m.kind === "human") open = null;
+    }
+    return [...out.values()];
+  }, [list]);
+  useEffect(() => { if (changed.size && tab === "info") setTab("changes"); }, [changed.size > 0, thread]);  // a chat with changes opens on them
   const pages = list.filter((m) => m.page), files = list.flatMap((m) => (m.files || (m.file ? [m.file] : [])).map((f) => ({ f, m })));
   const people = [...new Set(list.filter((m) => m.kind === "human").map((m) => m.email!))];
   const head = (label: string) => <div className="mt-1 mb-2 font-mono text-[10.5px] font-semibold tracking-[.07em] uppercase text-dim">{label}</div>;
   const tabBtn = (t: Tab, label: string, n?: number) => <button type="button" onClick={() => setTab(t)}
     className={`px-2.5 py-1 rounded-lg border-0 font-mono text-[12px] cursor-pointer ${tab === t ? "bg-white text-ink shadow-[0_1px_2px_#18100a1a]" : "bg-transparent text-dim hover:text-ink"}`}>{label}{n ? ` · ${n}` : ""}</button>;
-  return <aside aria-label="About this chat" className="w-[290px] flex-none h-full flex flex-col bg-paper border-l border-line">
-    <div className="flex-none flex gap-0.5 px-3 py-2.5 border-b border-line">{tabBtn("info", "Info")}{tabBtn("pages", "Pages", pages.length)}{tabBtn("files", "Files", files.length)}</div>
-    <div className="flex-1 min-h-0 overflow-y-auto p-3">
+  return <aside aria-label="About this chat" className={`${tab === "changes" ? "w-[min(52%,760px)] min-w-[420px]" : "w-[290px]"} flex-none h-full flex flex-col bg-paper border-l border-line`}>
+    <div className="flex-none flex gap-0.5 px-3 py-2.5 border-b border-line">{changed.size > 0 && tabBtn("changes", "Changes", changed.size)}{tabBtn("info", "Info")}{tabBtn("pages", "Pages", pages.length)}{tabBtn("files", "Files", files.length)}</div>
+    {tab === "changes" && changed.size > 0 && <div className="flex-1 min-h-0 flex flex-col bg-white">
+      <div className="flex-none flex items-center gap-2 px-4 py-2 border-b border-line bg-paper font-mono text-[12px]">
+        <b className="text-ink">{changed.size} {changed.size === 1 ? "file" : "files"} changed</b>
+        <span className="text-[#2f7d4f]">+{added}</span><span className="text-[#b33a2b]">−{removed}</span>
+        <span className="flex-1" /><span className="text-dim text-[11px]">{notes.length ? `${notes.length} ${notes.length === 1 ? "conversation" : "conversations"} · ` : ""}click a line to comment</span></div>
+      <div className="flex-1 min-h-0"><Suspense fallback={<p className="p-4 text-dim text-sm">Loading…</p>}><Code full fileList body={all} lang="diff" diff notes={notes} /></Suspense></div>
+    </div>}
+    <div className={`flex-1 min-h-0 overflow-y-auto p-3 ${tab === "changes" ? "hidden" : ""}`}>
       {tab === "info" && <>
         {head("Humans")}
         {people.length ? people.map((e) => { const p = ctx.person(e); return <div key={e} onClick={() => ctx.openWho?.("p:" + e)} className="flex items-center gap-2.5 py-1.5 text-[13px] cursor-pointer rounded-md hover:bg-[#18100a08]">

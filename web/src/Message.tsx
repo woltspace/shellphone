@@ -16,7 +16,7 @@ const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|we
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
 // Code in a message (```lang … ```): a diff, or plain code, drawn by Code.tsx (diff2html, highlight.js), loaded when needed
-const looksLikeDiff = (lang: string, body: string) => /^(diff|patch)$/i.test(lang) || /^(diff --git |--- |@@ )/m.test(body) && /^[+-]/m.test(body);
+export const looksLikeDiff = (lang: string, body: string) => /^(diff|patch)$/i.test(lang) || /^(diff --git |--- |@@ )/m.test(body) && /^[+-]/m.test(body);
 const Code = lazy(() => import("./Code"));
 function Words({ text, ctx }: { text: string; ctx: Ctx }) {
   // fenced blocks first: a diff, or plain code; the rest is words

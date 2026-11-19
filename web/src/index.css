@@ -78,3 +78,15 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 
 .shp-diff tr:has(.d2h-code-line-ctn) { cursor: pointer; } .shp-diff tr:has(.d2h-code-line-ctn):hover td { filter: brightness(.97); }
 .shp-diff tr.shp-picked td { background: #fff1c2 !important; transition: background .3s; }
+
+/* conversations on lines, inside the diff */
+.shp-note td { padding: 6px 10px 8px 96px; background: #faf7f1; border-top: 1px solid #ece4d8; border-bottom: 1px solid #ece4d8; }
+.shp-note-box { font: 13px/1.45 -apple-system, system-ui, sans-serif; white-space: normal; max-width: 640px; background: #fff; border: 1px solid #e2d9cb; border-radius: 10px; padding: 4px 8px 6px; box-shadow: 0 1px 2px #18100a14; }
+.shp-note-item { display: flex; gap: 8px; padding: 6px 2px; cursor: pointer; border-radius: 6px; }
+.shp-note-item + .shp-note-item { border-top: 1px solid #f0e9de; }
+.shp-note-item:hover { background: #faf6ee; }
+.shp-note-item img { width: 24px; height: 24px; flex: none; }
+.shp-note-item b { font-size: 12px; }
+.shp-note-item div div { white-space: pre-wrap; word-break: break-word; color: #2a231c; }
+.shp-note-reply { margin: 2px 0 0 32px; padding: 2px 8px; border: 1px solid #e2d9cb; border-radius: 6px; background: #fff; font: 11px ui-monospace, monospace; color: #8a7f72; cursor: pointer; }
+.shp-note-reply:hover { color: #2a231c; border-color: #c4531e; }
