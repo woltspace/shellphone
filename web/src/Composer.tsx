@@ -63,6 +63,15 @@ export function Composer({ draft, wolts, people = [], working = {}, host, me, on
     if (b.scrollHeight > b.clientHeight + 1 && b.clientHeight < 140) b.style.height = Math.min(140, b.scrollHeight + 2) + "px";
   };
   useEffect(grow, []);  // a long draft coming back gets its height back too
+  // a line picked in a diff or code block ("shp-quote"): its place goes into the message, ready for your comment
+  useEffect(() => {
+    const quote = (e: Event) => {
+      const q = (e as CustomEvent<string>).detail; if (!q) return;
+      setTextNow((t) => { const next = (t && !t.endsWith("\n") ? t + "\n" : t) + q; drafts.set(draft, next); return next; });
+      requestAnimationFrame(() => { const b = box.current; if (b) { b.focus(); b.setSelectionRange(b.value.length, b.value.length); grow(); } });
+    };
+    addEventListener("shp-quote", quote); return () => removeEventListener("shp-quote", quote);
+  }, [draft]);
   const set = (t: string) => { setText(t); requestAnimationFrame(() => { grow(); box.current?.focus(); }); };
   const send = () => {
     const t = text.trim();

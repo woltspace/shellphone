@@ -1,6 +1,6 @@
 // One bubble: who said it, the words (with @tags), a voice note with its words, a file or picture, a card.
 import { relayRoom } from "./relay";
-import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
 import { PageTile } from "./Page";
@@ -10,53 +10,37 @@ import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean; tint?: string; openWho?: (who: string) => void };  // openWho: a face tapped anywhere opens its card ("p:email" or "w:name")  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean; tint?: string; openWho?: (who: string) => void; openCode?: (c: { body: string; lang: string; diff: boolean }) => void };  // openCode: show a code block beside the chat  // openWho: a face tapped anywhere opens its card ("p:email" or "w:name")  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-// A ```diff block (or one that reads like a unified diff) as a real diff: each file's name, each hunk's place, line
-// numbers, added lines green and removed lines red. Any other ``` block: plain code that scrolls sideways.
+// Code in a message (```lang … ```): a diff, or plain code, drawn by Code.tsx (diff2html, highlight.js), loaded when needed
 const looksLikeDiff = (lang: string, body: string) => /^(diff|patch)$/i.test(lang) || /^(diff --git |--- |@@ )/m.test(body) && /^[+-]/m.test(body);
-function Diff({ body }: { body: string }) {
-  type Row = { kind: "file" | "hunk" | "add" | "del" | "ctx" | "meta"; text: string; a?: number; b?: number };
-  const rows: Row[] = []; let a = 0, b = 0;
-  for (const line of body.replace(/\n$/, "").split("\n")) {
-    if (line.startsWith("diff --git ")) { const m = line.match(/ b\/(.+)$/); rows.push({ kind: "file", text: m ? m[1] : line.slice(11) }); continue; }
-    if (/^(index |new file|deleted file|similarity|rename |old mode|new mode)/.test(line)) continue;
-    if (line.startsWith("--- ")) continue;
-    if (line.startsWith("+++ ")) { const f = line.slice(4).replace(/^b\//, ""); if (!rows.length || rows.at(-1)!.kind !== "file") rows.push({ kind: "file", text: f }); continue; }
-    const h = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
-    if (h) { a = +h[1]; b = +h[2]; rows.push({ kind: "hunk", text: h[3].trim() || `line ${b}` }); continue; }
-    if (line.startsWith("+")) rows.push({ kind: "add", text: line.slice(1), b: b++ });
-    else if (line.startsWith("-")) rows.push({ kind: "del", text: line.slice(1), a: a++ });
-    else if (line.startsWith("\\")) rows.push({ kind: "meta", text: line });
-    else rows.push({ kind: "ctx", text: line.slice(1), a: a++, b: b++ });
-  }
-  const added = rows.filter((r) => r.kind === "add").length, removed = rows.filter((r) => r.kind === "del").length;
-  return <div className="my-1.5 rounded-lg border border-[#d9cfbf] bg-white overflow-hidden whitespace-normal text-ink" data-tap>
-    <div className="flex items-center gap-2 px-2.5 py-1 bg-[#f6f1e8] border-b border-[#e6dccd] font-mono text-[11px] text-dim">
-      <span>diff</span><span className="text-[#2f7d4f] font-semibold">+{added}</span><span className="text-[#b33a2b] font-semibold">−{removed}</span></div>
-    <div className="max-h-[420px] overflow-auto"><table className="w-full border-collapse font-mono text-[12px] leading-[1.55]"><tbody>
-      {rows.map((r, i) => r.kind === "file" ? <tr key={i}><td colSpan={3} className="px-2.5 py-1 bg-[#efe8dc] border-y border-[#e2d8c8] font-semibold text-[12px] text-ink">{r.text}</td></tr>
-        : r.kind === "hunk" ? <tr key={i}><td colSpan={3} className="px-2.5 py-0.5 bg-[#eef3fb] text-[#4a5f86] text-[11px]">@@ {r.text}</td></tr>
-        : <tr key={i} className={r.kind === "add" ? "bg-[#e9f7ec]" : r.kind === "del" ? "bg-[#fdecea]" : ""}>
-          <td className="select-none w-0 px-1.5 text-right text-[10.5px] text-[#a99e8f] align-top">{r.a ?? ""}</td>
-          <td className="select-none w-0 px-1.5 text-right text-[10.5px] text-[#a99e8f] align-top">{r.b ?? ""}</td>
-          <td className="pl-1 pr-3 whitespace-pre align-top"><span className={`select-none inline-block w-3 ${r.kind === "add" ? "text-[#2f7d4f]" : r.kind === "del" ? "text-[#b33a2b]" : "text-transparent"}`}>{r.kind === "add" ? "+" : r.kind === "del" ? "−" : " "}</span>{r.text}</td></tr>)}
-    </tbody></table></div>
-  </div>;
-}
+const Code = lazy(() => import("./Code"));
 function Words({ text, ctx }: { text: string; ctx: Ctx }) {
   // fenced blocks first: a diff, or plain code; the rest is words
   const parts = text.split(/```([\w+-]*)\n?([\s\S]*?)```/g);
   if (parts.length > 1) return <>{parts.map((part, i) => i % 3 === 0 ? (part.trim() ? <Inline key={i} text={part.replace(/^\n|\n$/g, "")} ctx={ctx} /> : null)
     : i % 3 === 1 ? null
-    : looksLikeDiff(parts[i - 1], part) ? <Diff key={i} body={part} />
-    : <pre key={i} className="my-1.5 max-h-[420px] overflow-auto rounded-lg border border-[#d9cfbf] bg-white px-3 py-2 font-mono text-[12px] leading-[1.55] whitespace-pre text-ink" data-tap>{part.replace(/\n$/, "")}</pre>)}</>;
+    : <Suspense key={i} fallback={<pre className="my-1.5 max-h-[460px] overflow-auto rounded-lg border border-[#d9cfbf] bg-white px-3 py-2 font-mono text-[12px] leading-[1.55] whitespace-pre text-ink">{part}</pre>}>
+        <div className="relative group/code">
+          <Code body={part.replace(/\n$/, "")} lang={parts[i - 1]} diff={looksLikeDiff(parts[i - 1], part)} />
+          {ctx.openCode && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.openCode!({ body: part.replace(/\n$/, ""), lang: parts[i - 1], diff: looksLikeDiff(parts[i - 1], part) }); }}
+            className="absolute top-2.5 right-2 z-[1] flex items-center gap-1 px-2 py-0.5 rounded-md border border-line bg-white/95 font-mono text-[11px] text-ink cursor-pointer shadow-sm hover:border-acc">⇥ open beside</button>}
+        </div></Suspense>)}</>;
   return <Inline text={text} ctx={ctx} />;
 }
+// lines starting with "> " (a line quoted from a diff, or anything) sit in a quote bar; the rest are words
 function Inline({ text, ctx }: { text: string; ctx: Ctx }) {
+  if (!/^> /m.test(text)) return <Plain text={text} ctx={ctx} />;
+  const blocks: { quote: boolean; lines: string[] }[] = [];
+  for (const line of text.split("\n")) { const q = line.startsWith("> "); if (blocks.at(-1)?.quote === q) blocks.at(-1)!.lines.push(q ? line.slice(2) : line); else blocks.push({ quote: q, lines: [q ? line.slice(2) : line] }); }
+  return <>{blocks.map((b, i) => b.quote
+    ? <div key={i} className="my-1 border-l-[3px] border-[#c9bda9] pl-2.5 py-0.5 text-[13px] text-[#5a5047] whitespace-pre-wrap break-words"><Plain text={b.lines.join("\n")} ctx={ctx} /></div>
+    : <Plain key={i} text={b.lines.join("\n").replace(/^\n|\n$/g, "")} ctx={ctx} />)}</>;
+}
+function Plain({ text, ctx }: { text: string; ctx: Ctx }) {
   const names = mentionNames(ctx.wolts, ctx.people);  // same rule as the @ picker (mentions.js)
   // a little markdown, like the classic page: links, **bold**, `code`, and @tags
   return <>{text.split(/(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\*\*[^*\n]+\*\*|`[^`\n]+`|(?:^|\s)@[\w-]+)/g).map((part, i) => {

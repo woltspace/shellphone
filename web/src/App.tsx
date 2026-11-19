@@ -11,6 +11,7 @@ import { wear, worn } from "./hats";
 import { WoltStrip, usePullDown, type Who } from "./WoltStrip";
 import { Sidebar } from "./Sidebar";
 import { ChatSide } from "./ChatSide";
+import { CodePane } from "./CodePane";
 import { LinkModal, roomInvite } from "./InviteModal";
 import { Profile } from "./Profile";
 import { UPPER } from "./Sky";
@@ -486,7 +487,7 @@ export function App() {
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { openWho: (w: string) => setWho(w), me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined,
+  const ctx: Ctx = { openWho: (w: string) => setWho(w), openCode: (c) => setCode(c), me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined,
     // who's working where ("" the main chat, else a thread); a room that doesn't say where: everywhere, as before
     busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]) };
 
@@ -777,16 +778,19 @@ export function App() {
   const oneUI = !desk && chatsHome && !lobby, twoPane = roomy && oneUI;
   const [phoneSide, setPhoneSide] = useState(false);
   const [inviting, setInviting] = useState(false);
+  // code opened beside the chat (a diff, or a file): it takes the side pane's place on a computer, the whole screen on a phone
+  const [code, setCode] = useState<{ body: string; lang: string; diff: boolean } | null>(null);
+  useEffect(() => setCode(null), [thread]);
   // Escape closes whatever pops up on top (a page, a card, the new chat sheet, the menu…), the top one first. Not the chat itself.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || viewing) return;  // the picture viewer closes itself
       if (paging) setPaging(""); else if (who) setWho(""); else if (starting) setStarting(false); else if (adding) setAdding(false);
-      else if (menu) setMenu(false); else if (listOpen) setListOpen(false); else if (phoneSide) setPhoneSide(false); else return;
+      else if (menu) setMenu(false); else if (listOpen) setListOpen(false); else if (code) setCode(null); else if (phoneSide) setPhoneSide(false); else return;
       e.preventDefault();
     };
     addEventListener("keydown", key); return () => removeEventListener("keydown", key);
-  }, [viewing, paging, who, starting, adding, menu, listOpen, phoneSide]);
+  }, [viewing, paging, who, starting, adding, menu, listOpen, phoneSide, code]);
   useEffect(() => setPhoneSide(false), [thread]);
   // the side pane beside the open chat (who's in it, pages, files): open by default on a wide screen, remembered here
   const [sideOn, setSideOn] = useState(() => { try { return localStorage.getItem("side") !== "0"; } catch { return true; } });
@@ -825,6 +829,7 @@ export function App() {
       {!(chatsHome && !lobby) && <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />}
       {chatsHome && !lobby ? <div className="flex-1 min-h-0 min-w-0 flex relative">
       {oneUI && !roomy ? (thread ? <div className="flex-1 min-w-0 relative">{chatSheet(true)}
+        {code && <div className="absolute inset-0 z-[1595] bg-paper"><CodePane code={code} close={() => setCode(null)} /></div>}
         {phoneSide && <div className="absolute inset-0 z-[1590] flex flex-col bg-paper animate-[fadein_.15s_ease-out]">
           <div className="flex-none flex items-center gap-1 pl-1 pr-3 pt-[env(safe-area-inset-top)] min-h-12 border-b border-line">
             <button type="button" aria-label="Back to the chat" onClick={() => setPhoneSide(false)} className="w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>
@@ -843,7 +848,7 @@ export function App() {
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
       </div>}
       {twoPane && <div className="flex-1 min-w-0 relative flex">{thread ? <><div className="flex-1 min-w-0 relative">{chatSheet(true)}</div>
-        {sideOn && <ChatSide thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}</> : <div className="flex-1 h-full grid place-items-center text-center px-8">
+        {code ? <CodePane code={code} close={() => setCode(null)} wide /> : sideOn && <ChatSide thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}</> : <div className="flex-1 h-full grid place-items-center text-center px-8">
         <div><div className="font-mono text-acc font-semibold">Pick a chat</div><div className="text-dim text-[13px] mt-1">or start a new one.</div></div></div>}</div>}
       </div> : <>
         {chatsHome && <button type="button" onClick={() => setLobby(false)} className="flex-none flex items-center gap-1 px-3 py-2 border-0 border-b border-line bg-panel font-mono text-[12px] text-acc text-left cursor-pointer">

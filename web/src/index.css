@@ -65,3 +65,16 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 .tinted .text-acc { color: #fff; } .tinted b.text-acc { text-decoration: underline; text-underline-offset: 2px; } .tinted code { color: #2a231c; }
 
 @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+
+/* code in messages (Code.tsx): diff2html and highlight.js, made to sit quietly inside a bubble */
+.shp-code pre.hljs { margin: 0; padding: 8px 12px; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; background: #fff; }
+.shp-diff .d2h-wrapper { font-size: 12px; }
+.shp-diff .d2h-file-wrapper { margin: 0; border: 0; border-radius: 0; }
+.shp-diff .d2h-file-wrapper + .d2h-file-wrapper { border-top: 1px solid #e6dccd; }
+.shp-diff .d2h-file-header { background: #f6f1e8; border-bottom: 1px solid #e6dccd; padding: 4px 10px; height: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.shp-diff .d2h-file-name { font-size: 12px; }
+.shp-diff .d2h-code-line, .shp-diff .d2h-code-side-line { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.shp-diff .d2h-info { color: #4a5f86; }
+
+.shp-diff tr:has(.d2h-code-line-ctn) { cursor: pointer; } .shp-diff tr:has(.d2h-code-line-ctn):hover td { filter: brightness(.97); }
+.shp-diff tr.shp-picked td { background: #fff1c2 !important; transition: background .3s; }
