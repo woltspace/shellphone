@@ -65,7 +65,7 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
       <img src="/room-icon.png" alt="" className="w-8 h-8 rounded-full ring-1 ring-line bg-[#f5f1e8]" />
       <div className="flex-1 min-w-0 font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span>{title}</div>
       <button type="button" aria-label="New chat" title="New chat" onClick={onNew}
-        className="w-9 h-9 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-lg hover:bg-[#ffffff80]"><Plus size={20} /></button>
+        className="flex-none flex items-center gap-1 h-8 pl-2 pr-3 rounded-full border-0 bg-acc text-white font-semibold text-[13px] cursor-pointer shadow-[0_1px_3px_#18100a33] hover:brightness-110 active:scale-95 transition"><Plus size={16} strokeWidth={2.6} />Chat</button>
       {onDesk && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={onDesk}
         className={`w-9 h-9 grid place-items-center border-0 cursor-pointer rounded-lg ${desk ? "bg-acc text-white" : "bg-transparent text-acc hover:bg-[#ffffff80]"}`}><Monitor size={18} /></button>}
     </div>

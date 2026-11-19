@@ -473,6 +473,7 @@ export function App() {
   const [paging, setPaging] = useState("");  // the page open full screen, by id
   // the desk: on a wide screen, your wolts' terminals beside the chat (Desk.tsx). Remembered on this computer.
   const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 1100px)").matches;
+  const DESK_BUTTON = false;  // the terminals' button is hidden while the desk is experimental; the desk itself still works (localStorage "desk")
   const pageTab = typeof location !== "undefined" ? decodeURIComponent((location.hash.match(/^#page=([\w-]+)/) || [])[1] || "") : "";
   // a computer screen: the chats on the left, the open chat beside them (the phone keeps its one screen at a time)
   const [roomy, setRoomy] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches);
@@ -804,7 +805,7 @@ export function App() {
           <div className="font-mono font-semibold text-acc truncate"><span className="text-dim">~/</span><span className="cursor">{state.title || "shell"}</span></div>
           <button type="button" aria-expanded={strip} onClick={() => { if (chatsHome && !lobby) chatList.current?.scrollTo({ top: UPPER, behavior: "smooth" }); else setStrip(!strip); }} className="block max-w-full p-0 border-0 bg-transparent text-left font-mono text-[11px] text-dim truncate cursor-pointer">{[...state.members.people.map((p) => p.name), ...state.members.wolts.map((w) => w.wolt)].join(", ")}</button>
         </div>
-        {wide && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
+        {wide && (DESK_BUTTON || desk) && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={() => setDesk(!desk)}
           className={`flex-none w-10 h-10 grid place-items-center border-0 cursor-pointer rounded-[10px] ${desk ? "bg-acc text-white" : "bg-transparent text-acc"}`}><Monitor size={20} /></button>}
         {!chatsHome && <button type="button" aria-label="Inbox" onClick={() => setListOpen(!listOpen)} className="relative flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer">
           <Inbox size={22} />{inboxCount > 0 && <span className="absolute top-0.5 right-0 min-w-4 h-4 px-1 rounded-full bg-acc text-white font-mono font-semibold text-[10px] leading-4 text-center">{inboxCount}</span>}
@@ -822,7 +823,7 @@ export function App() {
         : <Sidebar full state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu}
           onMenu={() => setMenu(!menu)} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />)
       : twoPane ? <Sidebar state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu} desk={desk}
-        onMenu={() => setMenu(!menu)} onDesk={wide ? () => setDesk(!desk) : undefined} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />
+        onMenu={() => setMenu(!menu)} onDesk={wide && DESK_BUTTON ? () => setDesk(!desk) : undefined} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />
       : <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
         className={`flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24`}>
         <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
