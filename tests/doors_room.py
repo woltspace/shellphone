@@ -480,4 +480,29 @@ signed["who"] = HOST
 out["hostonly_access_host"] = mint("room.example", headers=login)
 core.RULES["agent.invite"] = was
 r.LOCAL, r.ACCESS_TEAM, r.ACCESS_AUD = local, "", ""
+
+# notifications: what each one is signed with (no push service is asked: a stand-in takes the calls)
+signed_with = []
+
+
+class StandInPush:
+    class WebPushException(Exception):
+        response = None
+
+    @staticmethod
+    def webpush(sub, body, **kw):
+        signed_with.append((sub["endpoint"], kw["vapid_claims"]["sub"]))
+
+
+was_push, r.pywebpush = r.pywebpush, StandInPush
+with r.tx() as c:
+    for i, who in enumerate((HOST, "guest-12ab34cd@room.local", "Ada.Lovelace@example.org", "nobody")):
+        c.execute("insert or replace into push (endpoint, email, sub) values (?, ?, ?)", (f"https://push.example/{i}", who, json.dumps({"endpoint": f"https://push.example/{i}", "keys": {}})))
+r.ACTIVE.clear()
+r.notify({"id": "0" * 32, "email": "someone-else@room.local", "text": "hello", "files": []})
+out["push_signed_with"] = [s for _, s in sorted(signed_with)]
+out["push_contact"] = [r.push_contact(e) for e in ("me@gmail.com", " Me@Example.COM ", "", None, "x@y", "a@b.localhost", "a@shellphone.local")]
+with r.tx() as c:
+    c.execute("delete from push where endpoint like 'https://push.example/%'")
+r.pywebpush = was_push
 print(json.dumps(out), flush=True)

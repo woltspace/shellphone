@@ -141,6 +141,12 @@ class Doors(unittest.TestCase):
         self.assertEqual(v["when_the_database_is_gone"], [500, None])
         self.assertEqual(v["and_the_one_place_is_still_there"], [200, 200])
 
+    def test_a_notification_is_signed_with_an_address_a_push_service_takes(self):
+        g, there = self.got, "https://shellphone.dev"
+        # the host of a room on their own computer, a guest, and someone with no address at all: the project's; a real address: their own
+        self.assertEqual(g["push_signed_with"], [there, there, "mailto:Ada.Lovelace@example.org", there])
+        self.assertEqual(g["push_contact"], ["mailto:me@gmail.com", "mailto:Me@Example.COM", there, there, there, there, there])
+
     def test_the_command_makes_and_ends_invites_and_says_so_when_none_is_open(self):
         v = self.got["invites"]
         self.assertEqual((v["command_says"], v["command_link_works"], v["command_forever"]), ([True, True, True], "Ada", True))
