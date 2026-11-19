@@ -392,3 +392,28 @@ test("a relay room that went silent the day before is not counted as online on t
   assert.equal(desk.stats().online.relay, 0);
   assert.deepEqual(desk.stats().peaks.filter((p) => p.day === second && p.what === "relay").map((p) => p.n), [0]);
 });
+
+test("a room whose late report gives it its place back counts for that day, with nobody reading the stats in between", () => {
+  const desk = newDesk({ MAX_ROOMS: "5" }), db = desk.sql;
+  const most = (d) => desk.sql.exec("select n from peaks where day = ? and what = 'relay'", d).toArray().map((r) => r.n);  // read straight from storage: stats() would note the count itself
+  clock = Date.parse("2027-06-01T23:00:00Z");
+  const a = desk.open("a");
+  later(2 * 3600 * 1000);  // past its lease and past midnight
+  const second = new Date(clock).toISOString().slice(0, 10);
+  assert.deepEqual(desk.report("a", a.gen, 0, 0), { ok: true });  // late, but its place was free: it has it back
+  assert.equal(desk.live(), 1);
+  assert.deepEqual(most(second), [1]);
+  later(3600 * 1000);  // silent again until the lease runs out
+  desk.open("b");
+  assert.deepEqual(most(second), [1]);  // the day's most stays
+});
+
+test("a room that reports in time after midnight counts for the new day, with nobody reading the stats", () => {
+  const desk = newDesk({ MAX_ROOMS: "5" });
+  clock = Date.parse("2027-07-01T23:59:55Z");
+  const a = desk.open("a");
+  later(8 * 1000);  // within its lease, past midnight
+  const second = new Date(clock).toISOString().slice(0, 10);
+  assert.deepEqual(desk.report("a", a.gen, 0, 0), { ok: true });
+  assert.deepEqual(desk.sql.exec("select n from peaks where day = ? and what = 'relay'", second).toArray().map((r) => r.n), [1]);
+});

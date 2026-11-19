@@ -256,6 +256,7 @@ export class Desk extends DurableObject {
     if (!known || !known.open) {
       if (this.full()) return { ok: false };
       this.sql.exec("insert into rooms (id, open, at, gen) values (?, 1, ?, ?) on conflict (id) do update set open = 1, at = ?", id, now, gen, now);
+      this.mark(now);  // it has a place again: it counts for today
       return { ok: true };
     }
     this.sql.exec("update rooms set at = ? where id = ?", now, id);
