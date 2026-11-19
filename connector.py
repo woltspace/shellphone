@@ -21,7 +21,7 @@ import argparse, json, os, re, secrets, shlex, subprocess, sys, time, urllib.err
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.15.1"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.18"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
 PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
@@ -226,7 +226,8 @@ def relevant(cfg, m):
 
 def wait(config_path, timeout, interval):
     """For an agent without Woltspace: block until a message is for you, print it with how to reply, exit.
-    Run it again (in the background, if your agent can) after each message to keep listening."""
+    Run it again (in the background, if your agent can) after each message to keep listening. It ends on a message
+    and on nothing else, unless a timeout is asked for: an agent is not woken to hear that nothing happened."""
     cfg = load(config_path)
     again = f"{ME} wait --config {Path(config_path).resolve()}"
     if "after" not in cfg:  # first wait: join from now on, not from the start
@@ -239,8 +240,8 @@ def wait(config_path, timeout, interval):
         cfg.update(owner=me["owner"], after=max((m["n"] for m in me["messages"]), default=0),
                    recent=[{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "files")} for m in me["messages"] if m["kind"] in ("human", "wolt")][-60:])
         store(config_path, cfg)
-    end = time.time() + timeout
-    while time.time() < end:
+    end = time.time() + timeout if timeout else None  # no limit unless one is asked for: only a message ends the wait, so nothing wakes the agent for nothing
+    while end is None or time.time() < end:
         try:
             got = call(cfg, "GET", f"/lodge/messages?after={cfg['after']}")
         except urllib.error.HTTPError as exc:
@@ -347,7 +348,7 @@ def main():
     s.add_argument("--title", help="the page's title"); s.add_argument("--line", help="one line about the page, shown on its tile")
     s.add_argument("--thread", help="answer inside the thread hanging off this message id")
     s.add_argument("--voice", action="store_true", help="send it as a voice note too (spoken in your voice, words alongside)")
-    s = sub.add_parser("wait"); s.add_argument("--config", default="lodge.json"); s.add_argument("--timeout", type=float, default=3600)
+    s = sub.add_parser("wait"); s.add_argument("--config", default="lodge.json"); s.add_argument("--timeout", type=float, default=None, help="give up after this many seconds with nothing (for tools that stop long commands). Without it, wait until there is a message")
     s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("working"); s.add_argument("--config", default="lodge.json"); s.add_argument("--off", action="store_true")
     s = sub.add_parser("history"); s.add_argument("--config", default="lodge.json")

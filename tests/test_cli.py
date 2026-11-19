@@ -3,7 +3,8 @@
     python3 -m unittest discover tests                                  # the code in this folder
     SHELLPHONE_CLI=/some/venv/bin/shellphone python3 -m unittest discover tests   # an installed package, e.g. a built wheel
 """
-import http.cookiejar, json, os, re, shlex, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.parse, urllib.request
+import contextlib, http.cookiejar, io, json, os, re, shlex, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.parse, urllib.request
+from unittest.mock import patch
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
 from aspage import as_page  # noqa: E402
@@ -784,3 +785,39 @@ class FrontDoor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuietRoom(unittest.TestCase):
+    """An agent is woken by a message, never to be told that nothing happened."""
+
+    def test_wait_has_no_limit_of_its_own_and_ends_only_on_a_message(self):
+        import connector
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "lodge.json"
+            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
+            calls, out = [], io.StringIO()
+            quiet = {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}
+            said = {"messages": [{"n": 1, "id": "a" * 32, "at": 1.0, "kind": "human", "email": "o@x", "text": "hello pip"}], "members": {"people": [{"email": "o@x", "name": "Olga"}], "wolts": []}, "owner": "o@x"}
+
+            def call(c, method, path, body=None):
+                calls.append(path)
+                return said if len(calls) > 400 else quiet  # far more looks than an hour of them used to be worth at this pace
+            with patch.object(connector, "call", call), patch.object(connector.time, "sleep", lambda s: None), contextlib.redirect_stdout(out):
+                connector.wait(str(cfg), None, 2)
+            self.assertGreater(len(calls), 400)
+            self.assertIn("hello pip", out.getvalue())
+            self.assertNotIn("timed out", out.getvalue())
+
+    def test_a_limit_is_kept_when_one_is_asked_for(self):
+        import connector
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "lodge.json"
+            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
+            out = io.StringIO()
+            with patch.object(connector, "call", lambda *a, **kw: {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}), contextlib.redirect_stdout(out):
+                connector.wait(str(cfg), 0.3, 0.05)
+            self.assertIn("timed out", out.getvalue())
+
+    def test_the_command_asks_for_no_limit_by_default(self):
+        src = (REPO / "connector.py").read_text()
+        self.assertIn('s.add_argument("--timeout", type=float, default=None', src)
