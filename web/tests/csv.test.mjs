@@ -20,3 +20,8 @@ test("tabs for TSV, a BOM is dropped, the row cap holds", () => {
   assert.deepEqual(parseCsv("﻿a\tb\n1\t2", "\t"), [["a", "b"], ["1", "2"]]);
   assert.equal(parseCsv("x\n".repeat(900), ",", 500).length, 500);
 });
+test("an empty file is no rows; one quoted empty field is one empty cell", () => {
+  assert.deepEqual(parseCsv(""), []);
+  assert.deepEqual(parseCsv('""'), [[""]]);
+  assert.deepEqual(parseCsv('a\n""'), [["a"], [""]]);
+});

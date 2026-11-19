@@ -52,6 +52,7 @@ export function FileView({ f, onClose }: { f: FileInfo; onClose: () => void }) {
       {error ? <p className="p-5 text-acc text-sm">{error}</p>
         : !body ? <div className="h-full grid place-items-center text-dim"><Loader2 size={22} className="animate-spin" /></div>
         : body.pdf ? <Suspense fallback={<div className="h-full grid place-items-center text-dim"><Loader2 size={22} className="animate-spin" /></div>}><Pdf data={body.pdf} /></Suspense>
+        : rows && !rows.length ? <p className="p-5 text-dim text-sm">This file is empty.</p>
         : rows ? <table className="text-[13px] border-collapse min-w-full">
             <thead className="sticky top-0 bg-panel"><tr>{rows[0].map((c, i) => <th key={i} className="text-left font-semibold px-3 py-2 border-b border-line whitespace-nowrap">{c}</th>)}</tr></thead>
             <tbody>{rows.slice(1).map((r, i) => <tr key={i} className="odd:bg-[#faf7f1]">{r.map((c, j) => <td key={j} className="px-3 py-1.5 border-b border-line whitespace-pre font-mono align-top">{c}</td>)}</tr>)}</tbody>
