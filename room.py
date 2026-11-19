@@ -1035,7 +1035,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return 400, {"error": "send a JSON object"}
         if path.endswith("/end"):
             return rules().end_invites(email, via, mark, body.get("id"))
-        status, out = rules().make_invite(email, via, mark, body.get("ends_in", 86400), body.get("uses"), body.get("for"))
+        status, out = rules().make_invite(email, via, mark, uses=body.get("uses"), for_name=body.get("for"), **({"ends_in": body["ends_in"]} if "ends_in" in body else {}))  # no length said: the rules' usual one
         if status == 200:
             out["link"] = door.invite_link(out.pop("token"))  # said once, here: the room keeps only a hash of it
         return status, out

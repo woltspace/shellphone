@@ -11,7 +11,8 @@ how they came in. A page decides nothing: it calls the room and shows the answer
   places are left. The room keeps a hash of the secret, never the secret: a link is shown once, when it is made.
 - It belongs to what the room was shared by when it was made. Stop sharing, and it ends.
 - It only opens the door. Someone who comes in gets a key of their own, which the invite's end does not take away.
-- The invite a room comes with when it is first shared is a record like the others: the host's, with no end.
+- The invite a room comes with when it is first shared is a record like the others: the host's, and it works for
+  30 minutes. After that the host makes a new one.
 
 ## Who may do what
 
@@ -37,7 +38,7 @@ same paths are asked over the sealed connection.
 {"ends_in": 86400, "uses": 5, "for": "Ada"}
 ```
 
-- `ends_in`: seconds from now, 60 to 30 days. Left out: one day. `null`: no end.
+- `ends_in`: seconds from now, 60 to 30 days. Left out: 30 minutes. `null`: no end.
 - `uses`: how many people it lets in, 1 to 50. Left out or `null`: as many as the room has room for.
 - `for`: one named person. Then it lets in one person, under that name, whatever they type at the door.
 

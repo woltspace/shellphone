@@ -411,14 +411,24 @@ def linked_words(info):
     if not info.get("invite"):  # the invite the room came with was ended: nothing here makes it again
         return f"""  Open it from anywhere:   {info['link']}
 
-That link is yours alone: it is the key to the room as its host. The invite this room came with has ended: make a new one with {me()} invite
+That link is yours alone: it is the key to the room as its host. The invite this room came with has ended (an invite works for 30 minutes unless you say otherwise): make a new one with {me()} invite
 {stop}"""
     return f"""  Open it from anywhere:   {info['link']}
   Invite people:           {info['invite']}
 
-The first link is yours alone: it is the key to the room as its host. The second lets someone in as a guest.
-More invites, that end or are for one person: {me()} invite
+The first link is yours alone: it is the key to the room as its host. The second lets someone in as a guest,
+for the next 30 minutes. A new invite, for longer or for one person: {me()} invite
 {stop}"""
+
+
+def lasting(seconds):
+    """How long, as people say it: "30 minutes", "1 hour", "2 days"."""
+    for size, word in ((86400, "day"), (3600, "hour"), (60, "minute")):
+        n = round(seconds / size)
+        if seconds >= size * 0.99 and abs(seconds - n * size) < size * 0.02:  # a whole number of them, give or take the moment it took to answer
+            return f"{n} {word}{'' if n == 1 else 's'}"
+    n = max(1, round(seconds / 60))
+    return f"{n} minute{'' if n == 1 else 's'}" if n < 120 else f"{round(seconds / 3600)} hours"
 
 
 def invite(a):
@@ -427,17 +437,18 @@ def invite(a):
     from .outside import STAY
     got = running(a.keep, a.port)
     if a.guests:
-        if a.end or a.name or a.hours is not None or a.uses is not None or a.forever:
+        if a.end or a.name or a.hours is not None or a.minutes is not None or a.uses is not None or a.forever:
             sys.exit("--guests says whether guests may invite people: it doesn't go with the rest")
         path, body = "/api/guests-invite", {"on": a.guests == "on"}
     elif a.end:
-        if a.name or a.hours is not None or a.uses is not None or a.forever:
+        if a.name or a.hours is not None or a.minutes is not None or a.uses is not None or a.forever:
             sys.exit("--end ends the open invites: it doesn't go with the rest")
         path, body = "/api/invites/end", {}
     else:
-        if a.forever and a.hours is not None:
-            sys.exit("--forever and --hours: one or the other")
-        path, body = "/api/invites", {"ends_in": None if a.forever else int((a.hours if a.hours is not None else 24) * 3600), **({"uses": a.uses} if a.uses is not None else {}), **({"for": a.name} if a.name else {})}
+        if sum((a.forever, a.hours is not None, a.minutes is not None)) > 1:
+            sys.exit("--minutes, --hours, --forever: one of them")
+        length = a.minutes * 60 if a.minutes is not None else a.hours * 3600 if a.hours is not None else None  # left out: the room's usual (30 minutes)
+        path, body = "/api/invites", {**({"ends_in": None} if a.forever else {"ends_in": int(length)} if length is not None else {}), **({"uses": a.uses} if a.uses is not None else {}), **({"for": a.name} if a.name else {})}
     req = urllib.request.Request(f"http://127.0.0.1:{got['port']}{path}", data=json.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "Cookie": f"sp{got['port']}={got['token']}", "X-Shellphone-Key": got["token"]})
     try:
@@ -457,7 +468,7 @@ def invite(a):
         n = out.get("ended", 0)
         return print(f"{n} open invite{'' if n == 1 else 's'} ended. Nobody new comes in by {'it' if n == 1 else 'them'}; people who are in stay in.")
     import time
-    left = "" if out.get("expires") is None else f", for {max(1, round((out['expires'] - time.time()) / 3600))} hour{'' if round((out['expires'] - time.time()) / 3600) <= 1 else 's'}"
+    left = "" if out.get("expires") is None else f", for {lasting(out['expires'] - time.time())}"
     who = f"for {a.name}, once" if a.name else "for one person" if out.get("uses_left") == 1 else f"for up to {out['uses_left']} people" if out.get("uses_left") else "for anyone who has it"
     print(f"An invite {who}{left or ', with no end'}:\n\n  {out['link']}\n\nIt is shown here once: the room doesn't keep it. End the open invites with: {me()} invite --end")
 
@@ -721,7 +732,8 @@ def main():
     s.add_argument("--relay", help=argparse.SUPPRESS)  # share through another site than the usual one (testing)
     s = sub.add_parser("invite", help="a new invite for people to the shared room on this computer: a link that ends, or is for one person. --end ends the open ones")
     s.add_argument("--for", dest="name", metavar="NAME", help="for one person: it works once, and they come in under this name")
-    s.add_argument("--hours", type=float, help="how long it works (default 24)")
+    s.add_argument("--minutes", type=float, help="how long it works (default 30)")
+    s.add_argument("--hours", type=float, help="the same, in hours")
     s.add_argument("--forever", action="store_true", help="an invite with no end")
     s.add_argument("--uses", type=int, help="how many people it lets in (default: as many as the room has room for)")
     s.add_argument("--end", action="store_true", help="end every open invite: nobody new comes in by them, and people who are in stay in")

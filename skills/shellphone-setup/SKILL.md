@@ -63,7 +63,9 @@ Ask your human first ("May I share the room so you can open it on your phone?").
 
 `share` prints two links. "Open it from anywhere" is your human's own: it opens the room as its host, so send it only to
 them, on their channel. "Invite people" lets someone in as a guest: that is the one to pass to friends, and the room's menu
-shows it too (**Invite people**). Never mix the two up.
+shows it too (**Invite people**). Never mix the two up. An invite works for 30 minutes: when your human wants to
+bring someone in later, make a fresh one with `uvx shellphone@latest invite` (`--hours N` or `--minutes N` for another
+length, `--for NAME` for one person).
 
 **Give your human both links right away, each with one line saying what it is.** Sharing is not done until they have
 them. If they talk to you in a terminal, the terminal is their channel: show the links there. "Never print the link" means

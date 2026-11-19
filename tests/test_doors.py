@@ -145,6 +145,10 @@ class Doors(unittest.TestCase):
         v = self.got["invites"]
         self.assertEqual((v["command_says"], v["command_link_works"], v["command_forever"]), ([True, True, True], "Ada", True))
         self.assertEqual(v["command_bad"], "refused:")
+        self.assertEqual(v["command_lengths"], [True] * 5)  # 30 minutes unless said, and said back as people say it
+        self.assertEqual(v["command_one_length"], ["refused:"] * 5)
+        self.assertTrue(v["share_says_how_long"])
+        self.assertTrue(v["page_default"])  # a page that names no length gets the same 30 minutes
         self.assertTrue(v["command_words_without_an_invite"])  # share's own words, once the first invite was ended
         self.assertEqual(v["command_end"], "0 open invites ended. ")
 
