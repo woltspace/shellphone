@@ -7,6 +7,7 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
+    "@git-diff-view/react": "0.1.8",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "diff2html": "3.4.56",

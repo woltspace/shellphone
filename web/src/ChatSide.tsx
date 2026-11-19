@@ -6,7 +6,7 @@ import { ThreadWho } from "./ThreadWho";
 import { looksLikeDiff, woltColor, woltFace, type Ctx } from "./Message";
 import type { Note } from "./Code";
 
-const Code = lazy(() => import("./Code"));
+const Review = lazy(() => import("./ReviewPane"));
 import { personAvatar } from "./sprites";
 import { worn } from "./hats";
 import { ago } from "./Threads";
@@ -66,8 +66,8 @@ export function ChatSide({ thread, list, ctx, room, fallback, host, main }: {
       <div className="flex-none flex items-center gap-2 px-4 py-2 border-b border-line bg-paper font-mono text-[12px]">
         <b className="text-ink">{changed.size} {changed.size === 1 ? "file" : "files"} changed</b>
         <span className="text-[#2f7d4f]">+{added}</span><span className="text-[#b33a2b]">−{removed}</span>
-        <span className="flex-1" /><span className="text-dim text-[11px]">{notes.length ? `${notes.length} ${notes.length === 1 ? "conversation" : "conversations"} · ` : ""}click a line to comment</span></div>
-      <div className="flex-1 min-h-0"><Suspense fallback={<p className="p-4 text-dim text-sm">Loading…</p>}><Code full fileList body={all} lang="diff" diff notes={notes} /></Suspense></div>
+        <span className="flex-1" /><span className="text-dim text-[11px]">{notes.length ? `${notes.length} ${notes.length === 1 ? "conversation" : "conversations"} · ` : ""}+ on a line to comment</span></div>
+      <div className="flex-1 min-h-0"><Suspense fallback={<p className="p-4 text-dim text-sm">Loading…</p>}><Review files={changed} notes={notes} say={ctx.say} /></Suspense></div>
     </div>}
     <div className={`flex-1 min-h-0 overflow-y-auto p-3 ${tab === "changes" ? "hidden" : ""}`}>
       {tab === "info" && <>

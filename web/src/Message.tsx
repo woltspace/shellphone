@@ -10,7 +10,7 @@ import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean; tint?: string; openWho?: (who: string) => void; openCode?: (c: { body: string; lang: string; diff: boolean }) => void };  // openCode: show a code block beside the chat  // openWho: a face tapped anywhere opens its card ("p:email" or "w:name")  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean; tint?: string; openWho?: (who: string) => void; openCode?: (c: { body: string; lang: string; diff: boolean }) => void; say?: (text: string) => void };  // say: send a message to the open chat  // openCode: show a code block beside the chat  // openWho: a face tapped anywhere opens its card ("p:email" or "w:name")  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });

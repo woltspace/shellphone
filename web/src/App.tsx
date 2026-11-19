@@ -486,8 +486,9 @@ export function App() {
   const [thread, setThread] = useState(() => typeof location !== "undefined" ? (location.hash.match(/^#c=([\w-]+)/) || [])[1] || "" : "");
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
+  const sayRef = useRef((_t: string) => {});  // send to the open chat, from a review comment (set once text() exists below)
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { openWho: (w: string) => setWho(w), openCode: (c) => setCode(c), me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined,
+  const ctx: Ctx = { openWho: (w: string) => setWho(w), openCode: (c) => setCode(c), say: (t: string) => sayRef.current(t), me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined,
     // who's working where ("" the main chat, else a thread); a room that doesn't say where: everywhere, as before
     busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]) };
 
@@ -717,6 +718,7 @@ export function App() {
     });
   }, [state.me]);
   retryRef.current = (cid) => retry(cid);
+  sayRef.current = (t) => { void text(t); };
   function retry(cid: string) {
     const o = outgoing.current.get(cid); if (!o || !msgsNow.current.some((x) => x.id === cid)) return;
     if ("blob" in o) { if (o.owner === state.me) sendVoice(o); } else sendTyped(o);
