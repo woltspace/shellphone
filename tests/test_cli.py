@@ -788,6 +788,59 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class QuietRoom(unittest.TestCase):
+    """An agent is woken by a message, never to be told that nothing happened."""
+
+    def test_wait_has_no_limit_of_its_own_and_ends_only_on_a_message(self):
+        import connector
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "lodge.json"
+            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
+            calls, out = [], io.StringIO()
+            quiet = {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}
+            said = {"messages": [{"n": 1, "id": "a" * 32, "at": 1.0, "kind": "human", "email": "o@x", "text": "hello pip"}], "members": {"people": [{"email": "o@x", "name": "Olga"}], "wolts": []}, "owner": "o@x"}
+
+            def call(c, method, path, body=None):
+                calls.append(path)
+                return said if len(calls) > 400 else quiet  # far more looks than an hour of them used to be worth at this pace
+            with patch.object(connector, "call", call), patch.object(connector.time, "sleep", lambda s: None), contextlib.redirect_stdout(out):
+                connector.wait(str(cfg), None, 2)
+            self.assertGreater(len(calls), 400)
+            self.assertIn("hello pip", out.getvalue())
+            self.assertNotIn("timed out", out.getvalue())
+
+    def test_a_limit_is_kept_when_one_is_asked_for(self):
+        import connector
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "lodge.json"
+            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
+            out = io.StringIO()
+            with patch.object(connector, "call", lambda *a, **kw: {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}), contextlib.redirect_stdout(out):
+                connector.wait(str(cfg), 0.3, 0.05)
+            self.assertIn("timed out", out.getvalue())
+
+    def test_a_limit_of_nothing_is_a_limit_not_no_limit(self):
+        import connector
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "lodge.json"
+            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
+            calls, out = [], io.StringIO()
+
+            def call(*a, **kw):
+                calls.append(1)
+                if len(calls) > 50:
+                    raise AssertionError("--timeout 0 went on waiting")
+                return {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}
+            with patch.object(connector, "call", call), patch.object(connector.time, "sleep", lambda s: None), contextlib.redirect_stdout(out):
+                connector.wait(str(cfg), 0, 2)
+            self.assertIn("timed out", out.getvalue())
+            self.assertLessEqual(len(calls), 1)
+
+    def test_the_command_asks_for_no_limit_by_default(self):
+        src = (REPO / "connector.py").read_text()
+        self.assertIn('s.add_argument("--timeout", type=float, default=None', src)
+
+
 class ListAndStop(unittest.TestCase):
     """`shellphone list` and `shellphone stop`, in a temporary folder of their own: the rooms really open on this
     computer are never seen from here, so none of them can be closed by a test."""
@@ -839,9 +892,16 @@ class ListAndStop(unittest.TestCase):
         self.assertIn("2 rooms open on this computer", words)
         self.assertIn("only on this computer", words)
         self.assertIn("not kept: deleted when it closes", words)
+        self.assertEqual(words.count("\U0001F41A"), 2)  # a shell beside each one
         plain = subprocess.run([*CLI, "list"], capture_output=True, timeout=40, env={**self.env, "PYTHONIOENCODING": "ascii"})
-        self.assertEqual((plain.returncode, plain.stderr), (0, b""))  # a terminal that can't show the middle dot gets commas, not an error
+        self.assertEqual((plain.returncode, plain.stderr), (0, b""))
+        self.assertIn("2 rooms open on this computer", plain.stdout.decode("ascii"))  # and none where the terminal can't show it
         self.assertIn("only on this computer, 1 person, 0 agents", plain.stdout.decode("ascii"))
+        stopped = subprocess.run([*CLI, "stop", "--all"], capture_output=True, timeout=60, env={**self.env, "PYTHONIOENCODING": "ascii"})
+        self.assertEqual((stopped.returncode, stopped.stderr), (0, b""))
+        self.assertEqual(stopped.stdout.decode("ascii").count("ok Closed the room"), 2)
+        for r in (a, b):
+            r.proc.wait(10)
         for r in (a, b):  # neither the host's key nor the agent's code is shown, in words or as JSON
             key = urllib.parse.parse_qs(urllib.parse.urlsplit(r.open).query)["k"][0]
             code = r.agent.split("#")[1]
@@ -996,54 +1056,49 @@ class Hello(unittest.TestCase):
         self.assertIn("usage:", got.stderr)
 
 
-class QuietRoom(unittest.TestCase):
-    """An agent is woken by a message, never to be told that nothing happened."""
+class Colour(unittest.TestCase):
+    """The command's own screens are coloured for a person at a terminal, and plain everywhere else."""
 
-    def test_wait_has_no_limit_of_its_own_and_ends_only_on_a_message(self):
-        import connector
+    def out(self, *args, **env):
         with tempfile.TemporaryDirectory() as td:
-            cfg = Path(td) / "lodge.json"
-            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
-            calls, out = [], io.StringIO()
-            quiet = {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}
-            said = {"messages": [{"n": 1, "id": "a" * 32, "at": 1.0, "kind": "human", "email": "o@x", "text": "hello pip"}], "members": {"people": [{"email": "o@x", "name": "Olga"}], "wolts": []}, "owner": "o@x"}
+            return subprocess.run([*CLI, *args], capture_output=True, text=True, timeout=30, env={**ENV, "TMPDIR": td, **env}, cwd=td)
 
-            def call(c, method, path, body=None):
-                calls.append(path)
-                return said if len(calls) > 400 else quiet  # far more looks than an hour of them used to be worth at this pace
-            with patch.object(connector, "call", call), patch.object(connector.time, "sleep", lambda s: None), contextlib.redirect_stdout(out):
-                connector.wait(str(cfg), None, 2)
-            self.assertGreater(len(calls), 400)
-            self.assertIn("hello pip", out.getvalue())
-            self.assertNotIn("timed out", out.getvalue())
+    def test_piped_output_carries_no_colour_codes(self):
+        for args in ((), ("list",)):
+            got = self.out(*args)
+            self.assertEqual((got.returncode, got.stderr), (0, ""), args)
+            self.assertNotIn("\x1b[", got.stdout, args)
 
-    def test_a_limit_is_kept_when_one_is_asked_for(self):
-        import connector
+    def test_a_terminal_gets_colour_and_no_color_takes_it_away(self):
+        loud = self.out(FORCE_COLOR="1", COLORTERM="truecolor")
+        self.assertIn("\x1b[", loud.stdout)
+        self.assertIn("38;2;23;146;153", loud.stdout)  # the site's teal: the spiral, and what a command does
+        self.assertIn("38;2;223;142;29m--share", loud.stdout)  # an option in its yellow
+        self.assertIn("38;2;114;135;253m'<link>'", loud.stdout)  # what you fill in yourself in its lavender
+        spiral = [l for l in loud.stdout.splitlines() if any(0x2800 <= ord(ch) <= 0x28FF for ch in l)]
+        shades = set(re.findall(r"38;2;(\d+;\d+;\d+)m", "".join(spiral)))
+        self.assertGreaterEqual(len(shades), 8)  # the spiral changes colour along its length
+        self.assertIn("23;146;153", shades)      # from the teal of its middle
+        self.assertIn("234;118;203", shades)     # to the pink of its lip
+        name = next(l for l in loud.stdout.splitlines() if re.sub(r"\x1b\[[0-9;]*m", "", l).rstrip().endswith("s h e l l p h o n e"))
+        self.assertGreaterEqual(len(set(re.findall(r"38;2;(\d+;\d+;\d+)m[a-z]", name))), 8)  # the name is in the spiral's colours, letter by letter
+        quiet = self.out(FORCE_COLOR="1", NO_COLOR="1")
+        self.assertNotIn("\x1b", quiet.stdout)  # plain means plain: no colour, and no bold either
+        strip = lambda s: re.sub(r"\x1b\[[0-9;]*m", "", s)
+        self.assertEqual([l.rstrip() for l in strip(loud.stdout).splitlines()], [l.rstrip() for l in strip(quiet.stdout).splitlines()])  # the same words either way
+
+    def test_a_path_with_brackets_is_shown_as_it_is(self):
         with tempfile.TemporaryDirectory() as td:
-            cfg = Path(td) / "lodge.json"
-            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
-            out = io.StringIO()
-            with patch.object(connector, "call", lambda *a, **kw: {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}), contextlib.redirect_stdout(out):
-                connector.wait(str(cfg), 0.3, 0.05)
-            self.assertIn("timed out", out.getvalue())
-
-    def test_a_limit_of_nothing_is_a_limit_not_no_limit(self):
-        import connector
-        with tempfile.TemporaryDirectory() as td:
-            cfg = Path(td) / "lodge.json"
-            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
-            calls, out = [], io.StringIO()
-
-            def call(*a, **kw):
-                calls.append(1)
-                if len(calls) > 50:
-                    raise AssertionError("--timeout 0 went on waiting")
-                return {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}
-            with patch.object(connector, "call", call), patch.object(connector.time, "sleep", lambda s: None), contextlib.redirect_stdout(out):
-                connector.wait(str(cfg), 0, 2)
-            self.assertIn("timed out", out.getvalue())
-            self.assertLessEqual(len(calls), 1)
-
-    def test_the_command_asks_for_no_limit_by_default(self):
-        src = (REPO / "connector.py").read_text()
-        self.assertIn('s.add_argument("--timeout", type=float, default=None', src)
+            env = {**ENV, "TMPDIR": td, "TEMP": td, "TMP": td}
+            kept = Path(td) / "my [red]rooms[/red]" / "one"
+            room = Room("--keep", str(kept), env=env)
+            try:
+                listed = subprocess.run([*CLI, "list"], capture_output=True, text=True, timeout=30, env=env)
+                self.assertIn("my [red]rooms[/red]", listed.stdout.replace("\n", ""))
+                done = subprocess.run([*CLI, "stop"], capture_output=True, text=True, timeout=40, env=env)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertIn("my [red]rooms[/red]", done.stdout.replace("\n", ""))
+                room.proc.wait(10)
+            finally:
+                if room.proc.poll() is None:
+                    room.proc.kill(); room.proc.communicate()

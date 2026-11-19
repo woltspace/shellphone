@@ -570,31 +570,36 @@ def listing(a):
     rooms = [describe(r) for r in open_rooms()]
     if a.json:
         return print(json.dumps(rooms, indent=2))
+    from . import ui
+    out = ui.console()
     if not rooms:
-        return print("No room is open on this computer. Open one with `shellphone room`.")
-    print(f"{len(rooms)} room{'s' if len(rooms) != 1 else ''} open on this computer\n")
-    for r in rooms:
-        if not r["answers"]:
-            print(f"  port {r['port']:<6} (doesn't answer)\n               {'kept in' if r['kept'] else 'in'} {r['dir']}\n")
-            continue
-        how = ("shared, " + WAYS[r["via"]] if r.get("via") else "shared") if r.get("shared") else "only on this computer"
-        if r.get("shared") and r.get("reachable") is False:
-            how += " (can't be reached from outside right now)"
-        count = lambda n, word: f"{n} {word if n == 1 else {'person': 'people'}.get(word, word + 's')}"
-        try:  # a middle dot between the counts, where the terminal can show one
-            "\u00b7".encode(sys.stdout.encoding or "ascii")
-            sep = " \u00b7 "
-        except (UnicodeError, LookupError):
-            sep = ", "
-        print(f"  port {r['port']:<6} {r.get('name') or 'shell'}\n               {how}{sep}{count(r.get('people', 0), 'person')}{sep}{count(r.get('agents', 0), 'agent')}\n"
-              f"               {'kept in ' + r['dir'] if r['kept'] else 'not kept: deleted when it closes'}\n")
-    print("Close one with `shellphone stop --port N`, all of them with `shellphone stop --all`.")
+        return out.print(ui.Text.assemble("No room is open on this computer. Open one with ", ui.command("shellphone room"), "."))
+    shell = "\U0001F41A " if ui.can_draw("\U0001F41A", out.file) else ""  # a shell beside each one, where the terminal can show it
+    dot, sep = ("\u25cf", " \u00b7 ") if ui.can_draw("\u25cf\u00b7", out.file) else ("*", ", ")  # and plain marks where it can't
+    out.print(f"[bold]{len(rooms)} room{'s' if len(rooms) != 1 else ''} open on this computer[/bold]\n")
+    count = lambda n, word: f"{n} {word if n == 1 else {'person': 'people'}.get(word, word + 's')}"
+    for r in rooms:  # a few lines each, none of them cut or folded: a path stays whole to be copied
+        where = ("kept in " + r["dir"]) if r["kept"] else "not kept: deleted when it closes"
+        down = bool(r.get("shared")) and r.get("reachable") is False
+        colour = ui.AMBER if down or not r["answers"] else ui.GREEN if r.get("shared") else ui.DIM
+        out.print(ui.Text.assemble("  ", shell, (f"port {r['port']}", "bold"), "  ", (r.get("name") or "shell") if r["answers"] else ("doesn't answer", ui.AMBER), "  ", (dot, colour)))
+        if r["answers"]:
+            how = ("shared, " + WAYS[r["via"]] if r.get("via") else "shared") if r.get("shared") else "only on this computer"
+            if down:
+                how += " (can't be reached from outside right now)"
+            out.print(ui.Text.assemble("     " if shell else "  ", (how, colour if r.get("shared") else ""), f"{sep}{count(r.get('people', 0), 'person')}{sep}{count(r.get('agents', 0), 'agent')}"))
+        out.print(ui.Text(("     " if shell else "  ") + where, style=ui.DIM))
+        out.print()
+    out.print(ui.Text.assemble(("Close one with ", ui.DIM), ui.command("shellphone stop --port N"), (", all of them with ", ui.DIM), ui.command("shellphone stop --all"), (".", ui.DIM)))
 
 
 def stop_rooms(a):
     """`shellphone stop`: close rooms open on this computer, as Ctrl-C in their own window does. A kept room keeps
     everything, its links included: it comes back as it was at its next start. Nothing is unshared."""
     import time
+    from . import ui
+    out = ui.console()
+    tick = "\u2713" if ui.can_draw("\u2713", out.file) else "ok"
     rooms = [r for r in open_rooms(a.keep) if a.port is None or r["port"] == a.port]
     if not rooms:
         sys.exit("no open room found" + (f" on port {a.port}" if a.port else " on this computer"))
@@ -618,7 +623,7 @@ def stop_rooms(a):
         except Exception:
             closing, why = False, "doesn't answer"
         if not closing:
-            print(f"The room on port {r['port']} {why}: left alone.")
+            out.print(f"[{ui.AMBER}]![/] The room on port {r['port']} {ui.escape(why)}: left alone.")
             failed = True
             continue
         # closed: its program is gone, or (where whoever started it hasn't looked at it yet, so its number lingers) it took
@@ -627,12 +632,12 @@ def stop_rooms(a):
         while not gone() and time.time() < end:
             time.sleep(0.2)
         if not gone():
-            print(f"The room on port {r['port']} was asked to close and is still running.")
+            out.print(f"[{ui.AMBER}]![/] The room on port {r['port']} was asked to close and is still running.")
             failed = True
         elif r["kept"]:
-            print(f"Closed the room on port {r['port']}. It is kept in {r['dir']}: `shellphone room --keep {shlex.quote(r['dir'])}` brings it back as it was.")
+            out.print(f"[{ui.GREEN}]{tick}[/] Closed the room on port {r['port']}. It is kept in {ui.escape(r['dir'])}: [bold]shellphone room --keep {ui.escape(shlex.quote(r['dir']))}[/bold] brings it back as it was.")
         else:
-            print(f"Closed the room on port {r['port']}. It wasn't kept: it is gone.")
+            out.print(f"[{ui.GREEN}]{tick}[/] Closed the room on port {r['port']}. It wasn't kept: it is gone.")
     if failed:
         sys.exit(1)
 
@@ -828,33 +833,69 @@ BANNER = "\n".join((
     '                ⠹⣄         ⢀⡤⠞',
     '                 ⠈⠙⠲⠤⠤⢤⠤⠤⠴⠚⠉',
 ))
+# How far along the spiral each of its dots is, from its middle (0) to its mouth (f): what its colour goes by.
+SHADE = (
+    '     feeeddddccccbbbaaaa9',
+    '  ffff                  9999',
+    '                           888',
+    '                             88',
+    '                              77',
+    '                               7',
+    '                2211010        7',
+    '                2  0000      667',
+    '                33         666',
+    '                 33344445555',
+)
 PLAIN = "  s h e l l p h o n e\n\n  a chat for you and your coding agents, on your own computer"  # for a terminal that can't draw the dots
 
-HELLO = """  shellphone room             open a shell on this computer
-  shellphone room --share     open one and share it, with a link and an invite
-  shellphone list             the shells open on this computer
-  shellphone stop             close one (--all: every one)
-  shellphone share            share the open shell (share --stop ends its links)
-  shellphone invite           an invite that ends, or is for one person
-  shellphone join '<link>'    join a shell as an agent, with its link
-
-  shellphone <command> -h     more about a command
-"""
+HELLO = (  # where to start: a command, and what it does
+    ("shellphone room", "open a shell on this computer"),
+    ("shellphone room --share", "open one and share it, with a link and an invite"),
+    ("shellphone list", "the shells open on this computer"),
+    ("shellphone stop", "close one (--all: every one)"),
+    ("shellphone share", "share the open shell (share --stop ends its links)"),
+    ("shellphone invite", "an invite that ends, or is for one person"),
+    ("shellphone join '<link>'", "join a shell as an agent, with its link"),
+)
 
 
 def hello():
     """`shellphone` with nothing after it: what it is, and where to start."""
+    from . import ui
     try:
         from importlib.metadata import version
         v = " " + version("shellphone")
     except Exception:
         v = ""
-    art = BANNER
-    try:
-        art.encode(sys.stdout.encoding or "ascii")
-    except (UnicodeError, LookupError):
-        art = PLAIN
-    print("\n" + art + "\n\n  shellphone" + v + "\n\n" + HELLO, end="")
+    out = ui.console()
+    out.print()
+    if ui.can_draw(BANNER, out.file):
+        for line, shade in zip(BANNER.split("\n"), SHADE):  # the spiral shaded along its length; beside it the name in the same colours, and quiet words under it
+            words = max((i for i, c in enumerate(line) if 0x2800 <= ord(c) <= 0x28FF), default=-1) + 1  # where the words beside it begin
+            row, said = ui.Text(), line[words:].strip()
+            for i, ch in enumerate(line[:words]):
+                row.append(ch, style=ui.along(int(shade[i], 16) / 15) if 0x2800 <= ord(ch) <= 0x28FF and i < len(shade) and shade[i].strip() else "")
+            row.append(line[words:len(line) - len(line[words:].lstrip())])
+            if "s h e l l" in said:  # the name, letter by letter, from the teal of the spiral's middle to the pink of its lip
+                letters = [i for i, ch in enumerate(said) if ch != " "]
+                for i, ch in enumerate(said):
+                    row.append(ch, style=f"bold {ui.along(letters.index(i) / (len(letters) - 1))}" if ch != " " else "")
+            else:
+                row.append(said, style=ui.DIM)
+            out.print(row)
+    else:
+        out.print(PLAIN, markup=False)
+    out.print()
+    out.print(ui.Text.assemble("  ", ("shellphone", "bold"), (v, ui.DIM)))
+    out.print()
+    out.print(_indent(ui.grid(HELLO)))
+    out.print()
+    out.print(_indent(ui.grid((("shellphone <command> -h", "more about a command"),), quiet=True)))
+
+
+def _indent(what, by=2):
+    from rich.padding import Padding
+    return Padding(what, (0, 0, 0, by))
 
 
 def main():
