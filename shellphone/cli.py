@@ -364,6 +364,8 @@ class Share:
             if now:
                 if via and via != now:
                     return 409, {"error": f"the room is already shared through {WAYS[now]}: stop sharing it first, then share it the other way", "linked": True}
+                if self.ways[now].info().get("state") == "down":  # shared, but it had stopped trying to be reachable: asked again, that way starts over, with the same links
+                    self.ways[now].on()
                 return 200, self.info()
             if via and kept and kept != via:  # its old links would die without a word: the host says so first
                 return 409, {"error": f"this kept room was last shared through {WAYS[kept]}: stop sharing it first ({me()} share --stop), then share it the other way", "linked": False}
