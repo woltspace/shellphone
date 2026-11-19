@@ -246,7 +246,7 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 // Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
 // A thread pops up over the main chat, like the voice-note sheet: you're still in the room, just looking closer.
 // Drag the handle down, tap above it, or tap ✕ to drop back.
-function ThreadSheet({ startFull, chat, name, onRename, color, wallpaper, title, count, close, who, children }: { startFull?: boolean; chat?: boolean; name?: string; onRename?: (name: string) => void; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
+function ThreadSheet({ docked, startFull, chat, name, onRename, color, wallpaper, title, count, close, who, children }: { docked?: boolean; startFull?: boolean; chat?: boolean; name?: string; onRename?: (name: string) => void; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
   const [drag, setDrag] = useState<{ y: number; dy: number; t: number } | null>(null), [full, setFull] = useState(!!startFull);
   const [editing, setEditing] = useState(false);  // renaming the chat: its title becomes a box
   const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
@@ -269,6 +269,24 @@ function ThreadSheet({ startFull, chat, name, onRename, color, wallpaper, title,
     },
     onClick: (e: React.MouseEvent) => { if ((e.currentTarget as HTMLElement).dataset.side !== undefined) bye(); },  // a plain tap on a side edge: back to the chat
   };
+  if (docked) return <div role="region" aria-label="Chat" style={wallpaper} className="h-full flex flex-col overflow-hidden bg-paper">
+    <div className="flex-none bg-[#fffdf6] border-b border-line" style={{ boxShadow: `inset 0 3px 0 ${color}` }}>
+      <div className="flex items-center gap-2 pl-4 pr-2 pt-2.5 pb-2">
+        <div className="min-w-0 flex-1">
+          {editing ? <input autoFocus defaultValue={name} maxLength={80} aria-label="Chat name"
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = name || ""; e.currentTarget.blur(); } }}
+            onBlur={(e) => { setEditing(false); const v = e.currentTarget.value.trim(); if (v !== (name || "")) onRename?.(v); }}
+            className="w-full font-mono font-semibold text-[16px] rounded-md border-2 border-acc bg-white px-1.5 py-0.5 outline-none" style={{ color }} />
+            : <div className={`font-mono font-semibold text-[16px] truncate ${onRename ? "cursor-text" : ""}`} style={{ color }} title={onRename ? "Click to rename" : undefined}
+              onClick={() => { if (onRename) setEditing(true); }}>{title}{onRename && <span className="ml-1.5 text-[12px] text-dim font-normal">✎</span>}</div>}
+          <div className="font-mono text-[11px] text-dim">{`chat · ${count + 1} ${count ? "messages" : "message"}`}</div>
+        </div>
+        {who}
+        <button type="button" aria-label="Close the chat" title="Close (Esc)" onClick={close} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer rounded-lg hover:bg-panel"><X size={18} /></button>
+      </div>
+    </div>
+    {children}
+  </div>;
   return <div className="absolute inset-0 z-[1580]">
     <div onClick={bye} className={`absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out] transition-opacity duration-200 ${leaving ? "opacity-0" : ""}`} />
     <div role="dialog" aria-label="Thread" onClick={(e) => {  // like iMessage: a tap on the see-through space beside the messages drops you back to the chat
@@ -450,6 +468,9 @@ export function App() {
   const [paging, setPaging] = useState("");  // the page open full screen, by id
   // the desk: on a wide screen, your wolts' terminals beside the chat (Desk.tsx). Remembered on this computer.
   const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 1100px)").matches;
+  // a computer screen: the chats on the left, the open chat beside them (the phone keeps its one screen at a time)
+  const [roomy, setRoomy] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches);
+  useEffect(() => { const m = window.matchMedia("(min-width: 900px)"), on = () => setRoomy(m.matches); m.addEventListener("change", on); return () => m.removeEventListener("change", on); }, []);
   const [desk, setDeskOn] = useState(() => { try { return wide && localStorage.getItem("desk") === "1"; } catch { return false; } });
   const setDesk = (on: boolean) => { setDeskOn(on); try { localStorage.setItem("desk", on ? "1" : "0"); } catch { /* private mode */ } };
   const [focus, setFocus] = useState<{ wolt: string; at: number } | null>(null);
@@ -738,6 +759,19 @@ export function App() {
   const composer = <Composer key={thread || "main"} draft={thread || "main"} wolts={state.members.wolts} people={state.members.people} working={state.working || {}} host={state.host} me={state.me} onText={text} onFiles={files} onMic={mic} placeholder={thread ? (chatsHome ? "$ message this chat" : "$ reply in thread") : chatsHome && !lobby ? "$ start a new chat…" : undefined} />;
   // on the desk: the wolts of the open thread (or every wolt that isn't paused, in the main chat)
   const deskWolts = state.members.wolts.filter((w) => !w.paused && (!thread || !state.who || (state.main === w.wolt && state.who[thread]?.[w.wolt] !== "paused") || state.who[thread]?.[w.wolt] === "in"));
+  // the chats on the left and the open chat docked beside them, on a computer screen (not beside the desk: that column is narrow)
+  const twoPane = roomy && !desk && chatsHome && !lobby;
+  const chatSheet = (docked: boolean) => (
+<ThreadSheet key={thread} docked={docked} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
+        who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
+          room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
+        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />
+        {/* a chat just started: who will pick it up, and how to bring someone else in */}
+        {chatsHome && root && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
+          New chat started{state.main && state.who?.[thread]?.[state.main] !== "paused" ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
+        {composer}
+      </ThreadSheet>
+  );
   const room = (
     <div className="h-full flex flex-col relative bg-paper" {...menuSwipe.screen}>
       <header ref={hdr} {...pull} className="relative flex-none flex items-center gap-2 pl-1.5 pr-2 pt-[calc(10px+env(safe-area-inset-top))] pb-2.5 bg-paper border-b border-line">
@@ -759,34 +793,30 @@ export function App() {
         </button>}
       </header>
       {!(chatsHome && !lobby) && <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />}
-      {chatsHome && !lobby ? <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24">
+      {chatsHome && !lobby ? <div className="flex-1 min-h-0 flex relative">
+      <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
+        className={`${twoPane ? "w-[400px] flex-none border-r border-line" : "flex-1"} min-h-0 overflow-y-auto overscroll-contain pb-24`}>
         <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
         {chatRows({ main: [], all: [], roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread,
           onMain: () => {}, onOpen: open }).rows}
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
+      </div>
+      {twoPane && <div className="flex-1 min-w-0 relative">{thread ? chatSheet(true) : <div className="h-full grid place-items-center text-center px-8">
+        <div><div className="font-mono text-acc font-semibold">Pick a chat</div><div className="text-dim text-[13px] mt-1">or start a new one. <kbd className="font-mono text-[11px] border border-line rounded px-1">N</kbd></div></div></div>}</div>}
       </div> : <>
         {chatsHome && <button type="button" onClick={() => setLobby(false)} className="flex-none flex items-center gap-1 px-3 py-2 border-0 border-b border-line bg-panel font-mono text-[12px] text-acc text-left cursor-pointer">
           <ChevronLeft size={16} /> chats <span className="text-dim">· lobby: the old main chat. Anything you say here starts a chat.</span></button>}
         <Feed list={lobbyList} ctx={ctx} working={state.working || {}} away={state.unreachable} replies={replies} seen={seen} open={open} stick={stickMain} />
       </>}
-      {!thread && (chatsHome && !lobby
+      {(!thread || twoPane) && (chatsHome && !lobby
         ? <button type="button" aria-label="New chat" onClick={() => setStarting(true)}
-          className="absolute right-4 bottom-[calc(18px+env(safe-area-inset-bottom))] z-[1400] flex items-center gap-1.5 h-14 pl-4 pr-5 rounded-full border-0 bg-acc text-white font-mono font-bold text-[15px] shadow-[0_4px_14px_#18100a40] cursor-pointer active:scale-95 transition-transform">
+          className={`absolute ${twoPane ? "left-[226px]" : "right-4"}`+" bottom-[calc(18px+env(safe-area-inset-bottom))] z-[1400] flex items-center gap-1.5 h-14 pl-4 pr-5 rounded-full border-0 bg-acc text-white font-mono font-bold text-[15px] shadow-[0_4px_14px_#18100a40] cursor-pointer active:scale-95 transition-transform"}>
           <span className="text-2xl leading-none">＋</span>New chat</button>
         : composer)}
       {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} fallback={state.who_default} host={state.host} onStart={startChat} onClose={() => setStarting(false)} />}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} all={main.filter((m) => m.kind === "human" || m.kind === "wolt")} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
-      {thread && <ThreadSheet key={thread} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
-        who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
-          room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
-        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />
-        {/* a chat just started: who will pick it up, and how to bring someone else in */}
-        {chatsHome && root && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
-          New chat started{state.main && state.who?.[thread]?.[state.main] !== "paused" ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
-        {composer}
-      </ThreadSheet>}
+      {thread && !twoPane && chatSheet(false)}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} onEveryone={() => { setThread(""); setLobby(false); setStrip(true); }} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
