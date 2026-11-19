@@ -10,7 +10,7 @@ export default function Pdf({ data }: { data: ArrayBuffer }) {
   useEffect(() => {
     if (!port) { port = new PdfWorker(); pdfjs.GlobalWorkerOptions.workerPort = port; }
     let gone = false;
-    const task = pdfjs.getDocument({ data: new Uint8Array(data.slice(0)) });
+    const task = pdfjs.getDocument({ data: new Uint8Array(data.slice(0)), isEvalSupported: false });  // files from anyone in the room: no eval, ever
     task.promise.then(async (doc) => {
       const el = box.current; if (!el) return;
       const width = Math.min(el.clientWidth - 24, 900), ratio = window.devicePixelRatio || 1;
