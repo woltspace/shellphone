@@ -902,6 +902,11 @@ class ListAndStop(unittest.TestCase):
             sleeper.wait()
 
 
+def HELLO_TEXT(out):
+    """What the bare command says below its drawing."""
+    return out[out.index("  shellphone room"):]
+
+
 class Hello(unittest.TestCase):
     def test_the_bare_command_says_what_it_is_and_where_to_start(self):
         with tempfile.TemporaryDirectory() as td:
@@ -910,9 +915,18 @@ class Hello(unittest.TestCase):
         out = got.stdout
         for word in ("s h e l l p h o n e", "shellphone room", "shellphone list", "shellphone stop", "shellphone share", "shellphone invite", "shellphone join", "-h"):
             self.assertIn(word, out)
-        self.assertTrue(out.isascii())  # it draws in any terminal
         self.assertLessEqual(max(len(line) for line in out.splitlines()), 80)
         self.assertNotIn("usage:", out)
+        self.assertTrue(any(0x2800 <= ord(ch) <= 0x28FF for ch in out))  # the spiral, in Braille dots
+        self.assertTrue(HELLO_TEXT(out).isascii())
+
+    def test_a_terminal_that_cant_draw_the_dots_gets_plain_words(self):
+        with tempfile.TemporaryDirectory() as td:
+            got = subprocess.run(CLI, capture_output=True, timeout=30, env={**ENV, "TMPDIR": td, "PYTHONIOENCODING": "ascii"}, cwd=td)
+        self.assertEqual((got.returncode, got.stderr), (0, b""))
+        out = got.stdout.decode("ascii")  # nothing in it that such a terminal can't show
+        for word in ("s h e l l p h o n e", "shellphone room", "shellphone list"):
+            self.assertIn(word, out)
 
     def test_a_wrong_command_is_still_told_so(self):
         got = subprocess.run([*CLI, "nonsense"], capture_output=True, text=True, timeout=30, env=ENV)
