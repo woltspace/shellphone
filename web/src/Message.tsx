@@ -5,6 +5,7 @@ import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
 import { PageTile } from "./Page";
 import { ShareButton } from "./Share";
+import { share } from "./sharefile.js";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
@@ -108,8 +109,21 @@ function File({ f, ctx }: { f: FileInfo; ctx: Ctx }) {
     <video src={f.url} controls playsInline preload="metadata" className="block max-w-[min(260px,68vw)] rounded-lg" />
     <ShareButton url={f.url} name={f.name} className="absolute top-1.5 right-1.5 bg-[#000a] text-white border-0" />
   </div>;
-  return <div className="flex items-center gap-1 mb-1"><a href={f.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 px-2.5 py-2 border border-line rounded-[10px] bg-paper no-underline text-ink">
-    <span className="text-xl">📄</span><span className="min-w-0"><span className="block font-semibold truncate">{f.name}</span><span className="block font-mono text-[11px] text-dim">{f.type.toUpperCase()} · {Math.max(1, Math.round(f.size / 1024))} KB</span></span>
+  return <FileCard f={f} />;
+}
+
+// In the home-screen app a link opens in a separate Safari window that isn't signed in to the room, so the file can't
+// load there: a tap gets the file here instead and hands it to the phone's share sheet (Quick Look, Save to Files…)
+const homeApp = () => typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true);
+function FileCard({ f }: { f: FileInfo }) {
+  const [note, setNote] = useState("");
+  const tap = (e: React.MouseEvent) => {
+    if (!homeApp()) return;  // in a browser the link downloads as usual
+    e.preventDefault(); setNote("Opening…");
+    share(f.url, f.name).then((r) => setNote(r === "again" ? "Tap again to open" : "")).catch(() => { setNote("Couldn't get it"); setTimeout(() => setNote(""), 2500); });
+  };
+  return <div className="flex items-center gap-1 mb-1"><a href={f.url} target="_blank" rel="noopener noreferrer" onClick={tap} className="flex min-w-0 items-center gap-2 px-2.5 py-2 border border-line rounded-[10px] bg-paper no-underline text-ink">
+    <span className="text-xl">📄</span><span className="min-w-0"><span className="block font-semibold truncate">{f.name}</span><span className="block font-mono text-[11px] text-dim">{note || <>{f.type.toUpperCase()} · {Math.max(1, Math.round(f.size / 1024))} KB</>}</span></span>
   </a><ShareButton url={f.url} name={f.name} className="flex-none bg-transparent border-0 text-dim" /></div>;
 }
 

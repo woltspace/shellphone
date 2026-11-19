@@ -23,7 +23,8 @@ async function setup(ask: boolean): Promise<"ask" | "on" | "off"> {
 export function usePush(report: (e: string) => void) {
   const [state, setState] = useState<"ask" | "on" | "off">("off");
   useEffect(() => { if (!relayRoom) setup(false).then(setState).catch(() => {}); }, []);  // through the relay: no notifications yet, and nothing outside the sealed pipe
-  const turnOn = () => setup(true).then((s) => { setState(s); if (s === "on") report("Notifications on for this phone."); })
+  // an iPhone shows the permission prompt only when it's asked straight from the tap, before anything is awaited
+  const turnOn = () => (window.Notification?.permission === "default" ? Notification.requestPermission() : Promise.resolve()).then(() => setup(true)).then((s) => { setState(s); if (s === "on") report("Notifications on for this phone."); })
     .catch((e) => report("Couldn't turn on notifications: " + e.message));
   return { state, ask: state === "ask", turnOn };
 }
