@@ -10,7 +10,7 @@ import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean };  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean; tint?: string };  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -134,31 +134,38 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
   const readers = mine ? ctx.seen[m.id] || [] : [];
   const solid: CSSProperties = mine ? { backgroundColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.82) }
     : !human ? { backgroundColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.9), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) } : {};
-  // on a computer screen: one plain line per message, face and name on the first of a run, like Slack; hats and colours kept
-  if (ctx.rows) return (
-    <div className={`group flex gap-2.5 px-5 py-0.5 ${firstOfRun ? "mt-2.5" : ""} hover:bg-[#18100a08]`} id={m.cid || m.id}>
-      {firstOfRun ? <img src={avatar} alt="" className="pixel w-9 h-9 flex-none mt-0.5" />
-        : <span className="flex-none w-9 pt-0.5 text-right font-mono text-[10px] text-dim opacity-0 group-hover:opacity-100">{time(m.at).replace(/\s?[AP]M$/i, "")}</span>}
-      <div data-bubble className="min-w-0 flex-1 max-w-[860px]">
-        {firstOfRun && <div className="flex items-baseline gap-2">
-          <b className="text-[14px]" style={{ color: human ? (mine ? undefined : who.color) : woltColor(m.wolt, ctx.wolts) }}>{human ? who.name : m.wolt}</b>
-          {!human && <span className="font-mono text-[10.5px] text-dim">{owner === ctx.me ? "yours" : who.name + "'s"}</span>}
-          {human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="font-mono text-[10.5px] px-1 rounded border border-line text-dim">guest</span>}
-          <span className="font-mono text-[10.5px] text-dim">{time(m.at)}</span></div>}
-        {m.files?.length ? relayRoom ? <div className="font-mono text-xs text-dim mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
-        {m.audio ? <div className="max-w-[420px]"><Voice m={m} ctx={ctx} /></div> : m.text ? <div className="text-[14.5px] leading-[1.5] whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
-        {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
-        <div className="max-w-[560px]"><Card msg={m} all={ctx.all} /></div>
-        {m.page && <div className="max-w-[420px]"><PageTile m={m} ctx={ctx} /></div>}
-        {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
-          className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
-          style={{ color: woltColor(m.wolt, ctx.wolts), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}
-        {readers.length > 0 && <div className="flex justify-end gap-px mt-0.5" title={"Read by " + readers.join(", ")}>
-          {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltFace(r, w?.creature)} />; })}</div>}
-        {footer && <div className="max-w-[480px] rounded-xl border border-line bg-panel px-2.5 pb-1.5">{footer}</div>}
+  // on a computer screen: bubbles like WhatsApp or Instagram. Yours on the right in the chat's own colour; everyone else on
+  // the left on white, their name in their colour on the first of a run, with their face (hat and all) beside it
+  if (ctx.rows) {
+    const tint = ctx.tint || "#c4531e", voice = human ? who.color : woltColor(m.wolt, ctx.wolts);
+    return (
+      <div className={`flex items-end gap-2 px-5 ${firstOfRun ? "mt-3" : "mt-[3px]"} ${mine ? "justify-end" : ""}`} id={m.cid || m.id}>
+        {!mine && (firstOfRun ? <img src={avatar} alt="" className="pixel w-9 h-9 flex-none self-start" /> : <span className="flex-none w-9" />)}
+        <div data-bubble className={`min-w-0 max-w-[min(68%,720px)] px-3.5 py-2 shadow-[0_1px_1.5px_#18100a1f] ${mine
+          ? `tinted text-white rounded-[18px] ${firstOfRun ? "rounded-tr-[5px]" : ""}`
+          : `bg-white border border-[#ece4d8] rounded-[18px] ${firstOfRun ? "rounded-tl-[5px]" : ""}`}`} style={mine ? { background: tint } : undefined}>
+          {!mine && firstOfRun && <div className="flex items-baseline gap-1.5 mb-0.5">
+            <b className="text-[13px]" style={{ color: voice }}>{human ? who.name : m.wolt}</b>
+            {!human && <span className="font-mono text-[10.5px] text-dim">{owner === ctx.me ? "yours" : who.name + "'s"}</span>}
+            {human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="font-mono text-[10.5px] px-1 rounded border border-line text-dim">guest</span>}</div>}
+          {m.files?.length ? relayRoom ? <div className="font-mono text-xs opacity-80 mb-1">[{m.files.length === 1 ? "a file" : m.files.length + " files"}, not shown in this room yet]</div> : <Files m={m} ctx={ctx} /> : null}
+          {m.audio ? <div className="min-w-[260px]"><Voice m={m} ctx={ctx} /></div> : m.text ? <div className="text-[14.5px] leading-[1.45] whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
+          {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
+          <Card msg={m} all={ctx.all} />
+          {m.page && <div className="text-ink"><PageTile m={m} ctx={ctx} /></div>}
+          {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
+            className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
+            style={{ color: voice, borderColor: mix(voice, "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}
+          <div className={`flex justify-end items-center gap-1 -mb-0.5 font-mono text-[10px] ${mine ? "text-[#ffffffb3]" : "text-dim"}`}>
+            {time(m.at)}
+            {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
+              {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltFace(r, w?.creature)} />; })}</span>}
+          </div>
+          {footer}
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
   return (
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
       <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />

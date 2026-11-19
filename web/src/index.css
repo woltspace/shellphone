@@ -60,3 +60,6 @@ body { position: fixed; inset: 0; -webkit-tap-highlight-color: transparent; touc
 
 /* how far the everyone strip is open, 0 to 1: registered so it springs along with the strip instead of jumping */
 @property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
+
+/* your own bubbles on a computer screen are in the chat's colour: tags and links on them stay readable */
+.tinted .text-acc { color: #fff; } .tinted b.text-acc { text-decoration: underline; text-underline-offset: 2px; } .tinted code { color: #2a231c; }
