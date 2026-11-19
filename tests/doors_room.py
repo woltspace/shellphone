@@ -77,6 +77,16 @@ def relay_cases():
     rv["is_in"] = two.answer("i", "GET", "/api/state", None, newcomer[1].get("token"))[0]
     rv["once"] = two.answer("i", "POST", "/api/guest", {"name": "Bob"}, secret)[0]
     rv["at_another_link"] = other.answer("i", "POST", "/api/guest", {"name": "Bob"}, secret)[0]
+    now = time.time()
+    plain = two.answer("h", "POST", "/api/invites", {}, two.token)[1]  # no length said, through the relay: the same 30 minutes as at the room's own door
+    rv["default_length"] = now + 1795 < plain.get("expires", 0) < now + 1805
+    with_none = two.answer("h", "POST", "/api/invites", {"ends_in": None}, two.token)[1]
+    rv["no_end_when_said"] = "expires" in with_none and with_none["expires"] is None
+    from unittest.mock import patch
+    from shellphone import core as rules_mod
+    with patch.object(rules_mod.time, "time", lambda: now + 1801):  # half an hour on, nobody comes in by the plain one
+        rv["default_over_after_30_minutes"] = two.answer("i", "POST", "/api/guest", {"name": "Late"}, plain.get("link", ".").rsplit(".", 1)[1])[0]
+    two.answer("h", "POST", "/api/invites/end", {"id": plain.get("id")}, two.token), two.answer("h", "POST", "/api/invites/end", {"id": with_none.get("id")}, two.token)
     rv["guest_makes"] = two.answer("i", "POST", "/api/invites", {}, guest)[0]
     rv["guest_sets_the_switch"] = two.answer("i", "POST", "/api/guests-invite", {"on": True}, guest)[0]
     rv["host_sets_the_switch"] = two.answer("h", "POST", "/api/guests-invite", {"on": True}, two.token)
@@ -400,7 +410,7 @@ status, ended = tell("POST", "/api/invites/end", t.host, host_out, {})
 inv["ended"] = (status, ended.get("ended"))
 inv["first_invite_after_end"] = t.enter({"i": "v" * 32, "name": "Late"})[0]
 inv["first_invite_gone_from_the_menu"] = "invite" not in tell("GET", "/api/link", "127.0.0.1", here)[1]
-inv["share_says_how_long"] = "for the next 30 minutes" in cli.linked_words({"link": "L", "invite": "I"}) and "works for 30 minutes" in cli.linked_words({"link": "L"})
+inv["share_says_how_long"] = "for the next" not in cli.linked_words({"link": "L", "invite": "I"}) and all("works for 30 minutes from when it is made" in cli.linked_words(i) for i in ({"link": "L", "invite": "I"}, {"link": "L"}))  # the usual length, never a promise of how long this one has left
 inv["command_words_without_an_invite"] = "The invite this room came with has ended" in cli.linked_words(t.info()) and "#i." not in cli.linked_words(t.info())
 inv["command_end"] = command(end=True)[:22]
 inv["guests_stay_after_end"] = len(r.people()) == people_before and tell("GET", "/api/state", t.host, "spo=" + visitor)[0] == 200

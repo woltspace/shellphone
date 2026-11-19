@@ -411,13 +411,13 @@ def linked_words(info):
     if not info.get("invite"):  # the invite the room came with was ended: nothing here makes it again
         return f"""  Open it from anywhere:   {info['link']}
 
-That link is yours alone: it is the key to the room as its host. The invite this room came with has ended (an invite works for 30 minutes unless you say otherwise): make a new one with {me()} invite
+That link is yours alone: it is the key to the room as its host. The invite this room came with has ended (an invite works for 30 minutes from when it is made, unless you say otherwise): make a new one with {me()} invite
 {stop}"""
     return f"""  Open it from anywhere:   {info['link']}
   Invite people:           {info['invite']}
 
-The first link is yours alone: it is the key to the room as its host. The second lets someone in as a guest,
-for the next 30 minutes. A new invite, for longer or for one person: {me()} invite
+The first link is yours alone: it is the key to the room as its host. The second lets someone in as a guest.
+An invite works for 30 minutes from when it is made, unless you say otherwise. A new one: {me()} invite
 {stop}"""
 
 

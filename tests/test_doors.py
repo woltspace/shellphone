@@ -168,6 +168,7 @@ class Doors(unittest.TestCase):
 
     def test_invites_through_the_relay_follow_the_same_rules(self):
         v = self.relay()["relay_invites"]
+        self.assertEqual((v["default_length"], v["no_end_when_said"], v["default_over_after_30_minutes"] != 200), (True, True, True))  # 30 minutes through the relay too, unless said
         self.assertEqual((v["made"], v["link_is_this_links"], v["comes_in"], v["is_in"], v["once"], v["at_another_link"]), (200, True, 200, 200, 403, 403))
         self.assertEqual(v["only_a_name_is_asked_of_it"], 403)  # an invite is not a key: it can ask for a place, nothing else
         self.assertEqual((v["guest_makes"], v["guest_lists"], v["guest_ends"], v["guest_sets_the_switch"]), (403, 403, 403, 403))
