@@ -281,10 +281,9 @@ function ThreadSheet({ docked, side, back, startFull, chat, name, onRename, colo
         {editing ? <input autoFocus defaultValue={name} maxLength={80} aria-label="Chat name"
           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = name || ""; e.currentTarget.blur(); } }}
           onBlur={(e) => { setEditing(false); const v = e.currentTarget.value.trim(); if (v !== (name || "")) onRename?.(v); }}
-          className="w-full max-w-[520px] font-semibold text-[15px] text-ink rounded-md border border-acc bg-white px-1.5 py-0.5 outline-none" />
-          : <><button type="button" disabled={!onRename} title={onRename ? "Rename" : undefined} onClick={() => setEditing(true)}
-              className="min-w-0 truncate p-0 border-0 bg-transparent text-left font-semibold text-[15px] text-ink cursor-text disabled:cursor-default">{name}</button>
-            {onRename && <span className="flex-none text-[12px] text-dim opacity-0 group-hover:opacity-100">✎</span>}
+          className="w-full max-w-[520px] -ml-1.5 font-semibold text-[15px] text-ink rounded-md border border-acc bg-white px-1.5 py-0.5 outline-none" />
+          : <><button type="button" disabled={!onRename} title={onRename ? "Click to rename" : undefined} onClick={() => setEditing(true)}
+              className="min-w-0 truncate -ml-1.5 px-1.5 py-0.5 rounded-md border border-transparent bg-transparent text-left font-semibold text-[15px] text-ink cursor-text enabled:hover:bg-white enabled:hover:border-line disabled:cursor-default transition-colors">{name}</button>
             <span className="flex-none text-[12px] text-dim max-sm:hidden">· {count + 1} {count ? "messages" : "message"}</span></>}
       </div>
       {who}
