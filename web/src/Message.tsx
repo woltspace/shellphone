@@ -6,6 +6,7 @@ import { Card } from "./Card";
 import { PageTile } from "./Page";
 import { ShareButton } from "./Share";
 import { share } from "./sharefile.js";
+import { FileView, canPreview } from "./FileView";
 import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
@@ -116,13 +117,14 @@ function File({ f, ctx }: { f: FileInfo; ctx: Ctx }) {
 // load there: a tap gets the file here instead and hands it to the phone's share sheet (Quick Look, Save to Files…)
 const homeApp = () => typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true);
 function FileCard({ f }: { f: FileInfo }) {
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(""), [viewing, setViewing] = useState(false);
   const tap = (e: React.MouseEvent) => {
+    if (canPreview(f)) { e.preventDefault(); setViewing(true); return; }  // PDFs, text and code open right here
     if (!homeApp()) return;  // in a browser the link downloads as usual
     e.preventDefault(); setNote("Opening…");
     share(f.url, f.name).then((r) => setNote(r === "again" ? "Tap again to open" : "")).catch(() => { setNote("Couldn't get it"); setTimeout(() => setNote(""), 2500); });
   };
-  return <div className="flex items-center gap-1 mb-1"><a href={f.url} target="_blank" rel="noopener noreferrer" onClick={tap} className="flex min-w-0 items-center gap-2 px-2.5 py-2 border border-line rounded-[10px] bg-paper no-underline text-ink">
+  return <div className="flex items-center gap-1 mb-1">{viewing && <FileView f={f} onClose={() => setViewing(false)} />}<a href={f.url} target="_blank" rel="noopener noreferrer" onClick={tap} className="flex min-w-0 items-center gap-2 px-2.5 py-2 border border-line rounded-[10px] bg-paper no-underline text-ink">
     <span className="text-xl">📄</span><span className="min-w-0"><span className="block font-semibold truncate">{f.name}</span><span className="block font-mono text-[11px] text-dim">{note || <>{f.type.toUpperCase()} · {Math.max(1, Math.round(f.size / 1024))} KB</>}</span></span>
   </a><ShareButton url={f.url} name={f.name} className="flex-none bg-transparent border-0 text-dim" /></div>;
 }
