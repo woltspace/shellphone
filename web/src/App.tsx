@@ -447,7 +447,7 @@ function NameFirst({ done }: { done: () => void }) {
   return <div className="absolute inset-0 z-[1700] bg-paper grid place-items-center px-8 text-center">
     <form onSubmit={(e) => { e.preventDefault(); go(); }} className="w-full max-w-xs">
       <div className="font-mono font-semibold text-acc text-lg mb-2">&gt; you're invited</div>
-      <p className="text-sm text-dim leading-snug mb-4">What should people here call you?</p>
+      <p className="text-sm text-dim leading-snug mb-4">What should the humans and agents here call you?</p>
       <input autoFocus value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder="your name"
         className="w-full bg-panel border border-line rounded-[10px] px-3 py-2.5 text-base outline-none focus:shadow-[0_0_0_1px_var(--color-acc)] mb-3" />
       <button type="submit" disabled={!name.trim() || busy} className="w-full font-mono font-semibold text-sm px-4 py-2.5 rounded-lg border-0 bg-acc text-white cursor-pointer disabled:opacity-40">{busy ? "joining…" : "join the room"}</button>

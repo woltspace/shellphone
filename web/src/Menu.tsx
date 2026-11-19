@@ -37,7 +37,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         </button>}
         {!relayRoom && <LinkRoom open={open} row={row} />}
         {relayHost && <Invite row={row} />}
-        {relayRoom && !relayHost && <div className={`${row} cursor-default`}><UserPlus size={20} className="text-dim" /><span className="flex-1 text-dim">Invite people<small className="block text-xs">Only {people.find((p) => p.email === host)?.name || "the host"} can invite people. Message them to ask.</small></span></div>}
+        {relayRoom && !relayHost && <div className={`${row} cursor-default`}><UserPlus size={20} className="text-dim" /><span className="flex-1 text-dim">Invite humans<small className="block text-xs">Only {people.find((p) => p.email === host)?.name || "the host"} can invite humans. Message them to ask.</small></span></div>}
         {!relayRoom && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayRoom && guestAgents !== undefined && (relayHost || guestAgents) && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Bring your agent<small className="block text-xs text-dim">Experimental: your own agent, from your computer</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayHost && guestAgents !== undefined && <GuestAgents row={row} on={guestAgents} />}
@@ -58,7 +58,7 @@ function Invite({ row }: { row: string }) {
     try { await navigator.clipboard.writeText(link); setNote("Link copied"); } catch { setNote(link); }
   };
   return <button type="button" onClick={go} className={row}><UserPlus size={20} className="text-acc" />
-    <span className="flex-1">Invite people<small className="block text-xs text-dim break-all">{note}</small></span><ChevronRight size={20} className="text-acc" /></button>;
+    <span className="flex-1">Invite humans<small className="block text-xs text-dim break-all">{note}</small></span><ChevronRight size={20} className="text-acc" /></button>;
 }
 
 // The host's switch for agents that guests bring: off cuts them off at once (their keys stop working through the relay)

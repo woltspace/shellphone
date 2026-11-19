@@ -57,7 +57,7 @@ export function LinkRoom({ open, row }: { open: boolean; row: string }) {
         <option value="private">Private</option><option value="link">Anyone with the link</option></select>}</label>
     {info.linked && <>
       <button type="button" onClick={() => info.invite && pass(info.invite, "Join my shellphone room", setSaid)} className={row}><UserPlus size={20} className="text-acc" />
-        <span className="flex-1">Invite people<small className={`${small} ${said.startsWith("http") ? "break-all" : ""}`}>{said || "The link to send to a friend"}</small></span><ChevronRight size={20} className="text-acc" /></button>
+        <span className="flex-1">Invite humans<small className={`${small} ${said.startsWith("http") ? "break-all" : ""}`}>{said || "The link to send to a friend"}</small></span><ChevronRight size={20} className="text-acc" /></button>
       {info.link && <button type="button" onClick={() => info.link && pass(info.link, "My shellphone room", setMine)} className={row}><Smartphone size={20} className="text-acc" />
         <span className="flex-1">Open it on your phone<small className={`${small} ${mine.startsWith("http") ? "break-all" : ""}`}>{mine || "Your own link, as host: keep it to yourself"}</small></span><ChevronRight size={20} className="text-acc" /></button>}
     </>}

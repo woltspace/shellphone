@@ -23,7 +23,7 @@ export function ChatSide({ thread, list, ctx, room, fallback, host, main }: {
     <div className="flex-none flex gap-0.5 px-3 py-2.5 border-b border-line">{tabBtn("info", "Info")}{tabBtn("pages", "Pages", pages.length)}{tabBtn("files", "Files", files.length)}</div>
     <div className="flex-1 min-h-0 overflow-y-auto p-3">
       {tab === "info" && <>
-        {head("People")}
+        {head("Humans")}
         {people.length ? people.map((e) => { const p = ctx.person(e); return <div key={e} className="flex items-center gap-2.5 py-1.5 text-[13px]">
           <img src={personAvatar(p.name, p.color, worn.people[e])} alt="" className="pixel w-[30px] h-[30px]" />{p.name}{e === ctx.me && <span className="text-dim">· you</span>}</div>; })
           : <p className="m-0 text-[12px] text-dim">No one has written here yet.</p>}
