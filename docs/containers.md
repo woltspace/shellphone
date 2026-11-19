@@ -38,7 +38,7 @@ python3.12 -m venv "$HOME/.venvs/shellphone"
 "$HOME/.venvs/shellphone/bin/shellphone" --help
 ```
 
-Check that `--help` lists `link` and `unlink` before following those steps below. A source branch being merged does not
+Check that `--help` lists `share` (older builds: `link` and `unlink`) before following those steps below. A source branch being merged does not
 update PyPI: older published versions do not contain those commands. Use the released version that includes them, or
 explicitly test a reviewed source build and record its commit. Do not describe a source-build test as a release test.
 
@@ -132,8 +132,8 @@ Before inviting anyone to a meaningful project, use dummy data and check:
    message. Verify a reply without a human rescue prompt, or record precisely that idle wakeup is unsupported.
 4. Check the room is still reachable after the agent's turn, and separately after closing the agent session. Do not
    call these the same test. Reopen the agent and confirm pending messages can be handled.
-5. If linked, unlink, confirm rejection from the old guest URL, and check local access remains. Restart the kept room:
-   history should remain and the room must stay unlinked. Relinking must issue fresh invitations.
+5. If shared, stop sharing, confirm rejection from the old guest URL, and check local access remains. Restart the kept room:
+   history should remain and the room must stay unshared. Sharing again must issue fresh invitations.
 6. Test permitted local media separately from relay text. A text pass is not media parity. Check restore/cleanup and
    make sure private room data and credentials are not in the project repository.
 
@@ -142,11 +142,11 @@ sandbox behavior, editor forwarding and the second-message test need evidence fr
 
 ## Stop and recover
 
-For relay access, run `"$HOME/.venvs/shellphone/bin/shellphone" unlink --keep "$HOME/.shellphone/rooms/friends"`
+For relay access, run `"$HOME/.venvs/shellphone/bin/shellphone" share --stop --keep "$HOME/.shellphone/rooms/friends"`
 inside the container and verify completion. Keep the room running
 for local use. To stop the room itself, Ctrl-C its foreground terminal; use SIGTERM for an explicitly identified
 background room process if SIGINT was inherited as ignored. Do not kill unrelated processes. Stop the agent session
-and its jobs too if the intent is to stop machine-side work. Unlink alone does not do that.
+and its jobs too if the intent is to stop machine-side work. Stop sharing alone does not do that.
 
 Stop the container when done; keep or remove its private data/credential volumes deliberately. Removing the container
 does not automatically delete all named volumes. Removing a room volume destroys the retained history. Preserve

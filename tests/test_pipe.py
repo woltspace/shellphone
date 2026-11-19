@@ -3,7 +3,10 @@
     uv run --with cryptography --with websockets python -m unittest tests.test_pipe
     RELAY_E2E=1 …   also starts the relay with `npx wrangler dev --local` and a shared room, and talks through them
 """
-import base64, http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
+import base64, contextlib, io, http.cookiejar, json, os, re, shutil, signal, subprocess, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+from aspage import as_page  # noqa: E402
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -259,6 +262,30 @@ class HostSide(unittest.TestCase):
         self.assertEqual((states[-1], len(waits)), ("down", 3))
         self.assertFalse([s for s in states if s.startswith("refused")])
 
+    def test_a_host_replaced_by_another_copy_of_its_room_stops(self):
+        class Replaced(Exception):
+            rcvd = type("Close", (), {"code": pipe.REPLACED})
+
+        class Closed:  # up, then the relay closes it: the same room connected again from somewhere else
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def recv(self, timeout=None): raise Replaced()
+        states, knocks, waits = [], [], []
+
+        class Stop:
+            def is_set(self): return False
+            def wait(self, seconds):
+                waits.append(seconds)
+                return len(waits) >= 3
+
+        def connect(*a, **k):
+            knocks.append(1)
+            return Closed()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            pipe.serve("ws://relay.test/r/x/host", "", lambda: None, Stop(), on_state=states.append, connect=connect)
+        self.assertEqual((states, len(knocks), waits), (["up", "refused: this room was opened again somewhere else"], 1, []))
+        self.assertRegex(out.getvalue(), r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d .*opened again somewhere else")  # said in the log, with the time
+
     def test_the_host_shows_its_claim_and_says_it_is_here_every_twenty_seconds(self):
         sent, seen, clock, stop = [], {}, [0.0], threading.Event()
 
@@ -281,7 +308,8 @@ class HostSide(unittest.TestCase):
             pipe.serve("ws://relay.test/r/x/host", "relay-key", lambda: None, stop, connect=connect, claim="C" * 43)
         finally:
             pipe.time.monotonic = real
-        self.assertEqual(seen, {"Authorization": "Bearer relay-key", "X-Shellphone-Claim": "C" * 43})
+        self.assertEqual(seen, {"Authorization": "Bearer relay-key", "X-Shellphone-Claim": "C" * 43, "X-Shellphone-Instance": seen.get("X-Shellphone-Instance")})
+        self.assertRegex(seen["X-Shellphone-Instance"], r"^[A-Za-z0-9_-]{22}$")
         self.assertEqual(sent, [(20.0, '{"ping":1}'), (40.0, '{"ping":1}')])  # nothing else is said in a quiet room
         seen.clear()
         stop.clear(); clock[0] = 0.0
@@ -493,7 +521,7 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(again["body"]["id"], said["body"]["id"])  # the room knows this message by its name: not doubled
         # the room has it, seen from this computer's own door
         local = re.search(r"join '(http://127[^#']+)/#", banner).group(1)
-        browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        browser = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         browser.open(f"{local}/?k={self.token}")
         texts = [m.get("text") for m in json.load(browser.open(local + "/api/state"))["messages"] if m["kind"] == "human"]
         self.assertEqual(texts, ["through the relay 🐚"])
@@ -525,7 +553,7 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(ask(cmd="news", atLeast=1, ms=300)["news"], 0)
         # someone says something at the room's own door: the page hears there is news, and finds it when it asks
         local = re.search(r"join '(http://127[^#']+)/#", banner).group(1)
-        browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        browser = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         browser.open(f"{local}/?k={self.token}")
         browser.open(urllib.request.Request(local + "/api/messages", data=json.dumps({"text": "said at home", "cid": "home0001"}).encode(), headers={"Content-Type": "application/json"}))
         self.assertGreaterEqual(ask(cmd="news", atLeast=1)["news"], 1)
@@ -550,7 +578,7 @@ class ThroughTheRelay(unittest.TestCase):
         link = self.link()
         _, banner = self.host(link)
         local = re.search(r"join '(http://127[^#']+)/#", banner).group(1)
-        door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        door = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         door.open(f"{local}/?k={self.token}")
         # 170 messages of nothing but quotes: the worst text for sizes, and well over a megabyte once it's an answer
         for i in range(170):
@@ -666,13 +694,13 @@ class ThroughTheRelay(unittest.TestCase):
                 self.fail("the room didn't start:\n" + seen)
             seen += line
         local = re.search(r"Open the chat:\s+(\S+)", seen).group(1)
-        door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        door = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         door.open(local)
         return p, seen, local.split("/?")[0], door
 
-    def switch(self, cmd, url):
+    def switch(self, cmd, url, *more):
         env = {**os.environ, "PYTHONPATH": str(REPO)}
-        return subprocess.run([sys.executable, "-m", "shellphone.cli", cmd, "--port", url.rsplit(":", 1)[1]], capture_output=True, text=True, timeout=60, env=env)
+        return subprocess.run([sys.executable, "-m", "shellphone.cli", cmd, "--port", url.rsplit(":", 1)[1], *more], capture_output=True, text=True, timeout=60, env=env)
 
     def say(self, door, url, text, cid):
         return door.open(urllib.request.Request(url + "/api/messages", data=json.dumps({"text": text, "cid": cid}).encode(), headers={"Content-Type": "application/json"}))
@@ -705,7 +733,7 @@ class ThroughTheRelay(unittest.TestCase):
         # unlink: everyone outside is cut off, and the room goes on as it was
         gone = self.switch("unlink", url)
         self.assertEqual(gone.returncode, 0, gone.stdout + gone.stderr)
-        self.assertIn("The room is unlinked", gone.stdout)
+        self.assertIn("The room isn't shared any more", gone.stdout)
         self.assertEqual(ask(cmd="wait", state="offline")["state"], "offline")
         self.assertEqual(guest(cmd="wait", state="offline")["state"], "offline")
         room_id = re.search(r"/r/([A-Za-z0-9_-]{22})", first).group(1)
@@ -713,8 +741,9 @@ class ThroughTheRelay(unittest.TestCase):
         self.assertEqual(json.load(door.open(url + "/api/link"))["linked"], False)
         self.say(door, url, "said after unlinking", "after001")
         self.assertEqual(self.texts(json.load(door.open(url + "/api/state"))), ["said before anyone could reach the room", "said after unlinking"])
-        # link once more: a new address and new keys; the old links open nothing
-        again = self.switch("link", url)
+        # shared once more, by the command's name of today: a new address and new keys; the old links open nothing
+        again = self.switch("share", url)
+        self.assertIn("The room is shared, through the site's sealed relay", again.stdout)
         second = re.search(r"Open it from anywhere:\s+(\S+)", again.stdout).group(1)
         self.assertNotEqual(second.split("#")[0], first.split("#")[0])
         self.assertNotEqual(second.split("#")[1], first.split("#")[1])
@@ -747,9 +776,9 @@ class ThroughTheRelay(unittest.TestCase):
             line = p.stdout.readline()
             self.assertTrue(line, seen)
             seen += line
-        self.assertIn("couldn't link the room", seen)
+        self.assertIn("couldn't share the room", seen)
         local = re.search(r"Open the chat:\s+(\S+)", seen).group(1)
-        door = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        door = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         door.open(local)
         self.assertEqual(json.load(door.open(local.split("/?")[0] + "/api/state"))["me"], "host@shellphone.local")
 
@@ -852,18 +881,22 @@ class RoomCap(unittest.TestCase):
         room = "/r/" + "Q" * 22
         up = lambda: json.load(urllib.request.urlopen(base + room + "/up"))["up"]
 
-        def host(claim=None):
+        def host(claim=None, instance=None):
             return connect(base.replace("http", "ws", 1) + room + "/host", open_timeout=15,
-                           additional_headers={"Authorization": "Bearer test-host-key", **({"X-Shellphone-Claim": claim} if claim else {})})
+                           additional_headers={"Authorization": "Bearer test-host-key", **({"X-Shellphone-Claim": claim} if claim else {}),
+                                               **({"X-Shellphone-Instance": instance} if instance else {})})
 
-        def refused(claim=None):
+        def refused(claim=None, instance=None):
             with self.assertRaises(InvalidStatus) as no:
-                host(claim)
+                host(claim, instance)
             return no.exception.response.status_code
         mine, other = "m" * 43, "o" * 43
-        first = entered(self, host(mine))
+        me, copy = "p" * 22, "q" * 22  # two processes
+        first = entered(self, host(mine, me))
         self.assertTrue(up())
-        self.assertEqual(refused(mine), 409)  # just let in: nobody takes its place
+        self.assertEqual(refused(mine), 409)  # its own claim, but no process named: it waits for this one to go quiet
+        self.assertEqual(refused(mine, copy), 409)  # another copy of the room, in another process: it waits too
+        self.assertEqual(refused(other, me), 409)
         for _ in range(4):  # it says it's here, and the relay answers by itself, for longer than the silence allowed
             first.send('{"ping":1}')
             self.assertEqual(first.recv(timeout=5), '{"pong":1}')
@@ -888,6 +921,16 @@ class RoomCap(unittest.TestCase):
         self.assertTrue(up())
         self.assertEqual(refused(mine), 409)
         old.close()
+        # the same process on a new connection is in at once, and its old connection is put out
+        third = entered(self, host(mine, me))
+        third.send('{"ping":1}')
+        self.assertEqual(third.recv(timeout=5), '{"pong":1}')
+        fourth = entered(self, host(mine, me))
+        with self.assertRaises(ConnectionClosed) as closed:
+            third.recv(timeout=5)
+        self.assertEqual(closed.exception.rcvd.code, 4409)
+        self.assertTrue(up())
+        fourth.close()
 
     def test_rooms_are_capped_places_come_back_and_the_counts_say_what_happened(self):
         for key in ("", "wrong"):  # the counts are for the key's holder only

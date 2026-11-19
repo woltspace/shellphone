@@ -3,7 +3,12 @@
     python3 -m unittest discover tests                                  # the code in this folder
     SHELLPHONE_CLI=/some/venv/bin/shellphone python3 -m unittest discover tests   # an installed package, e.g. a built wheel
 """
-import http.cookiejar, json, os, re, shlex, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.parse, urllib.request
+import contextlib, http.cookiejar, io, json, os, re, shlex, signal, subprocess, sys, tempfile, time, unittest, urllib.error, urllib.parse, urllib.request
+from unittest.mock import patch
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+from aspage import as_page  # noqa: E402
+import threading
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -30,7 +35,7 @@ class Room:
         self.open = re.search(r"Open the chat:\s+(\S+)", self.banner).group(1)
         self.agent = re.search(r"join '([^']+)'", self.banner).group(1)
         self.url = self.open.split("/?")[0]
-        self.browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self.browser = as_page(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
     def close(self, sig=signal.SIGINT):
         self.proc.send_signal(sig)
@@ -220,6 +225,15 @@ class FrontDoor(unittest.TestCase):
         page("/api/look", {"wolt": "helper", "look": {"hat": ""}})
         self.assertEqual(r.state()["looks"], {})
 
+    def test_the_host_page_learns_where_the_desk_bridge_is(self):
+        r = self.room()
+        r.browser.open(r.open)
+        bridge = REPO / "desk" / "bridge.mjs"
+        if INSTALLED or not bridge.is_file():  # an installed package has no desk: the page says how to get one
+            self.assertNotIn("desk", r.state())
+        else:
+            self.assertEqual(r.state()["desk"], str(bridge.resolve()))
+
     def test_a_chat_can_be_named_when_it_starts(self):
         r = self.room()
         r.browser.open(r.open)
@@ -235,6 +249,35 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(r.state()["names"], {start["id"]: "Onboarding, step by step"})
         rename({"thread": start["id"], "name": " "})
         self.assertEqual(r.state()["names"], {})  # back to the title it started with
+
+    def test_the_agents_picked_for_a_new_chat_hear_its_first_message(self):
+        r = self.room()
+        work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
+        work.mkdir(), other.mkdir()
+        self.assertEqual(run("join", r.agent, "--name", "helper", cwd=work).returncode, 0)
+        self.assertEqual(run("join", r.agent, "--name", "second", cwd=other).returncode, 0)
+        run("wait", "--timeout", "1", cwd=work), run("wait", "--timeout", "1", cwd=other)
+        r.browser.open(r.open)
+
+        def page(body):
+            try:
+                return json.load(r.browser.open(urllib.request.Request(r.url + "/api/messages", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+            except urllib.error.HTTPError as e:
+                return e.code
+        hear = lambda folder, seconds=2: run("wait", "--timeout", str(seconds), cwd=folder).stdout
+        self.assertEqual(r.state()["main"], "helper")  # the host's first wolt: untagged main-chat messages reach only it
+        start = page({"text": "a chat for the release notes", "who": {"second": "in", "helper": "paused"}})
+        self.assertIn("release notes", hear(other, 5))  # picked: it hears the very first message, untagged
+        self.assertNotIn("release notes", hear(work))  # the main agent left out of this chat doesn't
+        self.assertEqual(r.state()["who"][start["id"]], {"second": "in", "helper": "paused"})
+        page({"text": "and the changelog", "thread": start["id"]})
+        self.assertIn("changelog", hear(other, 5))
+        self.assertEqual(page({"text": "x", "who": {"nobody": "in"}}), 400)
+        self.assertEqual(page({"text": "x", "who": {"second": "maybe"}}), 400)
+        plain = page({"text": "an ordinary message"})  # no who: as before, only the main agent hears it
+        self.assertIn("ordinary message", hear(work, 5))
+        self.assertNotIn("ordinary message", hear(other))
+        self.assertNotIn(plain["id"], r.state()["who"])
 
     def test_a_thread_reaches_the_agents_in_it(self):
         r = self.room()
@@ -300,12 +343,12 @@ class FrontDoor(unittest.TestCase):
         page("/api/messages", {"text": "@second one more look, please", "thread": top})
         self.assertEqual(r.state()["working_in"], {"second": [top]})  # lit the moment it is tagged, in that thread
         self.assertEqual(r.state()["working"], {"second": True})  # older pages still see who is working
-        page("/api/messages", {"text": "@second and a word in the main chat"})
-        self.assertEqual(r.state()["working_in"], {"second": [top, ""]})
+        word = page("/api/messages", {"text": "@second and a word in the main chat"})["id"]
+        self.assertEqual(r.state()["working_in"], {"second": [top, word]})  # a main-chat message starts its own chat: lit there
         self.assertEqual(agent(other, "/lodge/messages", {"text": "looked", "thread": top}), 200)
-        self.assertEqual(r.state()["working_in"], {"second": [""]})  # answering in the thread ends it there only
+        self.assertEqual(r.state()["working_in"], {"second": [word]})  # answering in the thread ends it there only
         self.assertEqual(agent(other, "/lodge/working", {"working": True}), 200)
-        self.assertEqual(r.state()["working_in"], {"second": [""]})  # "still at it" keeps what is lit, and adds nothing
+        self.assertEqual(r.state()["working_in"], {"second": [word]})  # "still at it" keeps what is lit, and adds nothing
         self.assertEqual(agent(other, "/lodge/working", {"working": False}), 200)
         self.assertEqual(r.state()["working_in"], {})
         hear(other, 3)
@@ -474,6 +517,37 @@ class FrontDoor(unittest.TestCase):
         self.assertIn("paused", run("page", "change", pid, cwd=other, stdin="1").stderr)  # a paused agent is off here too
         self.assertIn("paused", run("page", "get", pid, cwd=other).stderr)
         self.assertEqual(r.state()["pages"], {pid: {"v": 2, "n": 2}})
+
+    def test_a_new_chat_starts_with_the_audience_chosen_and_restating_takes_no_permission(self):
+        import importlib, io, contextlib
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SHELLPHONE_DATA": self.tmp.name}):
+            room = importlib.import_module("room")
+        self.addCleanup(sys.modules.pop, "room", None)
+        self.addCleanup(lambda: room.CON and room.CON.close())
+        with contextlib.redirect_stdout(io.StringIO()):
+            room.add_person("host@example.com", "Host")
+        for w in ("alpha", "beta"):
+            room.lodge_file(w, "host@example.com", "raccoon", None, "http://127.0.0.1:1")
+        room.set_main("alpha")
+        start = lambda who, body: room.for_person(room.Request("POST", "/api/messages", lambda limit: json.dumps(body).encode()), who)[:2]
+        with mock.patch.object(room, "WHO_DEFAULT", "in"):  # threads default to everyone in: the page sends each agent's place, as chosen
+            status, m = start("host@example.com", {"text": "both of you", "who": {"alpha": "in", "beta": "in"}})
+            self.assertEqual(status, 200, m)
+            self.assertTrue(room.hears_main(m, "alpha") and room.hears_main(m, "beta"))  # beta hears the first message too
+        guest = room.add_guest("Visitor")
+        room.set_paused("alpha", True)  # the main agent, paused in the whole room
+        status, m = start(guest, {"text": "my own chat", "who": {"alpha": "paused", "beta": "paused"}})
+        self.assertEqual(status, 200, m)  # where they already stand: no permission needed to say so
+        self.assertFalse(room.hears_main(m, "beta"))
+        self.assertEqual(start(guest, {"text": "bring beta", "who": {"beta": "in"}})[0], 403)  # a real change is still the host's or keeper's
+        room.set_paused("alpha", False)
+        self.assertEqual(start(guest, {"text": "leave out the main one", "who": {"alpha": "paused"}})[0], 403)
+        # a tag brings an agent in, as it does from the chat box: the sheet switches a tagged agent on, and that takes no permission
+        status, m = start(guest, {"text": "@beta please help", "who": {"alpha": "in", "beta": "in"}})
+        self.assertEqual(status, 200, m)
+        self.assertTrue(room.hears_main(m, "beta"))
+        self.assertEqual(start(guest, {"text": "@beta please stay out", "who": {"beta": "paused"}})[0], 403)  # a tag isn't a switch for leaving one out
 
     def test_a_guest_cant_pause_or_remove_an_agent(self):
         import importlib, io, contextlib
@@ -709,6 +783,328 @@ class FrontDoor(unittest.TestCase):
         self.assertFalse(gone.exists())
         self.assertTrue(stays.exists())
 
+class Package(unittest.TestCase):
+    def test_the_package_brings_what_notifications_need(self):
+        import re
+        deps = re.search(r"^dependencies = \[(.*?)^\]", (REPO / "pyproject.toml").read_text(), re.S | re.M).group(1)
+        self.assertIn('"pywebpush', deps)  # a room started with the command offers notifications without anything added by hand
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuietRoom(unittest.TestCase):
+    """An agent is woken by a message, never to be told that nothing happened."""
+
+    def test_wait_has_no_limit_of_its_own_and_ends_only_on_a_message(self):
+        import connector
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "lodge.json"
+            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
+            calls, out = [], io.StringIO()
+            quiet = {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}
+            said = {"messages": [{"n": 1, "id": "a" * 32, "at": 1.0, "kind": "human", "email": "o@x", "text": "hello pip"}], "members": {"people": [{"email": "o@x", "name": "Olga"}], "wolts": []}, "owner": "o@x"}
+
+            def call(c, method, path, body=None):
+                calls.append(path)
+                return said if len(calls) > 400 else quiet  # far more looks than an hour of them used to be worth at this pace
+            with patch.object(connector, "call", call), patch.object(connector.time, "sleep", lambda s: None), contextlib.redirect_stdout(out):
+                connector.wait(str(cfg), None, 2)
+            self.assertGreater(len(calls), 400)
+            self.assertIn("hello pip", out.getvalue())
+            self.assertNotIn("timed out", out.getvalue())
+
+    def test_a_limit_is_kept_when_one_is_asked_for(self):
+        import connector
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "lodge.json"
+            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
+            out = io.StringIO()
+            with patch.object(connector, "call", lambda *a, **kw: {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}), contextlib.redirect_stdout(out):
+                connector.wait(str(cfg), 0.3, 0.05)
+            self.assertIn("timed out", out.getvalue())
+
+    def test_a_limit_of_nothing_is_a_limit_not_no_limit(self):
+        import connector
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "lodge.json"
+            cfg.write_text(json.dumps({"room_url": "http://127.0.0.1:9", "key": "k", "wolt": "pip", "owner": "o@x", "after": 0}))
+            calls, out = [], io.StringIO()
+
+            def call(*a, **kw):
+                calls.append(1)
+                if len(calls) > 50:
+                    raise AssertionError("--timeout 0 went on waiting")
+                return {"messages": [], "members": {"people": [], "wolts": []}, "owner": "o@x"}
+            with patch.object(connector, "call", call), patch.object(connector.time, "sleep", lambda s: None), contextlib.redirect_stdout(out):
+                connector.wait(str(cfg), 0, 2)
+            self.assertIn("timed out", out.getvalue())
+            self.assertLessEqual(len(calls), 1)
+
+    def test_the_command_asks_for_no_limit_by_default(self):
+        src = (REPO / "connector.py").read_text()
+        self.assertIn('s.add_argument("--timeout", type=float, default=None', src)
+
+
+class ListAndStop(unittest.TestCase):
+    """`shellphone list` and `shellphone stop`, in a temporary folder of their own: the rooms really open on this
+    computer are never seen from here, so none of them can be closed by a test."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env = {**ENV, "TMPDIR": self.tmp.name, "TEMP": self.tmp.name, "TMP": self.tmp.name}
+        self.rooms = []
+
+    def tearDown(self):
+        for r in self.rooms:
+            if r.proc.poll() is None:
+                r.proc.kill()
+                r.proc.communicate()
+        self.tmp.cleanup()
+
+    def room(self, *args):
+        self.rooms.append(Room(*args, env=self.env))
+        return self.rooms[-1]
+
+    def cli(self, *args):
+        return subprocess.run([*CLI, *args], capture_output=True, text=True, timeout=40, env=self.env)
+
+    def listed(self):
+        got = self.cli("list", "--json")
+        self.assertEqual(got.returncode, 0, got.stderr)
+        return json.loads(got.stdout)
+
+    def test_no_room_open(self):
+        self.assertEqual(self.listed(), [])
+        self.assertIn("No room is open", self.cli("list").stdout)
+        gone = self.cli("stop")
+        self.assertEqual(gone.returncode, 1)
+        self.assertIn("no open room found", gone.stderr)
+
+    def test_list_says_where_each_room_is_and_gives_no_key(self):
+        kept = Path(self.tmp.name) / "mine"
+        a, b = self.room(), self.room("--keep", str(kept))
+        rooms = self.listed()
+        self.assertEqual(len(rooms), 2)
+        ports = {int(urllib.parse.urlsplit(r.url).port) for r in (a, b)}
+        self.assertEqual({r["port"] for r in rooms}, ports)
+        by_kept = {r["kept"]: r for r in rooms}
+        self.assertEqual(Path(by_kept[True]["dir"]).resolve(), kept.resolve())
+        for r in rooms:
+            self.assertEqual((r["answers"], r["shared"], r["people"], r["agents"]), (True, False, 1, 0))
+            self.assertEqual(set(r) - {"port", "dir", "kept", "answers", "name", "people", "agents", "shared", "via", "reachable"}, set())
+        words = self.cli("list").stdout
+        self.assertIn("2 rooms open on this computer", words)
+        self.assertIn("only on this computer", words)
+        self.assertIn("not kept: deleted when it closes", words)
+        self.assertEqual(words.count("\U0001F41A"), 2)  # a shell beside each one
+        plain = subprocess.run([*CLI, "list"], capture_output=True, timeout=40, env={**self.env, "PYTHONIOENCODING": "ascii"})
+        self.assertEqual((plain.returncode, plain.stderr), (0, b""))
+        self.assertIn("2 rooms open on this computer", plain.stdout.decode("ascii"))  # and none where the terminal can't show it
+        self.assertIn("only on this computer, 1 person, 0 agents", plain.stdout.decode("ascii"))
+        stopped = subprocess.run([*CLI, "stop", "--all"], capture_output=True, timeout=60, env={**self.env, "PYTHONIOENCODING": "ascii"})
+        self.assertEqual((stopped.returncode, stopped.stderr), (0, b""))
+        self.assertEqual(stopped.stdout.decode("ascii").count("ok Closed the room"), 2)
+        for r in (a, b):
+            r.proc.wait(10)
+        for r in (a, b):  # neither the host's key nor the agent's code is shown, in words or as JSON
+            key = urllib.parse.parse_qs(urllib.parse.urlsplit(r.open).query)["k"][0]
+            code = r.agent.split("#")[1]
+            for out in (words, json.dumps(rooms)):
+                self.assertNotIn(key, out)
+                self.assertNotIn(code, out)
+
+    def test_stop_closes_the_one_room_and_a_kept_one_comes_back_as_it_was(self):
+        kept = Path(self.tmp.name) / "mine"
+        r = self.room("--keep", str(kept))
+        r.browser.open(r.open)
+        r.browser.open(urllib.request.Request(r.url + "/api/messages", data=json.dumps({"text": "still here after a stop"}).encode(), headers={"Content-Type": "application/json", "Origin": r.url}))
+        done = self.cli("stop")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("Closed the room", done.stdout)
+        self.assertIn("brings it back as it was", done.stdout)
+        self.assertEqual(r.proc.wait(10), 0)  # it closed by itself, cleanly, as on Ctrl-C
+        self.assertEqual(self.listed(), [])
+        again = self.room("--keep", str(kept))
+        again.browser.open(again.open)
+        self.assertIn("still here after a stop", json.dumps(again.state()))
+
+    def test_with_several_open_stop_wants_to_be_told_which_and_all_closes_only_these(self):
+        a, b, c = self.room(), self.room(), self.room()
+        which = self.cli("stop")
+        self.assertEqual(which.returncode, 1)
+        self.assertIn("--port N", which.stderr)
+        self.assertIn("--all", which.stderr)
+        self.assertTrue(all(r.proc.poll() is None for r in (a, b, c)))  # nothing was closed on a guess
+        port = int(urllib.parse.urlsplit(b.url).port)
+        one = self.cli("stop", "--port", str(port))
+        self.assertEqual(one.returncode, 0, one.stdout + one.stderr)
+        self.assertIn("It wasn't kept: it is gone", one.stdout)
+        b.proc.wait(10)
+        self.assertEqual(sorted(r["port"] for r in self.listed()), sorted(int(urllib.parse.urlsplit(r.url).port) for r in (a, c)))
+        self.assertEqual(len(self.listed()), 2)  # exactly the two of this test: only then is --all tried
+        every = self.cli("stop", "--all")
+        self.assertEqual(every.returncode, 0, every.stdout + every.stderr)
+        self.assertEqual(every.stdout.count("Closed the room"), 2)
+        for r in (a, c):
+            r.proc.wait(10)
+        self.assertEqual(self.listed(), [])
+
+    def stale(self, room, port):
+        """A note left behind by `room`, now pointing at `port` and at some other running program of this user's."""
+        folder = next(d for d in Path(self.tmp.name).glob("shellphone-room-*") if (d / "run.json").is_file())
+        note = json.loads((folder / "run.json").read_text())
+        sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        fake = Path(self.tmp.name) / f"shellphone-room-stale-{port}"
+        fake.mkdir()
+        (fake / "run.json").write_text(json.dumps({**note, "pid": sleeper.pid, "port": port}))
+        os.chmod(fake / "run.json", 0o600)
+        return sleeper
+
+    def test_a_note_whose_room_no_longer_answers_is_left_alone(self):
+        r = self.room()
+        port = int(urllib.parse.urlsplit(r.url).port)
+        sleeper = self.stale(r, 9)
+        try:
+            rooms = {x["port"]: x for x in self.listed()}
+            self.assertEqual((rooms[9]["answers"], rooms[port]["answers"]), (False, True))
+            got = self.cli("stop", "--port", "9")
+            self.assertEqual(got.returncode, 1)
+            self.assertIn("doesn't answer: left alone", got.stdout)
+            self.assertIsNone(sleeper.poll())  # that other program was not touched
+        finally:
+            sleeper.kill()
+            sleeper.wait()
+
+    def test_stop_never_ends_a_program_itself_whatever_answers_on_the_notes_port(self):
+        import http.server
+        asked = []
+
+        class Anything(http.server.BaseHTTPRequestHandler):  # some other service of this user's, that says yes to everything
+            def answer(self):
+                asked.append((self.command, self.path))
+                body = b"{}" if self.path != "/api/close" or len([a for a in asked if a[1] == "/api/close"]) < 2 else b'{"closing": true}'
+                self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+            do_GET = do_POST = answer
+            def log_message(self, *a): pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Anything)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        r = self.room()
+        sleeper = self.stale(r, srv.server_address[1])
+        try:
+            got = self.cli("stop", "--port", str(srv.server_address[1]))
+            self.assertEqual(got.returncode, 1)
+            self.assertIn("doesn't answer as that room: left alone", got.stdout)
+            self.assertNotIn("Closed the room", got.stdout)
+            self.assertIsNone(sleeper.poll())
+            # and even a service that claims to be closing: the program in the note is not ended from here, so nothing is said to be closed
+            got = self.cli("stop", "--port", str(srv.server_address[1]))
+            self.assertIsNone(sleeper.poll())
+            self.assertNotIn("Closed the room", got.stdout)
+            self.assertEqual(got.returncode, 1)
+            self.assertIsNone(r.proc.poll())  # the real room next to it was never asked
+        finally:
+            srv.shutdown()
+            sleeper.kill()
+            sleeper.wait()
+
+    def test_only_the_host_on_the_rooms_own_computer_can_close_it(self):
+        r = self.room()
+        port = int(urllib.parse.urlsplit(r.url).port)
+        folder = next(d for d in Path(self.tmp.name).glob("shellphone-room-*") if (d / "run.json").is_file())
+        token = json.loads((folder / "run.json").read_text())["token"]
+
+        def close(**headers):
+            req = urllib.request.Request(r.url + "/api/close", data=b"{}", method="POST", headers={"Content-Type": "application/json", **headers})
+            try:
+                return urllib.request.urlopen(req, timeout=10).status
+            except urllib.error.HTTPError as e:
+                return e.code
+        self.assertEqual(close(), 403)                                                     # no key
+        self.assertEqual(close(Cookie=f"sp{port}=wrong", **{"X-Shellphone-Key": "wrong"}), 403)
+        self.assertEqual(close(Cookie=f"sp{port}={token}", Origin="https://elsewhere.example"), 403)  # another site's page, with the host's cookie
+        self.assertEqual(close(Cookie=f"sp{port}={token}"), 403)                           # no origin and no key of its own: not the room's own command
+        self.assertIsNone(r.proc.poll())
+        self.assertEqual(close(Cookie=f"sp{port}={token}", **{"X-Shellphone-Key": token}), 200)
+        self.assertEqual(r.proc.wait(10), 0)  # it closed itself, cleanly
+
+
+def HELLO_TEXT(out):
+    """What the bare command says below its drawing."""
+    return out[out.index("  shellphone room"):]
+
+
+class Hello(unittest.TestCase):
+    def test_the_bare_command_says_what_it_is_and_where_to_start(self):
+        with tempfile.TemporaryDirectory() as td:
+            got = subprocess.run(CLI, capture_output=True, text=True, timeout=30, env={**ENV, "TMPDIR": td}, cwd=td)
+        self.assertEqual((got.returncode, got.stderr), (0, ""))
+        out = got.stdout
+        for word in ("s h e l l p h o n e", "shellphone room", "shellphone list", "shellphone stop", "shellphone share", "shellphone invite", "shellphone join", "-h"):
+            self.assertIn(word, out)
+        self.assertLessEqual(max(len(line) for line in out.splitlines()), 80)
+        self.assertNotIn("usage:", out)
+        self.assertTrue(any(0x2800 <= ord(ch) <= 0x28FF for ch in out))  # the spiral, in Braille dots
+        self.assertTrue(HELLO_TEXT(out).isascii())
+
+    def test_a_terminal_that_cant_draw_the_dots_gets_plain_words(self):
+        with tempfile.TemporaryDirectory() as td:
+            got = subprocess.run(CLI, capture_output=True, timeout=30, env={**ENV, "TMPDIR": td, "PYTHONIOENCODING": "ascii"}, cwd=td)
+        self.assertEqual((got.returncode, got.stderr), (0, b""))
+        out = got.stdout.decode("ascii")  # nothing in it that such a terminal can't show
+        for word in ("s h e l l p h o n e", "shellphone room", "shellphone list"):
+            self.assertIn(word, out)
+
+    def test_a_wrong_command_is_still_told_so(self):
+        got = subprocess.run([*CLI, "nonsense"], capture_output=True, text=True, timeout=30, env=ENV)
+        self.assertEqual(got.returncode, 2)
+        self.assertIn("usage:", got.stderr)
+
+
+class Colour(unittest.TestCase):
+    """The command's own screens are coloured for a person at a terminal, and plain everywhere else."""
+
+    def out(self, *args, **env):
+        with tempfile.TemporaryDirectory() as td:
+            return subprocess.run([*CLI, *args], capture_output=True, text=True, timeout=30, env={**ENV, "TMPDIR": td, **env}, cwd=td)
+
+    def test_piped_output_carries_no_colour_codes(self):
+        for args in ((), ("list",)):
+            got = self.out(*args)
+            self.assertEqual((got.returncode, got.stderr), (0, ""), args)
+            self.assertNotIn("\x1b[", got.stdout, args)
+
+    def test_a_terminal_gets_colour_and_no_color_takes_it_away(self):
+        loud = self.out(FORCE_COLOR="1", COLORTERM="truecolor")
+        self.assertIn("\x1b[", loud.stdout)
+        self.assertIn("38;2;23;146;153", loud.stdout)  # the site's teal: the spiral, and what a command does
+        self.assertIn("38;2;223;142;29m--share", loud.stdout)  # an option in its yellow
+        self.assertIn("38;2;114;135;253m'<link>'", loud.stdout)  # what you fill in yourself in its lavender
+        spiral = [l for l in loud.stdout.splitlines() if any(0x2800 <= ord(ch) <= 0x28FF for ch in l)]
+        shades = set(re.findall(r"38;2;(\d+;\d+;\d+)m", "".join(spiral)))
+        self.assertGreaterEqual(len(shades), 8)  # the spiral changes colour along its length
+        self.assertIn("23;146;153", shades)      # from the teal of its middle
+        self.assertIn("234;118;203", shades)     # to the pink of its lip
+        name = next(l for l in loud.stdout.splitlines() if re.sub(r"\x1b\[[0-9;]*m", "", l).rstrip().endswith("s h e l l p h o n e"))
+        self.assertGreaterEqual(len(set(re.findall(r"38;2;(\d+;\d+;\d+)m[a-z]", name))), 8)  # the name is in the spiral's colours, letter by letter
+        quiet = self.out(FORCE_COLOR="1", NO_COLOR="1")
+        self.assertNotIn("\x1b", quiet.stdout)  # plain means plain: no colour, and no bold either
+        strip = lambda s: re.sub(r"\x1b\[[0-9;]*m", "", s)
+        self.assertEqual([l.rstrip() for l in strip(loud.stdout).splitlines()], [l.rstrip() for l in strip(quiet.stdout).splitlines()])  # the same words either way
+
+    def test_a_path_with_brackets_is_shown_as_it_is(self):
+        with tempfile.TemporaryDirectory() as td:
+            env = {**ENV, "TMPDIR": td, "TEMP": td, "TMP": td}
+            kept = Path(td) / "my [red]rooms[/red]" / "one"
+            room = Room("--keep", str(kept), env=env)
+            try:
+                listed = subprocess.run([*CLI, "list"], capture_output=True, text=True, timeout=30, env=env)
+                self.assertIn("my [red]rooms[/red]", listed.stdout.replace("\n", ""))
+                done = subprocess.run([*CLI, "stop"], capture_output=True, text=True, timeout=40, env=env)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertIn("my [red]rooms[/red]", done.stdout.replace("\n", ""))
+                room.proc.wait(10)
+            finally:
+                if room.proc.poll() is None:
+                    room.proc.kill(); room.proc.communicate()

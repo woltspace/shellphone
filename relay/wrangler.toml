@@ -9,7 +9,8 @@ main = "src/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = false
 preview_urls = false
-routes = [{ pattern = "shellphone.woltspace.app", custom_domain = true }]
+# One Worker, two addresses: the same pages, rooms, lasting addresses and counts behind both, so a link made on one works on the other.
+routes = [{ pattern = "shellphone.woltspace.app", custom_domain = true }, { pattern = "shellphone.dev", custom_domain = true }]
 
 [vars]
 RELAY_OFF = ""        # set to "1" to turn the whole relay off: every request and socket is refused
@@ -18,6 +19,9 @@ MAX_ROOMS = "20"           # rooms open at the same time, at the most. A host be
 MAX_ROOMS_PER_DAY = "1000" # new rooms in one day (UTC), at the most
 BEAT_SECONDS = ""          # how often an open room reports to the desk (empty: every 30 minutes). Tests shorten it
 QUIET_SECONDS = ""         # how long a host or page that pings may stay silent before it counts as gone (empty: 60). Tests shorten it
+MAX_SIGNS = "5000"          # lasting addresses (/t/…) in use at once, for rooms reached through their own tunnel (an address is never given out twice)
+MAX_SIGNS_PER_DAY = "1000"  # new ones in one day (UTC), at the most
+SIGN_LOCAL = ""             # "1" only in tests on one computer: a lasting address may then point at http://127.0.0.1:PORT
 
 [build]
 command = "sh build.sh"   # site/ = public/ + the chat page from ../dist

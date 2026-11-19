@@ -1,0 +1,860 @@
+"""A room linked through a tunnel of its own (shellphone/outside.py): who gets in by which key, what an unlink leaves
+behind, and where an agent's calls may go. No tunnel, no site and no network: stand-ins for both."""
+import contextlib, hashlib, hmac, http.client, http.server, json, os, re, socket, subprocess, sys, tempfile, threading, time, types, unittest, urllib.error
+from pathlib import Path
+from unittest.mock import patch
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+from shellphone import cli
+from shellphone.outside import FILE, OWED, Outside
+
+HOST = "room-under-test.trycloudflare.com"
+
+
+class Door(unittest.TestCase):
+    """The room's own door, asked over HTTP as a tunnel would pass requests on: on this computer, under the tunnel's name."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.proc = subprocess.Popen([sys.executable, str(REPO / "tests" / "outside_room.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                    env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONUNBUFFERED": "1"})
+        cls.keys = json.loads(cls.proc.stdout.readline())
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.terminate()
+        cls.proc.communicate(timeout=10)
+
+    def ask(self, method, path, host=HOST, cookie=None, body=None, headers=None, raw=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.keys["port"], timeout=10)
+        page = method == "POST" and "Authorization" not in (headers or {})  # a page's POST says where it comes from; an agent's call carries its own key instead
+        h = {"Host": host, **({"Origin": f"https://{host}" if host == HOST else f"http://{host}:{self.keys['port']}"} if page else {}),
+             **({"Cookie": cookie} if cookie else {}), **({"Content-Type": "application/json"} if body is not None or raw is not None else {}), **(headers or {})}
+        conn.request(method, path, body=raw if raw is not None else json.dumps(body) if body is not None else None, headers=h)
+        res = conn.getresponse()
+        raw = res.read()
+        conn.close()
+        try:
+            return res.status, json.loads(raw), res.getheader("Set-Cookie") or ""
+        except ValueError:
+            return res.status, raw.decode(errors="replace"), res.getheader("Set-Cookie") or ""
+
+    def enter(self, **body):
+        status, out, cookie = self.ask("POST", "/api/enter", body=body)
+        return status, out, cookie.split(";")[0]
+
+    def test_nobody_without_a_key_gets_anything_of_the_room(self):
+        for method, path in (("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/voice"), ("POST", "/api/files?name=a.txt"), ("GET", "/join"), ("GET", "/files/" + "0" * 32 + ".txt"), ("POST", "/api/link")):
+            self.assertEqual(self.ask(method, path, body={} if method == "POST" else None)[0], 403, path)
+        self.assertEqual(self.ask("GET", "/lodge/messages")[0], 401)
+        self.assertEqual(self.ask("GET", "/lodge/messages", headers={"Authorization": "Bearer made-up"})[0], 401)
+        status, page, _ = self.ask("GET", "/")  # the page that takes a key from the link: it holds nothing of the room
+        self.assertEqual(status, 200)
+        self.assertIn("Opening the room", page)
+        self.assertNotIn("Hostess", page)
+
+    def test_the_hosts_own_link_lets_the_host_in_from_outside_but_not_at_the_switch(self):
+        status, _, cookie = self.enter(k=self.keys["host"])
+        self.assertEqual(status, 200)
+        self.assertEqual(self.ask("GET", "/api/state", cookie=cookie)[1]["me"], cli.HOST_EMAIL)
+        status, info, _ = self.ask("GET", "/api/link", cookie=cookie)  # the host sees that it is shared, and gets the invite to pass on
+        self.assertEqual((status, info["linked"], info["fixed"]), (200, True, True))
+        self.assertTrue(info["invite"].endswith("#i." + self.keys["invite"]))
+        self.assertNotIn("link", info)  # their own key isn't handed out again
+        self.assertNotIn(self.keys["host"], json.dumps(info))
+        for body in ({"on": False}, {"on": True}, {"on": False, "forget": True}, {"on": True, "via": "relay"}):  # sharing and stopping stay on the room's own computer
+            self.assertEqual(self.ask("POST", "/api/link", cookie=cookie, body=body)[0], 403, body)
+        self.assertEqual(self.ask("GET", "/api/link", cookie=cookie)[1]["linked"], True)
+        _, _, guest = self.enter(i=self.keys["invite"], name="Peeker")  # a guest is told nothing about sharing
+        self.assertEqual(self.ask("GET", "/api/link", cookie=guest)[0], 403)
+        self.assertEqual(self.ask("GET", "/api/link")[0], 403)
+        self.assertEqual(self.ask("POST", "/api/messages", cookie=cookie, body={"text": "x"}, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)  # another site's page can't post as the host
+        self.assertEqual(self.ask("POST", "/api/messages", cookie=cookie, body={"text": "from outside"})[0], 200)
+
+    def test_no_post_from_outside_reaches_the_switch_whatever_its_body(self):
+        _, _, cookie = self.enter(k=self.keys["host"])
+        for raw in ("null", "", "{}", "[]", "0", '{"on": true}', '{"on": false}'):
+            status, out, _ = self.ask("POST", "/api/link", cookie=cookie, raw=raw)
+            self.assertEqual((status, "invite" in out, "link" in out), (403, False, False), raw)
+        self.assertEqual(self.ask("GET", "/api/link", cookie=cookie)[1]["linked"], True)  # and nothing was switched
+
+    def test_an_agents_code_from_the_link_works_through_the_link_only(self):
+        _, _, cookie = self.enter(k=self.keys["host"])
+        code = self.ask("POST", "/api/agent-invite", cookie=cookie, body={})[1]["text"].split("#a.")[1].split("'")[0]
+        self.assertEqual(self.ask("POST", "/lodge/join", host="127.0.0.1", body={"wolt": "sideways"}, headers={"Authorization": "Bearer " + code})[0], 401)
+        self.assertEqual(self.ask("POST", "/lodge/join", body={"wolt": "straight"}, headers={"Authorization": "Bearer " + code})[0], 200)  # refused at the wrong door, it wasn't used up
+        self.assertEqual(self.ask("POST", "/lodge/join", body={"wolt": "outsider"}, headers={"Authorization": "Bearer " + self.keys["code"]})[0], 401)  # and this computer's own code opens nothing from outside
+
+    def test_the_cookie_is_kept_from_scripts_and_other_sites(self):
+        _, _, cookie = self.ask("POST", "/api/enter", body={"k": self.keys["host"]})
+        for part in ("HttpOnly", "Secure", "SameSite=Lax"):
+            self.assertIn(part, cookie)
+
+    def test_the_key_of_this_computer_opens_nothing_from_outside(self):
+        local = self.keys["local"]
+        self.assertEqual(self.ask("GET", "/api/state?k=" + local)[0], 403)
+        self.assertEqual(self.ask("GET", "/api/state", cookie=f"sp{self.keys['port']}={local}")[0], 403)
+        self.assertEqual(self.ask("GET", "/api/state", cookie=f"spo={local}")[0], 403)
+        self.assertEqual(self.enter(k=local)[0], 403)
+        self.assertEqual(self.ask("GET", "/api/state?k=" + local, headers={"X-Forwarded-Host": "127.0.0.1", "Forwarded": "host=127.0.0.1"})[0], 403)
+        self.assertEqual(self.ask("GET", "/api/state", headers={"Cf-Access-Authenticated-User-Email": cli.HOST_EMAIL})[0], 403)
+        self.assertEqual(self.ask("GET", "/api/state", host="127.0.0.1", cookie=f"spo={self.keys['host']}")[0], 403)  # and the outside key opens nothing as "this computer"
+        self.assertEqual(self.ask("GET", "/api/state", host="another-name.trycloudflare.com", cookie=f"spo={self.keys['host']}")[0], 403)
+
+    def test_the_invite_makes_a_guest_with_a_key_of_their_own(self):
+        self.assertEqual(self.enter(i="made-up-invite-made-up", name="x")[0], 403)
+        self.assertEqual(self.enter(i=self.keys["invite"], name="")[0], 400)
+        status, out, cookie = self.enter(i=self.keys["invite"], name="Guesty")
+        self.assertEqual(status, 200)
+        self.assertEqual(cookie, "spo=" + out["mine"])
+        me = self.ask("GET", "/api/state", cookie=cookie)[1]["me"]
+        self.assertTrue(me.startswith("guest-"))
+        self.assertEqual(self.enter(k=out["mine"])[0], 200)  # their own key lets them back in, as the same guest
+        self.assertEqual(self.ask("GET", "/api/state", cookie="spo=" + self.keys["invite"])[0], 403)  # the invite itself is nobody
+        listed = {p["email"]: p for p in self.ask("GET", "/api/state", cookie=cookie)[1]["members"]["people"]}
+        self.assertTrue(listed[me].get("guest"))  # and they are marked as a guest, to everyone
+
+    def test_the_site_is_answered_only_with_proof_it_asked_for(self):
+        n = "ab" * 16
+        status, out, _ = self.ask("GET", "/api/up?n=" + n)
+        check = hashlib.sha256(b"shellphone-check\0synthetic-room\0synthetic-secret").hexdigest()
+        self.assertEqual((status, out["room"], out["proof"]), (200, "synthetic-room", hmac.new(check.encode(), n.encode(), hashlib.sha256).hexdigest()))
+        self.assertEqual(self.ask("GET", "/api/up")[1]["proof"], "")
+        self.assertEqual(self.ask("GET", "/api/up?n=not-a-number")[1]["proof"], "")
+        self.assertEqual(self.ask("GET", "/api/up?n=" + n, host="127.0.0.1")[0], 403)  # not a question this computer's own page asks
+
+    def test_an_agent_joins_through_the_link_and_one_from_this_computer_stays_there(self):
+        _, _, cookie = self.enter(k=self.keys["host"])
+        page = self.ask("POST", "/api/agent-invite", cookie=cookie, body={})[1]["text"]
+        code = page.split("#a.")[1].split("'")[0].split("&")[0]
+        self.assertIn("https://site.example/t/synthetic-room#a.", page)  # the message names the lasting address, never the tunnel's
+        self.assertNotIn(HOST, page)
+        status, out, _ = self.ask("POST", "/lodge/join", body={"wolt": "away"}, headers={"Authorization": "Bearer " + code})
+        self.assertEqual(status, 200)
+        away = {"Authorization": "Bearer " + out["key"]}
+        self.assertEqual(self.ask("GET", "/lodge/messages", headers=away)[0], 200)
+        self.assertEqual(self.ask("POST", "/lodge/join", body={"wolt": "again"}, headers={"Authorization": "Bearer " + code})[0], 401)  # the code worked once
+        status, out, _ = self.ask("POST", "/lodge/join", host="127.0.0.1", body={"wolt": "homebody"}, headers={"Authorization": "Bearer " + self.keys["code"]})
+        self.assertEqual(status, 200)
+        home = {"Authorization": "Bearer " + out["key"]}
+        self.assertEqual(self.ask("GET", "/lodge/messages", host="127.0.0.1", headers=home)[0], 200)
+        self.assertEqual(self.ask("GET", "/lodge/messages", headers=home)[0], 401)  # its key is for this computer
+
+
+class AfterUnlink(unittest.TestCase):
+    def test_every_key_that_was_handed_out_is_dead_and_the_room_goes_on_here(self):
+        proc = subprocess.Popen([sys.executable, str(REPO / "tests" / "outside_room.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONUNBUFFERED": "1"})
+        try:
+            keys = json.loads(proc.stdout.readline())
+
+            def ask(method, path, host=HOST, headers=None, body=None):
+                conn = http.client.HTTPConnection("127.0.0.1", keys["port"], timeout=10)
+                page = method == "POST" and "Authorization" not in (headers or {})
+                conn.request(method, path, body=json.dumps(body) if body is not None else None, headers={"Host": host, **({"Origin": f"https://{host}" if host == HOST else f"http://{host}:{keys['port']}"} if page else {}),
+                                                                                                         **({"Content-Type": "application/json"} if body is not None else {}), **(headers or {})})
+                res = conn.getresponse()
+                raw = res.read()
+                conn.close()
+                return res.status, raw
+            host = {"Cookie": "spo=" + keys["host"]}
+            self.assertEqual(ask("GET", "/api/state", headers=host)[0], 200)
+            code = json.loads(ask("POST", "/api/agent-invite", headers=host, body={})[1])["text"].split("#a.")[1].split("'")[0]
+            agent = {"Authorization": "Bearer " + json.loads(ask("POST", "/lodge/join", body={"wolt": "away"}, headers={"Authorization": "Bearer " + code})[1])["key"]}
+            self.assertEqual(ask("GET", "/lodge/messages", headers=agent)[0], 200)
+            proc.stdin.write("unlink\n"); proc.stdin.flush()
+            self.assertEqual(proc.stdout.readline().strip(), "unlinked")
+            self.assertEqual(ask("GET", "/api/state", headers=host)[0], 403)
+            self.assertEqual(ask("POST", "/api/enter", body={"k": keys["host"]})[0], 403)
+            self.assertEqual(ask("POST", "/api/enter", body={"i": keys["invite"], "name": "x"})[0], 403)
+            self.assertEqual(ask("GET", "/lodge/messages", headers=agent)[0], 401)
+            self.assertEqual(ask("GET", "/api/state", host="127.0.0.1", headers={"Cookie": f"sp{keys['port']}={keys['local']}"})[0], 200)  # the room itself, on its own computer, is as it was
+        finally:
+            proc.terminate()
+            proc.communicate(timeout=10)
+
+    def test_an_agents_code_from_before_does_not_work_once_the_room_is_shared_again(self):
+        proc = subprocess.Popen([sys.executable, str(REPO / "tests" / "outside_room.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONUNBUFFERED": "1"})
+        try:
+            keys = json.loads(proc.stdout.readline())
+
+            def ask(method, path, host=HOST, headers=None, body=None):
+                conn = http.client.HTTPConnection("127.0.0.1", keys["port"], timeout=10)
+                page = method == "POST" and "Authorization" not in (headers or {})
+                conn.request(method, path, body=json.dumps(body) if body is not None else None, headers={"Host": host, **({"Origin": f"https://{host}" if host == HOST else f"http://{host}:{keys['port']}"} if page else {}),
+                                                                                                         **({"Content-Type": "application/json"} if body is not None else {}), **(headers or {})})
+                res = conn.getresponse()
+                raw = res.read()
+                conn.close()
+                return res.status, raw
+
+            def code(host_key):
+                return json.loads(ask("POST", "/api/agent-invite", headers={"Cookie": "spo=" + host_key}, body={})[1])["text"].split("#a.")[1].split("'")[0]
+            old, older = code(keys["host"]), code(keys["host"])
+            for stop in ("unlink", "relink"):
+                proc.stdin.write(stop + "\n"); proc.stdin.flush()
+                answer = proc.stdout.readline().strip()
+            new = json.loads(answer)["host"]
+            self.assertEqual(ask("GET", "/api/state", headers={"Cookie": "spo=" + new})[0], 200)  # shared again, with new keys
+            for stale in (old, older):
+                self.assertEqual(ask("POST", "/lodge/join", body={"wolt": "late"}, headers={"Authorization": "Bearer " + stale})[0], 401)
+                self.assertEqual(ask("POST", "/lodge/join", host="127.0.0.1", body={"wolt": "late"}, headers={"Authorization": "Bearer " + stale})[0], 401)
+            self.assertEqual(ask("POST", "/lodge/join", body={"wolt": "fresh"}, headers={"Authorization": "Bearer " + code(new)})[0], 200)
+            self.assertEqual(ask("POST", "/lodge/join", host="127.0.0.1", body={"wolt": "homebody"}, headers={"Authorization": "Bearer " + keys["code"]})[0], 200)  # this computer's own code is untouched
+        finally:
+            proc.terminate()
+            proc.communicate(timeout=10)
+
+
+def room(td, tell):
+    o = Outside(None, Path(td), True, "https://site.example", 1, "host")
+    o.room, o.secret, o.host_token, o.invite_token = "synthetic-room", "synthetic-secret", "h", "i"
+    o._tell, o._keep_telling = tell, lambda: None
+    (Path(td) / FILE).write_text("{}")
+    return o
+
+
+class Unlink(unittest.TestCase):
+    """What the site has still to be told is never lost without saying so."""
+
+    def test_told_at_once_when_the_site_is_there(self):
+        with tempfile.TemporaryDirectory() as td:
+            status, info = room(td, lambda *a, **kw: None).off()
+            self.assertEqual((status, info.get("note")), (200, None))
+            self.assertFalse((Path(td) / OWED).exists() or (Path(td) / FILE).exists())
+
+    def test_written_down_and_said_while_the_site_cant_be_told_then_told_by_the_next_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = room(td, lambda *a, **kw: "site unreachable")
+            status, info = o.off()
+            self.assertEqual(status, 200)
+            self.assertIn("couldn't be told yet", info["note"])
+            self.assertNotIn("written down", info["note"])
+            self.assertIn("couldn't be told yet", o.info()["note"])  # for as long as it is true, wherever the host looks
+            self.assertEqual(json.loads((Path(td) / OWED).read_text())[0]["room"], "synthetic-room")
+            self.assertEqual(oct(os.stat(Path(td) / OWED).st_mode)[-3:], "600")
+            o2 = room(td, lambda *a, **kw: None)
+            o2.room = o2.secret = None
+            self.assertEqual(o2._settle(), (0, True))
+            self.assertFalse((Path(td) / OWED).exists())
+            self.assertNotIn("note", o2.info())
+
+    def test_it_is_written_down_before_the_kept_keys_go(self):
+        with tempfile.TemporaryDirectory() as td:
+            o, seen, real = room(td, lambda *a, **kw: "site unreachable"), {}, Path.unlink
+
+            def dying(self, *a, **kw):
+                if self.name == FILE:
+                    seen["owed"] = (Path(td) / OWED).exists() and json.loads((Path(td) / OWED).read_text())[0]["room"]
+                    raise SystemExit("the process stops here")
+                return real(self, *a, **kw)
+            with patch.object(Path, "unlink", dying), self.assertRaises(SystemExit):
+                o.off()
+            self.assertEqual(seen, {"owed": "synthetic-room"})
+
+    def test_when_nothing_can_be_written_it_says_so_and_remembers_while_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = room(td, lambda *a, **kw: "site unreachable")
+            with patch.object(cli, "replace_private", side_effect=OSError("disk full")):
+                status, info = o.off()
+                self.assertEqual(status, 200)
+                self.assertIn("couldn't be written down", info["note"])
+                self.assertEqual(len(o._unwritten), 1)
+            self.assertFalse((Path(td) / FILE).exists())
+            self.assertIsNone(o.who("h"))
+            told = []
+            o._tell = lambda *a, **kw: told.append(kw) or None
+            self.assertEqual(o._settle(), (0, True))
+            self.assertEqual((told[0]["room"], told[0]["gone"], o._unwritten), ("synthetic-room", True, []))
+
+    def kept(self, td, owed=False):
+        """A kept room's folder as a run left it: shared through a tunnel, and (owed) unlinked without the keys being removed."""
+        was = {"site": "https://site.example", "room": "old-room", "secret": "old-secret", "host_token": "old-host-key", "invite_token": "old-invite", "guests": {"old-guest-key": "guest@x"}}
+        (Path(td) / FILE).write_text(json.dumps(was))
+        if owed:
+            (Path(td) / OWED).write_text(json.dumps([{k: was[k] for k in ("site", "room", "secret")}]))
+        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)
+        o._keep_telling = lambda: None
+        return o
+
+    def test_an_unlink_that_was_written_down_holds_whatever_the_site_answers_and_whatever_is_left_on_disk(self):
+        # the room stopped after writing the unlink down and before its keys were removed; at the next start the site
+        # can't be told it is unlinked, yet takes the room's address: the old keys must stay dead
+        for removable in (True, False):
+            with tempfile.TemporaryDirectory() as td:
+                o = self.kept(td, owed=True)
+                o._tell = lambda url, gone=False, **kw: "site unreachable" if gone else None
+                o._up = lambda: None
+                with contextlib.nullcontext() if removable else patch.object(Path, "unlink", side_effect=OSError("read-only")):
+                    self.assertIsNone(o.saved())
+                    status, info = o.on()
+                    o._stop.set()
+                    self.assertEqual((status, info["linked"]), (200, True))
+                    self.assertNotEqual(o.room, "old-room")
+                    self.assertNotIn("old-room", info["link"])
+                    for key in ("old-host-key", "old-guest-key"):
+                        self.assertIsNone(o.who(key))
+                    self.assertEqual(o.enter({"i": "old-invite", "name": "x"})[0], 403)
+                    self.assertEqual(json.loads((Path(td) / OWED).read_text())[0]["room"], "old-room")  # still owed to the site
+
+    def test_an_unlink_stays_written_down_for_as_long_as_its_keys_are_on_disk(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.kept(td, owed=True)
+            o._tell = lambda *a, **kw: None  # the site is told at once
+            with patch.object(Path, "unlink", side_effect=OSError("read-only")):
+                self.assertEqual(o._settle()[0], 1)
+                self.assertIsNone(o.saved())
+            self.assertEqual(o._settle(), (0, True))  # the file can go now: nothing is owed any more
+            self.assertFalse((Path(td) / FILE).exists() or (Path(td) / OWED).exists())
+            self.assertIsNone(o.saved())
+
+    def test_stopping_a_kept_share_that_wasnt_opened_in_this_run_still_ends_its_address(self):
+        with tempfile.TemporaryDirectory() as td:
+            o, told = self.kept(td), []
+            o._tell = lambda url, gone=False, room=None, secret=None: told.append((url, gone, room, secret)) or None
+            self.assertEqual(o.saved()["room"], "old-room")
+            status, info = o.off()
+            self.assertEqual((status, info["linked"], info.get("note")), (200, False, None))
+            self.assertEqual(told, [("", True, "old-room", "old-secret")])
+            self.assertFalse((Path(td) / FILE).exists() or (Path(td) / OWED).exists())
+        with tempfile.TemporaryDirectory() as td:  # and when the site can't be told: owed, written down, and the keys gone
+            o = self.kept(td)
+            o._tell = lambda *a, **kw: "site unreachable"
+            status, info = o.off()
+            self.assertEqual(status, 200)
+            self.assertIn("couldn't be told yet", info["note"])
+            self.assertEqual(json.loads((Path(td) / OWED).read_text())[0]["room"], "old-room")
+            self.assertFalse((Path(td) / FILE).exists())
+            self.assertIsNone(Outside(None, Path(td), True, "https://site.example", 1, "host").saved())
+
+    def test_when_neither_the_stop_nor_the_keys_removal_reaches_the_disk_it_claims_no_more_than_this_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.kept(td)
+            o._tell = lambda *a, **kw: None
+            with patch.object(cli, "replace_private", side_effect=OSError("disk full")), patch.object(Path, "unlink", side_effect=OSError("read-only")):
+                status, info = o.off()
+                self.assertEqual(status, 500)
+                self.assertIn("while this room stays open", info["error"])
+                self.assertIn("work again then", info["error"])
+                self.assertNotIn("open nothing any more", info["error"])
+                self.assertIn("only for as long as this room stays open", o.info()["note"])  # and it stays said, wherever the host looks
+                self.assertIsNone(o.saved())  # closed for this run
+                self.assertIsNone(o.who("old-host-key"))
+            self.assertEqual(Outside(None, Path(td), True, "https://site.example", 1, "host").saved()["room"], "old-room")  # what the warning said: a later run finds the old keys
+            self.assertEqual(o._settle(), (0, True))  # once the disk takes writes again, the same run finishes the job
+            self.assertFalse((Path(td) / FILE).exists())
+            self.assertNotIn("note", o.info())
+
+    def test_keys_that_cant_be_removed_are_reported_and_open_nothing_meanwhile(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = room(td, lambda *a, **kw: None)
+            with patch.object(Path, "unlink", side_effect=OSError("read-only")):
+                status, info = o.off()
+            self.assertEqual(status, 500)
+            self.assertIn("delete that file yourself", info["error"])
+            self.assertIsNone(o.who("h"))
+
+
+class Elsewhere(http.server.BaseHTTPRequestHandler):
+    """Sends whoever asks on to another server, which notes what it was shown."""
+    seen, to = [], ""
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        code = re.search(r"c=(30[12378])$", self.path)
+        self.send_response(int(code.group(1)) if code else 302)
+        self.send_header("Location", Elsewhere.to)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+    do_GET = do_POST
+
+    def log_message(self, *a):
+        pass
+
+
+class Sink(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        Elsewhere.seen.append(self.headers.get("Authorization"))
+        self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}")
+    do_POST = do_GET
+
+    def log_message(self, *a):
+        pass
+
+
+class Secrets(unittest.TestCase):
+    """A call that carries a secret goes where it was sent, and nowhere it is sent on to."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sink, cls.redirect = http.server.HTTPServer(("127.0.0.1", 0), Sink), http.server.HTTPServer(("127.0.0.1", 0), Elsewhere)
+        Elsewhere.to = f"http://127.0.0.1:{cls.sink.server_port}/capture"
+        for s in (cls.sink, cls.redirect):
+            threading.Thread(target=s.serve_forever, daemon=True).start()
+        cls.base = f"http://127.0.0.1:{cls.redirect.server_port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        for s in (cls.sink, cls.redirect):
+            s.shutdown(); s.server_close()
+
+    def setUp(self):
+        Elsewhere.seen.clear()
+
+    def test_the_rooms_secret_is_not_sent_on_after_a_redirect(self):
+        for code in (301, 302, 303, 307, 308):
+            o = Outside(None, Path(tempfile.gettempdir()), False, self.base, 1, "host")
+            o.room, o.secret = f"synthetic-room?c={code}", "synthetic-review-only"
+            self.assertIn(str(code), o._tell("https://example.trycloudflare.com"))
+        self.assertEqual(Elsewhere.seen, [])
+
+    def test_an_agents_key_is_not_sent_on_whichever_call_comes_first(self):
+        import urllib.request
+        for first in ("upload", "call"):
+            urllib.request.install_opener(urllib.request.build_opener())  # as a fresh process starts
+            conn = cli.connector()
+            cfg = {"room_url": self.base, "sign": "https://site.example/t/id", "key": "synthetic-key"}
+            with tempfile.TemporaryDirectory() as td, patch.object(cli, "where", lambda sign: None):
+                (Path(td) / "note.txt").write_text("synthetic only")
+                with self.assertRaises(urllib.error.HTTPError):
+                    conn.upload(cfg, [str(Path(td) / "note.txt")]) if first == "upload" else conn.call(cfg, "POST", "/lodge/messages", {"text": "x"})
+            self.assertEqual(Elsewhere.seen, [], first)
+
+    def test_where_a_room_is_said_to_be_is_only_believed_when_it_is_a_quick_tunnel(self):
+        answers = {}
+
+        class Site(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = json.dumps({"known": True, "url": answers["url"]}).encode()
+                self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+        site = http.server.HTTPServer(("127.0.0.1", 0), Site)
+        threading.Thread(target=site.serve_forever, daemon=True).start()
+        try:
+            sign = f"http://127.0.0.1:{site.server_port}/t/id"
+            for url, believed in (("https://calm-river-four-words.trycloudflare.com", True), ("http://127.0.0.1:4090", True), ("https://example.com", False),
+                                  ("https://evil.example/x.trycloudflare.com", False), ("https://a.trycloudflare.com.evil.example", False), ("http://a-b.trycloudflare.com", False),
+                                  ("https://a-b.trycloudflare.com/path", False), (None, False)):
+                answers["url"] = url
+                self.assertEqual(cli.where(sign), url if believed else None, url)
+            self.assertIsNone(cli.where(self.base + "/t/id"))  # the site itself sending the question elsewhere: not followed
+            self.assertEqual(Elsewhere.seen, [])
+        finally:
+            site.shutdown(); site.server_close()
+
+
+class Moved(unittest.TestCase):
+    """A room behind a lasting address moves. What only reads is asked again at the new address; what changes the
+    room is sent again only when the first try certainly never left this computer."""
+
+    def attempt(self, method, failure):
+        sent = []
+
+        def direct(cfg, *a):
+            sent.append(cfg["room_url"])
+            if len(sent) == 1:
+                raise failure
+            return {"ok": True}
+        with patch.object(cli, "part", lambda name: types.SimpleNamespace(call=direct, upload=lambda *a: None)), patch.object(cli, "where", lambda sign: "https://new.trycloudflare.com"):
+            conn = cli.connector()
+            try:
+                conn.call({"sign": "https://site.example/t/id", "room_url": "https://old.trycloudflare.com"}, method, "/lodge/messages", {"text": "synthetic"})
+                return "again", sent
+            except SystemExit as e:
+                self.assertIn("may or may not have arrived", str(e))
+                return "unsure", sent
+            except urllib.error.URLError:
+                return "failed", sent
+
+    def test_which_failures_are_tried_again(self):
+        gone = lambda: urllib.error.HTTPError("https://old.trycloudflare.com", 530, "x", {}, None)
+        for method, failure, want, times in (
+                ("GET", gone(), "again", 2), ("POST", gone(), "unsure", 1),
+                ("POST", urllib.error.HTTPError("https://old.trycloudflare.com", 502, "x", {}, None), "failed", 1),
+                ("POST", urllib.error.URLError(socket.gaierror(8, "no such name")), "again", 2), ("POST", urllib.error.URLError(ConnectionRefusedError()), "again", 2),
+                ("POST", urllib.error.URLError(TimeoutError("timed out")), "unsure", 1), ("GET", urllib.error.URLError(TimeoutError("timed out")), "again", 2)):
+            got, sent = self.attempt(method, failure)
+            self.assertEqual((got, len(sent)), (want, times), (method, failure))
+            if want != "failed":
+                self.assertEqual(sent[-1] if times == 2 else None, "https://new.trycloudflare.com" if times == 2 else None)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class Carries(unittest.TestCase):
+    """A tunnel whose program still runs but which carries nothing (the computer slept, the network changed) is replaced,
+    within limits: longer waits between tries, and an end to them."""
+
+    def shared(self, td, answers=(), ups=(), online=True):
+        from shellphone import outside as mod
+        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: o.said.append(a[0]))
+        o.said, o.open, o.room, o.host, o.mod = [], True, "room-1", "old-name.trycloudflare.com", mod
+
+        class Running:
+            stopped = False
+            def alive(self): return not self.stopped
+            def stop(self): self.stopped = True
+        o.Running, o.tunnel, o.ups, answers, ups = Running, Running(), [], list(answers), list(ups)
+        o.first = o.tunnel
+
+        def up():
+            why = ups.pop(0) if ups else None
+            o.ups.append(why)
+            if not why:
+                o.tunnel, o.host = Running(), "new-name.trycloudflare.com"
+            return why
+        o._up, o._answers, o._online = up, lambda: answers.pop(0), lambda: online if isinstance(online, bool) else online.pop(0)
+        return o
+
+    def test_two_misses_in_a_row_while_online_and_the_tunnel_is_replaced(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [False, False, True])
+            self.assertIsNone(o._check(now=0))  # one miss could be a hiccup
+            self.assertEqual((o.ups, o.first.stopped), ([], False))
+            self.assertEqual(o._check(now=60), "reopened")
+            self.assertEqual((o.ups, o.first.stopped, o.host), ([None], True, "new-name.trycloudflare.com"))  # the old program is ended, not left running
+            self.assertIsNone(o._check(now=120))
+            self.assertEqual((o.ups, o._tries, o._next), ([None], 0, 0))  # seen to carry: settled
+
+    def test_a_miss_then_an_answer_starts_the_count_again(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [False, True, False, True, False])
+            for i in range(5):
+                self.assertIsNone(o._check(now=60 * i))
+            self.assertEqual((o.ups, o.first.stopped), ([], False))
+
+    def test_a_computer_that_is_cut_off_keeps_its_tunnel_and_uses_up_no_tries(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [None] * 6)  # no way out at all: a new tunnel would mend nothing
+            for i in range(6):
+                self.assertIsNone(o._check(now=60 * i))
+            self.assertEqual((o.ups, o.first.stopped), ([], False))
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [False, None, False, False])  # cut off in between: the earlier miss still counts once it is back
+            self.assertEqual([o._check(now=60 * i) for i in range(3)], [None, None, "reopened"])
+        with tempfile.TemporaryDirectory() as td:  # the tunnel's program died while the computer is cut off: waited for, however long
+            o = self.shared(td, online=False)
+            o.tunnel.stopped = True
+            for i in range(500):
+                self.assertIsNone(o._mend(now=3 * i))
+            self.assertEqual((o.ups, o._tries, o._gave_up), ([], 0, None))
+
+    def test_a_room_that_isnt_shared_or_whose_tunnel_ended_is_left_to_the_other_watch(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [])  # nothing is even asked
+            o.open = False
+            self.assertIsNone(o._check(now=0))
+            o.open, o.tunnel.stopped = True, True
+            self.assertIsNone(o._check(now=0))
+            self.assertEqual(o.ups, [])
+
+    def test_each_failed_try_waits_longer_and_after_ten_it_stops_and_says_so(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, ups=["no tunnel"] * 50)
+            o.tunnel.stopped = True  # its program died, and no new one can be opened
+            tried, now = [], 0
+            while now < 6 * 3600:  # looked at every three seconds for six hours, as the watch does
+                if o._mend(now):
+                    tried.append(now)
+                now += 3
+            WAITS, TRIES = o.mod.WAITS, o.mod.TRIES
+            self.assertEqual(len(tried), TRIES)
+            gaps = [b - a for a, b in zip(tried, tried[1:])]
+            for gap, wait in zip(gaps, list(WAITS) + [WAITS[-1]] * 10):
+                self.assertTrue(wait <= gap < wait + 6, (gaps, wait))  # looked at every three seconds; a try itself takes a moment
+            self.assertEqual(o._gave_up, "no tunnel")
+            self.assertIn("stops trying", o.said[-1])
+            status, info = 200, o.info()
+            self.assertEqual((info["linked"], info["state"]), (True, "down"))
+            self.assertIn("couldn't be reopened", info["note"])
+
+    def test_a_tunnel_that_opens_and_drops_again_counts_as_a_try_too(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, answers=[False] * 400)  # every new tunnel opens, and none is ever seen to carry
+            opened, now = 0, 0
+            while now < 6 * 3600:
+                if o._check(now=now) == "reopened":
+                    opened += 1
+                now += 60
+            self.assertEqual(opened, o.mod.TRIES)  # it kept trying for a while, more and more slowly, and then stopped
+            self.assertEqual(o._gave_up, "each new tunnel stopped carrying")
+            self.assertEqual(o.info()["state"], "down")
+            self.assertFalse(o.tunnel.stopped)  # the last tunnel is left as it is: it may yet come back
+            o._answers = lambda: True
+            self.assertIsNone(o._check(now=now))  # and when it is seen to carry after all, the room says it is up again
+            self.assertEqual((o.info()["state"], o._gave_up, o._tries), ("up", None, 0))
+
+    def test_one_look_that_finds_it_carrying_settles_everything(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, answers=[False, False, True], ups=["no tunnel"])
+            o._check(now=0)
+            self.assertEqual(o._check(now=60), "failed")
+            self.assertEqual(o._tries, 1)
+            self.assertAlmostEqual(o._next, 60 + o.mod.WAITS[0], delta=0.5)
+            self.assertIsNone(o._mend(now=61))             # not yet
+            self.assertEqual(o._mend(now=61 + o.mod.WAITS[0]), "reopened")
+            self.assertEqual(o._tries, 2)                  # opened, but not yet seen to carry
+            self.assertIsNone(o._check(now=200))           # it answers
+            self.assertEqual((o._tries, o._next, o._missed), (0, 0, 0))
+
+    def test_sharing_again_after_it_stopped_trying_starts_over_through_the_real_switch_and_keeps_the_links(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, ups=["no tunnel"] * 10)
+            o.tunnel.stopped = True
+            now = 0
+            while not o._gave_up:
+                o._mend(now); now += 3
+            self.assertEqual(len(o.ups), 10)
+            o.core = lambda: types.SimpleNamespace(invite_open=lambda *a: False, guest_count=lambda *a: 0)
+            o.door_mark = lambda: "mark"
+            o.r, o.site, o.host_token, o.secret = None, "https://site.example", "host-key", "s3cret"
+            o.saved = lambda: {"room": o.room}
+            share = cli.Share({"relay": types.SimpleNamespace(info=lambda: {"linked": False}, saved=lambda: None), "tunnel": o}, "relay")
+            self.assertEqual(share.info()["state"], "down")
+            status, info = share.on()  # what `shellphone share` and the menu reach: the room's one switch
+            self.assertEqual((status, info["linked"], info["state"], info["via"]), (200, True, "up", "tunnel"))
+            self.assertEqual((o._gave_up, len(o.ups), o.ups[-1]), (None, 11, None))  # one new try, at once, and it opened
+            self.assertEqual((o.room, o.host_token, o.secret), ("room-1", "host-key", "s3cret"))  # the same room, the same keys: no link was ended
+            self.assertIn("/t/room-1#k.host-key", info["link"])
+            status, info = share.on()  # and asked once more while it is up: nothing is touched
+            self.assertEqual((status, info["state"], len(o.ups)), (200, "up", 11))
+
+    def test_a_try_that_raises_is_a_failed_try_counted_and_waited_after(self):
+        import http.client
+        with tempfile.TemporaryDirectory() as td:
+            o, calls = self.shared(td), []
+            o.tunnel.stopped = True
+
+            def broken():
+                calls.append(1)
+                raise http.client.IncompleteRead(b"x")
+            o._up = broken
+            tried, now = [], 0
+            while now < 6 * 3600:  # through the watch's own round, every three seconds, as it runs
+                if o._look(o._mend, now):
+                    tried.append(now)
+                now += 3
+            self.assertEqual((len(calls), len(tried)), (o.mod.TRIES, o.mod.TRIES))
+            gaps = [b - a for a, b in zip(tried, tried[1:])]
+            for gap, wait in zip(gaps, list(o.mod.WAITS) + [o.mod.WAITS[-1]] * 10):
+                self.assertTrue(wait <= gap < wait + 6, (gaps, wait))  # looked at every three seconds; a try itself takes a moment
+            self.assertIn("IncompleteRead", o._gave_up)
+            self.assertEqual(o.info()["state"], "down")
+
+    def test_the_wait_runs_from_when_a_try_ended_not_from_when_it_began(self):
+        with tempfile.TemporaryDirectory() as td:
+            o, clock, began = self.shared(td), [0], []
+            o.tunnel.stopped = True
+
+            def slow():
+                began.append(clock[0])
+                clock[0] += 100  # a tunnel that takes 100 seconds to fail
+                return "no tunnel"
+            o._up = slow
+            with patch.object(o.mod.time, "time", lambda: clock[0]):
+                self.assertEqual(o._mend(0), "failed")
+                self.assertEqual(o._next, 100 + o.mod.WAITS[0])
+                self.assertIsNone(o._mend(clock[0]))  # just ended: not again at once
+                self.assertIsNone(o._mend(100 + o.mod.WAITS[0] - 1))
+                self.assertEqual(o._mend(100 + o.mod.WAITS[0]), "failed")
+                self.assertEqual((began, o._next), ([0, 100], 230 + o.mod.WAITS[1]))  # it ended at 230: the second wait runs from there
+
+    def test_a_new_tunnel_the_site_couldnt_be_told_of_is_closed_not_left_running(self):
+        import http.client
+        from shellphone import outside as mod
+        with tempfile.TemporaryDirectory() as td:
+            o, opened = self.shared(td), []
+            o.tunnel.stopped = True  # the old one died
+            o._up = mod.Outside._up.__get__(o)  # the real thing: open a tunnel, tell the site
+
+            class NewTunnel(o.Running):
+                why = ""
+                def __init__(self, port): opened.append(self)
+                def start(self): return "https://new-name.trycloudflare.com"
+            told = []
+
+            def cut_short(url, **kw):
+                told.append(url)
+                raise http.client.IncompleteRead(b"{")
+            o._tell = cut_short
+            with patch.object(mod, "Tunnel", NewTunnel):
+                self.assertEqual(o._look(o._mend, 0), "failed")
+            self.assertEqual((len(opened), opened[0].stopped, o.tunnel, o.host), (1, True, None, None))  # closed, and the room holds no tunnel
+            self.assertEqual((o._tries, told), (1, ["https://new-name.trycloudflare.com"]))
+            self.assertIn("IncompleteRead", o.said[-1])
+            # nothing is left for a look to find carrying: the count stands until the site really has an address
+            o._answers = lambda: self.fail("there is no tunnel to look at")
+            self.assertIsNone(o._check(now=60))
+            self.assertEqual(o._tries, 1)
+            o._tell = lambda url, **kw: None  # the site answers again
+            with patch.object(mod, "Tunnel", NewTunnel):
+                self.assertEqual(o._mend(60 + mod.WAITS[0]), "reopened")
+            self.assertEqual((len(opened), opened[1].stopped, o.host), (2, False, "new-name.trycloudflare.com"))
+
+    def fake_cloudflared(self, td):
+        exe = Path(td) / "cloudflared"
+        exe.write_text('#!/bin/sh\necho "https://fake-name.trycloudflare.com" >&2\necho "Registered tunnel connection" >&2\nexec sleep 60\n')
+        exe.chmod(0o755)
+        return str(exe)
+
+    def test_a_tunnel_program_whose_start_goes_wrong_is_stopped_not_left_running(self):
+        import http.client, subprocess
+        from shellphone import outside as mod
+        with tempfile.TemporaryDirectory() as td:
+            exe, started, real = self.fake_cloudflared(td), [], subprocess.Popen
+
+            def popen(*a, **kw):
+                started.append(real(*a, **kw))
+                return started[-1]
+
+            def cut_short(self, wait=40):
+                raise http.client.IncompleteRead(b"{")
+            try:
+                with patch.object(mod.shutil, "which", lambda name: exe), patch.object(mod.subprocess, "Popen", popen):
+                    with patch.object(mod.Tunnel, "_named", cut_short):  # the program runs, has said its address, and then the start itself fails
+                        t = mod.Tunnel(1)
+                        self.assertIsNone(t.start())
+                        self.assertIn("IncompleteRead", t.why)
+                        self.assertEqual((len(started), t.proc, t.alive()), (1, None, False))
+                        self.assertIsNotNone(started[0].wait(5))  # the program is gone
+
+                        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)  # and through the room's own way of opening one, three times over
+                        o._tell = lambda url, **kw: self.fail("there is no address to tell the site of")
+                        for _ in range(3):
+                            self.assertIn("IncompleteRead", o._up())
+                        self.assertEqual((len(started), o.tunnel, o.host), (4, None, None))
+                        for proc in started:
+                            self.assertIsNotNone(proc.wait(5))
+
+                    def interrupted(self, wait=40):
+                        raise KeyboardInterrupt
+                    with patch.object(mod.Tunnel, "_named", interrupted):  # stopped by hand in the middle: it goes too, and the stop is passed on
+                        t = mod.Tunnel(1)
+                        self.assertRaises(KeyboardInterrupt, t.start)
+                        self.assertIsNotNone(started[-1].wait(5))
+            finally:
+                for proc in started:
+                    if proc.poll() is None:
+                        proc.kill()
+
+    def test_asking_for_a_new_tunnels_name_goes_on_after_an_answer_cut_short(self):
+        import http.client
+        from shellphone import outside as mod
+        t, asked = mod.Tunnel(1), []
+        t.url, t.alive = "https://fake-name.trycloudflare.com", lambda: True
+
+        class Said:
+            def read(self): return b'{"Answer": [{"data": "1.2.3.4"}]}'
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def urlopen(req, timeout=None):
+            asked.append(req.full_url)
+            if len(asked) == 1:
+                raise http.client.IncompleteRead(b"{")
+            return Said()
+        with patch.object(mod.urllib.request, "urlopen", urlopen), patch.object(mod.time, "sleep", lambda s: None):
+            self.assertTrue(t._named())
+        self.assertEqual(len(asked), 2)
+
+    def test_what_counts_as_an_answer(self):
+        from shellphone import outside as mod
+        import http.client
+        with tempfile.TemporaryDirectory() as td:
+            o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)
+            o.open, o.room, o.secret, o.host = True, "room-1", "s3cret", "name.trycloudflare.com"
+
+            class Said:
+                def __init__(self, body, status=200): self.body, self.status = body, status
+                def read(self, n=-1):
+                    if isinstance(self.body, Exception): raise self.body
+                    return self.body
+                def __enter__(self): return self
+                def __exit__(self, *a): return False
+            asked = []
+
+            def net(room_answer, online):
+                class Opener:
+                    def open(self, req, timeout=None):
+                        url = req.full_url
+                        if "trycloudflare.com" in url:
+                            n = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["n"][0]
+                            asked.append(n)
+                            got = room_answer(n) if callable(room_answer) else room_answer
+                            if isinstance(got, Exception) and not isinstance(got, http.client.IncompleteRead): raise got
+                            return got if isinstance(got, Said) else Said(got)
+                        if not online: raise OSError("no network")
+                        return Said(b"ok")
+                return Opener()
+            mine = lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": o.proof(n)}).encode()
+            cases = (
+                (mine, True, True), (mine, False, True),
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": ""}).encode(), True, False),          # this room's name, no proof
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": "0" * 64}).encode(), True, False),    # a wrong proof
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": o.proof("0" * 32)}).encode(), True, False),  # a proof for another number
+                (lambda n: json.dumps({"shellphone": True, "room": "someone-else", "proof": o.proof(n)}).encode(), True, False),
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1"}).encode(), True, False),
+                (b"<html>not a room</html>", True, False), (b"[]", True, False),
+                (lambda n: Said(mine(n), status=203), True, False),
+                (OSError("name not known"), True, False), (OSError("name not known"), False, None),
+                (http.client.IncompleteRead(b"{"), True, False),          # an answer cut short is a miss like any other
+                (http.client.RemoteDisconnected("gone"), True, False), (http.client.BadStatusLine("x"), False, None),
+            )
+            for room_answer, online, want in cases:
+                with patch.object(mod, "STAY", net(room_answer, online)):
+                    self.assertIs(o._answers(), want, (room_answer, online))
+            self.assertTrue(all(re.fullmatch(r"[0-9a-f]{32}", n) for n in asked) and len(set(asked)) == len(asked))  # a new number each time
+            o.host = None
+            self.assertIsNone(o._answers())
+
+    def test_no_redirect_is_followed_when_the_room_looks_at_itself(self):
+        from shellphone import outside as mod
+        self.assertIsInstance(mod.STAY, urllib.request.OpenerDirector)
+        seen = []
+
+        class Elsewhere(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.path)
+                if self.path.startswith("/api/up"):
+                    self.send_response(302); self.send_header("Location", "/elsewhere"); self.end_headers()
+                else:
+                    self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+            def log_message(self, *a): pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Elsewhere)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with self.assertRaises(urllib.error.HTTPError):
+                mod.STAY.open(f"http://127.0.0.1:{srv.server_address[1]}/api/up?n=1", timeout=5)
+            self.assertEqual(seen, ["/api/up?n=1"])
+        finally:
+            srv.shutdown()
+
+    def test_the_watch_goes_on_whatever_goes_wrong_in_one_round(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td)
+            def broken(*a): raise RuntimeError("an answer cut short")
+            self.assertIsNone(o._look(broken))
+            self.assertIn("Still watching", o.said[-1])
+            self.assertEqual(o._look(lambda: "reopened"), "reopened")
+        # and for real: a watch whose every look fails is still looking, and still ends when the room stops sharing
+        with tempfile.TemporaryDirectory() as td:
+            from shellphone import outside as mod
+            o, looks = self.shared(td), []
+            def check(): looks.append(1); raise RuntimeError("cut short")
+            o._check = check
+            stop = threading.Event()
+
+            class Quick:
+                def wait(self, s): time.sleep(0.01); return stop.is_set()
+                def is_set(self): return stop.is_set()
+            with patch.object(mod, "CHECK", 0):
+                t = threading.Thread(target=o._watch, args=(Quick(),), daemon=True); t.start()
+                time.sleep(0.5); stop.set(); t.join(2)
+            self.assertGreater(len(looks), 3)
+            self.assertFalse(t.is_alive())

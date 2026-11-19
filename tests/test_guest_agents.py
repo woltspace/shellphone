@@ -92,6 +92,13 @@ class GuestAgents(unittest.TestCase):
         self.assertEqual(as_agent.ask("GET", "/api/state?after=0")[0], 403)  # an agent's key is not a person's
         self.assertEqual(as_agent.ask("POST", "/lodge/files", {})[0], 404)  # and only the short list of agent calls is open
 
+        status, chat = sam.ask("POST", "/api/messages", {"text": "a chat of Sam's"})
+        self.assertEqual(status, 200, chat)
+        switch = lambda person, wolt, state: person.ask("POST", "/api/thread-who", {"thread": chat["id"], "wolt": wolt, "state": state})[0]
+        self.assertEqual(switch(sam, "samsagent", "paused"), 200)  # in a chat, Sam pauses Sam's own agent
+        self.assertEqual(sam.ask("GET", "/api/state?after=0")[1]["who"][chat["id"]]["samsagent"], "paused")
+        self.assertEqual(switch(sam, "samsagent", "in"), 200)  # and brings it back
+        self.assertEqual(switch(sam, "evebot", "paused"), 403)  # but not Eve's
         self.assertEqual(sam.ask("POST", "/api/wolt", {"wolt": "samsagent", "state": "removed"})[0], 200)  # Sam's own: Sam may
         self.assertNotEqual(sh("post", "--config", cfg, input="gone?")[0], 0)
 
@@ -137,7 +144,7 @@ class GuestAgents(unittest.TestCase):
         # even holding the new link's invite secret, the key from the old link opens nothing
         status, got = Page(base, room2, "i", isec2, key).ask("POST", "/lodge/working", {})
         self.assertEqual(status, 401, got)
-        self.assertIn("unlinked since you joined", got["error"])
+        self.assertIn("stopped being shared since you joined", got["error"])
         # its human brings it back with a fresh message
         host2 = Page(base, room2, "h", hsec2, htok2)
         texts = [m.get("text") for m in host2.ask("GET", "/api/state?after=0")[1]["messages"]]

@@ -24,8 +24,88 @@ const REOPEN = 10 * 60 * 1000;         // a host back within this long is the sa
 const quietFor = (env) => number(env.QUIET_SECONDS, 60) * 1000;  // a socket that says it's here every 20 s, and hasn't for this long, has gone without a goodbye
 const PING = '{"ping":1}', PONG = '{"pong":1}';
 const CLAIM = /^[A-Za-z0-9_-]{43}$/;   // what a host shows to prove a room is its own: a hash only the host's link can make (see Room.fetch)
+const INSTANCE = /^[A-Za-z0-9_-]{22}$/;  // names the host's process: its own reconnect is let in at once
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
 const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
+// A signpost: a lasting address (/t/ID) for a room that is reached through a tunnel of its own, whose address changes
+// at every start. The room says where it is now; a visitor is sent on. Nothing of the chat passes through here.
+const SIGN = /^\/t\/([A-Za-z0-9_-]{16,64})(\/where)?$/;
+const SIGN_SECRET = /^Bearer ([A-Za-z0-9_-]{32,128})$/;
+const TUNNEL = /^https:\/\/[a-z0-9]+(-[a-z0-9]+)*\.trycloudflare\.com$/;  // the only place a signpost may point: a Cloudflare quick tunnel
+const LOCAL_ROOM = /^http:\/\/127\.0\.0\.1:\d{2,5}$/;                      // and, only where SIGN_LOCAL is "1" (tests on one computer), a room on that computer
+const pointable = (env, to) => typeof to === "string" && (TUNNEL.test(to) || (env.SIGN_LOCAL === "1" && LOCAL_ROOM.test(to)));
+
+// At the most `max` bytes of a body, as text; null if there is more. Read piece by piece, so a body that never ends,
+// or is far too big, is dropped as soon as that shows, not after it was all taken in.
+async function shortText(body, max) {
+  if (!body) return "";
+  const reader = body.getReader(), parts = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.length;
+    if (n > max) { try { await reader.cancel(); } catch { /* gone already */ } return null; }
+    parts.push(value);
+  }
+  const all = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) { all.set(p, at); at += p.length; }
+  return new TextDecoder().decode(all);
+}
+
+async function hash(text) {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+// Is it this room that answers at that address, right now? Asked before anyone is sent there, and before an address
+// is taken down: an address can become somebody else's, and a visitor's link carries their key to the room. So the
+// room proves itself: it signs a number picked here with a key only it and this site hold (check, made from its
+// secret). No redirect is followed, the wait and the answer are short, and anything unexpected counts as "no".
+async function roomAt(to, id, check) {
+  try {
+    const n = hex(crypto.getRandomValues(new Uint8Array(16)));
+    const answer = await fetch(`${to}/api/up?n=${n}`, { redirect: "manual", signal: AbortSignal.timeout(4000), headers: { "user-agent": "shellphone-site/1" } });
+    if (answer.status !== 200) return false;
+    const text = await shortText(answer.body, 2000);
+    if (text === null) return false;
+    const got = JSON.parse(text);
+    if (!got || got.shellphone !== true || got.room !== id || typeof got.proof !== "string") return false;
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(check), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    return same(got.proof, hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(n))));
+  } catch { return false; }
+}
+
+async function signpost(request, env, id, where, page) {
+  if (request.method === "GET" && !where) return page("/go.html");  // the page that asks where the room is, then goes there
+  if (request.method === "GET") {
+    const known = await desk(env).where(id);
+    const to = known.url && pointable(env, known.url) && (await roomAt(known.url, id, known.check)) ? known.url : null;
+    return json(200, { known: known.known, url: to });
+  }
+  if (request.method !== "POST" || where) return new Response("not found", { status: 404 });
+  const shown = (request.headers.get("Authorization") || "").match(SIGN_SECRET);
+  if (!shown) return json(401, { error: "a room proves itself with its secret" });
+  let body;
+  try {
+    const text = await shortText(request.body, 2000);
+    if (text === null) return json(413, { error: "too big" });
+    body = JSON.parse(text);
+  } catch { return json(400, { error: "not json" }); }
+  const to = body && typeof body.url === "string" ? body.url : null, gone = !!(body && body.gone === true);
+  const seq = body && Number.isSafeInteger(body.seq) && body.seq > 0 ? body.seq : null;
+  if (seq === null) return json(400, { error: "say which message this is (seq)" });
+  if (to === null || (to !== "" && !pointable(env, to))) return json(400, { error: "a room can only be reached through a Cloudflare quick tunnel here" });
+  // The two hashes are all that's kept of the secret: claim tells this room again, check is what it proves itself
+  // with when asked. Neither is enough to speak for the room here.
+  const claim = await hash("shellphone-sign\0" + id + "\0" + shown[1]), check = await hash("shellphone-check\0" + id + "\0" + shown[1]);
+  if (to && !gone && !(await roomAt(to, id, check))) return json(400, { error: "the room doesn't answer at that address yet" });
+  const said = await desk(env).point(id, claim, check, gone ? "" : to, gone, seq);
+  return json(said.ok ? 200 : said.status, said.ok ? { ok: true } : { error: said.why });
+}
+
 const TAPS = ["more", "mic", "file"];  // "more" is the paperclip that opens the list; "mic" and "file" are its "coming soon" lines. A tap on one is counted, to learn what people want
 const TAPS_PER_DAY = 5000;      // of each, at the most: past that a day's taps aren't counted (or written) any more
 const TAPS_PER_SECOND = 20;     // and this many a second is all one copy of the Worker passes on to the desk
@@ -78,6 +158,8 @@ export default {
       if (!env.HOST_KEY || !same(request.headers.get("Authorization") || "", "Bearer " + env.HOST_KEY)) return new Response("not found", { status: 404 });
       return json(200, await desk(env).stats());
     }
+    const t = url.pathname.match(SIGN);
+    if (t) return signpost(request, env, t[1], !!t[2], page);
     if (!m) return PAGES[url.pathname] && request.method === "GET" ? page(PAGES[url.pathname]) : new Response("not found", { status: 404 });
     const [, room, , what] = m;
     if (!what) return page("/room.html");  // the chat page, at the room's own address: it reads the key from the link itself
@@ -113,8 +195,18 @@ export class Desk extends DurableObject {
     this.sql = ctx.storage.sql;
     this.sql.exec("create table if not exists rooms (id text primary key, open integer not null, at integer not null, gen integer not null)");
     this.sql.exec("create table if not exists counters (name text primary key, n integer not null)");
+    this.sql.exec("create table if not exists peaks (day text not null, what text not null, n integer not null, primary key (day, what))");
     this.sql.exec("create table if not exists taps (day text not null, what text not null, n integer not null, primary key (day, what))");
+    this.sql.exec("create table if not exists signs (id text primary key, claim text not null, proof text not null, url text not null, at integer not null, seq integer not null, gone integer not null default 0)");
+    this.sql.exec("create table if not exists sign_days (day text primary key, made integer not null default 0, moved integer not null default 0, lookups integer not null default 0, refused integer not null default 0)");
     this.sql.exec("create table if not exists days (day text primary key, rooms_opened integer not null default 0, connections integer not null default 0, frames integer not null default 0, refused integer not null default 0)");
+    // The totals so far begin with what the desk already knows: once, from the per-day rows it has kept.
+    if (!this.sql.exec("select n from counters where name = 'ever_seeded'").toArray().length) {
+      const relay = this.sql.exec("select coalesce(sum(rooms_opened), 0) as n from days").one().n, tunnel = this.sql.exec("select coalesce(sum(made), 0) as n from sign_days").one().n;
+      const first = this.sql.exec("select min(day) as day from (select day from days where rooms_opened > 0 union all select day from sign_days where made > 0)").one().day;
+      this.sql.exec("insert into counters (name, n) values ('ever_relay', ?), ('ever_tunnel', ?), ('ever_seeded', 1) on conflict (name) do nothing", relay, tunnel);
+      if (first) this.sql.exec("insert into counters (name, n) values ('ever_since', ?) on conflict (name) do nothing", Date.parse(first + "T00:00:00Z"));
+    }
   }
 
   day(now) { return new Date(now).toISOString().slice(0, 10); }
@@ -123,8 +215,8 @@ export class Desk extends DurableObject {
     this.sql.exec(`insert into days (day, ${what}) values (?, ?) on conflict (day) do update set ${what} = ${what} + ?`, this.day(now), n, n);
   }
   tidy(now) {
+    this.mark(now);  // before anything is cleared away
     this.sql.exec("delete from rooms where (open = 1 and at < ?) or (open = 0 and at < ?)", now - stale(this.env), now - REOPEN);
-    this.sql.exec("delete from days where day < ?", this.day(now - 90 * 86400 * 1000));
     this.sql.exec("delete from taps where day < ?", this.day(now - 90 * 86400 * 1000));
   }
   count() { return this.sql.exec("select count(*) as n from rooms where open = 1").one().n; }
@@ -143,10 +235,12 @@ export class Desk extends DurableObject {
       const today = this.sql.exec("select rooms_opened as n from days where day = ?", this.day(now)).toArray()[0];
       if ((today ? today.n : 0) >= number(this.env.MAX_ROOMS_PER_DAY, 200)) { this.add(now, "refused", 1); return { ok: false, why: "the relay has opened all the rooms it may today" }; }
       this.add(now, "rooms_opened", 1);
+      this.ever(now, "ever_relay");
     }
     this.sql.exec("insert into counters (name, n) values ('gen', 1) on conflict (name) do update set n = n + 1");
     const gen = this.sql.exec("select n from counters where name = 'gen'").one().n;  // the desk's own count: a forgotten room's number never comes round again
     this.sql.exec("insert into rooms (id, open, at, gen) values (?, 1, ?, ?) on conflict (id) do update set open = 1, at = ?, gen = ?", id, now, gen, now, gen);
+    this.mark(now);
     return { ok: true, gen };
   }
 
@@ -162,6 +256,7 @@ export class Desk extends DurableObject {
     if (!known || !known.open) {
       if (this.full()) return { ok: false };
       this.sql.exec("insert into rooms (id, open, at, gen) values (?, 1, ?, ?) on conflict (id) do update set open = 1, at = ?", id, now, gen, now);
+      this.mark(now);  // it has a place again: it counts for today
       return { ok: true };
     }
     this.sql.exec("update rooms set at = ? where id = ?", now, id);
@@ -172,9 +267,81 @@ export class Desk extends DurableObject {
   // goodbye that arrives after the room's next host was let in changes nothing.
   leave(id, gen, connections, frames) {
     const now = Date.now();
+    this.mark(now);
     this.add(now, "connections", connections);
     this.add(now, "frames", frames);
     this.sql.exec("update rooms set open = 0, at = ? where id = ? and gen = ?", now, id, gen);
+  }
+
+  // Rooms shared so far, by way: totals that are never cleared, and neither are the per-day rows (one small row a
+  // day). They live in the desk's own storage, which a deploy doesn't touch. They begin with the days the desk had
+  // kept when this was first deployed (see the constructor), and say nothing about which rooms. Only in stats().
+  ever(now, what) {
+    this.sql.exec("insert into counters (name, n) values ('ever_since', ?) on conflict (name) do nothing", now);
+    this.sql.exec("insert into counters (name, n) values (?, 1) on conflict (name) do update set n = n + 1", what);
+  }
+  // Online now, and the most at once on each day (kept for good, one small row a day and way). Both are estimates,
+  // from what rooms told the desk, not from live connections. Through the relay it is the rooms holding a place
+  // here: one whose host went silent keeps it until its next report is missed. Through a tunnel it is the rooms
+  // that said they are shared and haven't said they closed: one whose computer went to sleep still counts.
+  // The day's most is noted whenever the desk is told or asked something, and before anything lowers a count, so
+  // rooms carried over midnight count for the new day from its first such moment. A day on which the desk heard
+  // nothing at all has no row.
+  shared() { return this.sql.exec("select count(*) as n from signs where url != '' and gone = 0").one().n; }
+  mark(now) {
+    const fresh = this.sql.exec("select count(*) as n from rooms where open = 1 and at >= ?", now - stale(this.env)).one().n;  // not one that went silent and is about to be cleared away
+    for (const [what, n] of [["relay", fresh], ["tunnel", this.shared()]])
+      this.sql.exec("insert into peaks (day, what, n) values (?, ?, ?) on conflict (day, what) do update set n = max(n, excluded.n)", this.day(now), what, n);
+  }
+  everNow() {
+    const got = Object.fromEntries(this.sql.exec("select name, n from counters where name like 'ever_%'").toArray().map((r) => [r.name, r.n]));
+    const relay = got.ever_relay || 0, tunnel = got.ever_tunnel || 0;
+    return { relay, tunnel, all: relay + tunnel, since: got.ever_since ? this.day(got.ever_since) : null };
+  }
+
+  // Signposts (see signpost above). Per day: made (new ones), moved (a room said it is somewhere new: about once per
+  // start), lookups (someone, or an agent, asked where a room is), refused (turned away by a cap).
+  signed(now, what) {
+    this.sql.exec(`insert into sign_days (day, ${what}) values (?, 1) on conflict (day) do update set ${what} = ${what} + 1`, this.day(now));
+  }
+
+  // A room says where it is now ("" = closed for now), or that it is unlinked. The first to point an id owns it:
+  // only the same secret (its hash, claim) may point it again. Unlinked is for good, and so is an id: once taken it
+  // is never given to anyone else, however long ago that was, so nobody can take one over and collect the keys that
+  // old links still carry. (A room that unlinks before the site ever heard of it is written down as unlinked all
+  // the same: its first message may still be on its way.) Each message has a number (seq) that only goes up, so one
+  // that arrives late changes nothing.
+  point(id, claim, check, url, gone, seq) {
+    const now = Date.now();
+    this.mark(now);
+    const known = this.sql.exec("select claim, url, seq, gone from signs where id = ?", id).toArray()[0];
+    if (known && !same(known.claim, claim)) return { ok: false, status: 403, why: "this address belongs to another room" };
+    if (known && known.gone) return gone ? { ok: true } : { ok: false, status: 410, why: "this room was unlinked: its address is closed for good" };
+    if (known && seq <= known.seq) return { ok: false, status: 409, why: "a later message from this room was already taken" };
+    if (!known) {
+      if (!url && !gone) return { ok: true };  // closed before it was ever open: nothing to keep
+      const today = this.sql.exec("select made as n from sign_days where day = ?", this.day(now)).toArray()[0];
+      const all = this.sql.exec("select count(*) as n from signs where gone = 0").one().n;
+      if ((today ? today.n : 0) >= number(this.env.MAX_SIGNS_PER_DAY, 1000) || all >= number(this.env.MAX_SIGNS, 5000)) {
+        this.signed(now, "refused");
+        return { ok: false, status: 429, why: "the site has given out all the room addresses it may for now: try again tomorrow" };
+      }
+      this.sql.exec("insert into signs (id, claim, proof, url, at, seq, gone) values (?, ?, ?, ?, ?, ?, ?)", id, claim, check, url, now, seq, gone ? 1 : 0);
+      this.signed(now, "made");
+      this.ever(now, "ever_tunnel");
+      this.mark(now);
+      return { ok: true };
+    }
+    if (url && url !== known.url) this.signed(now, "moved");
+    this.sql.exec("update signs set url = ?, at = ?, seq = ?, gone = ? where id = ?", url, now, seq, gone ? 1 : 0, id);
+    this.mark(now);
+    return { ok: true };
+  }
+
+  where(id) {
+    const row = this.sql.exec("select url, proof, gone from signs where id = ?", id).toArray()[0];
+    this.signed(Date.now(), "lookups");
+    return { known: !!row && !row.gone, url: row ? row.url : "", check: row ? row.proof : "" };
   }
 
   tap(what) {  // one more tap on a "coming soon" button, up to a day's limit
@@ -192,7 +359,11 @@ export class Desk extends DurableObject {
     this.tidy(Date.now());
     return { open_rooms: this.count(), max_rooms: number(this.env.MAX_ROOMS, 20), max_rooms_per_day: number(this.env.MAX_ROOMS_PER_DAY, 200),
       days: this.sql.exec("select * from days order by day desc limit 30").toArray(),
-      taps: this.sql.exec("select day, what, n from taps order by day desc, what limit 60").toArray() };
+      taps: this.sql.exec("select day, what, n from taps order by day desc, what limit 60").toArray(),
+      signs: this.sql.exec("select count(*) as n from signs where gone = 0").one().n, signs_unlinked: this.sql.exec("select count(*) as n from signs where gone = 1").one().n, signs_open: this.sql.exec("select count(*) as n from signs where url != ''").one().n,
+      sign_days: this.sql.exec("select * from sign_days order by day desc limit 30").toArray(), ever: this.everNow(),
+      online: { relay: this.count(), tunnel: this.shared(), all: this.count() + this.shared(), estimate: true },
+      peaks: this.sql.exec("select day, what, n from peaks order by day desc, what limit 60").toArray() };
   }
 }
 
@@ -306,12 +477,21 @@ export class Room extends DurableObject {
     // A host that proves the room is its own shows a claim: a hash of the room, its secret and the host's token,
     // which only the host's link holds (the relay can't turn it back into any of them, and a guest's link has
     // other secrets). The room keeps the claim of the host it let in. A host arriving while one is listed is
-    // let in only in its place: same claim, and the listed one gone quiet. That is the room's own process
-    // coming back after its connection died. Anything else is turned away, as before.
+    // let in only in its place, and only with the same claim: that is the room's own process coming back on a new
+    // connection. It is let in at once, without waiting for the listed one to go quiet: a connection cut without a
+    // goodbye looks alive here for up to QUIET_SECONDS, and the room would be offline all that time. The one it
+    // replaces is closed with 4409, and a host told 4409 stops, so two copies of one room don't take turns.
+    // At once only for the same process: a host names its process with X-Shellphone-Instance, and only a host showing
+    // the listed host's instance takes over without the wait. Another copy of the room (same link, other process), or
+    // a host from before that names none, still waits for the listed one to go quiet, as before: so two copies, old or
+    // new, never put each other out every second.
+    // Anything else is turned away, as before.
     const shown = (request.headers && request.headers.get("X-Shellphone-Claim")) || "", claim = CLAIM.test(shown) ? shown : "";
+    const named = (request.headers && request.headers.get("X-Shellphone-Instance")) || "", instance = INSTANCE.test(named) ? named : "";
     if (role === "host" && listed) {
-      const was = listed.deserializeAttachment().claim;
-      if (!(was && claim && same(was, claim) && this.quiet(listed))) return new Response("this room already has a host", { status: 409 });
+      const was = listed.deserializeAttachment();
+      const now = !!(instance && was.instance && same(was.instance, instance));
+      if (!(was.claim && claim && same(was.claim, claim) && (now || this.quiet(listed)))) return new Response("this room already has a host", { status: 409 });
     }
     if (role === "client" && !here) return new Response("room is offline", { status: 404 });
     if (role === "client") for (const c of this.clients()) if (this.quiet(c)) this.drop(c);  // pages that went without a goodbye don't hold a place
@@ -332,7 +512,7 @@ export class Room extends DurableObject {
     const pair = new WebSocketPair();
     const id = role === "host" ? "host" : crypto.randomUUID().replaceAll("-", "").slice(0, 16);  // the relay names clients; they can't
     this.ctx.acceptWebSocket(pair[1], [role]);
-    pair[1].serializeAttachment(role === "host" ? { role, id, at: 0, n: 0, gen: place.gen, lease: Date.now(), since: Date.now(), ...(claim ? { claim } : {}) }
+    pair[1].serializeAttachment(role === "host" ? { role, id, at: 0, n: 0, gen: place.gen, lease: Date.now(), since: Date.now(), ...(claim ? { claim } : {}), ...(instance ? { instance } : {}) }
       : { role, id, at: 0, n: 0, since: Date.now() });
     if (role === "client") {
       const host = this.host(), who = host.deserializeAttachment();

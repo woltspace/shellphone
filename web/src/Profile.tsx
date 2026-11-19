@@ -81,11 +81,15 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
   const act = async (f: () => Promise<string | null>) => { setBusy(true); setAsking(false); setNote((await f()) || ""); setBusy(false); };
   const chip = "flex items-center gap-1.5 h-9 px-3 rounded-full border font-mono text-[12.5px] font-semibold cursor-pointer disabled:opacity-50";
   const sec = "mt-4 mb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim";
-  return <div className="absolute inset-0 z-[1660]">
-    <div onClick={bye} className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
-    <div ref={panel} {...swipe} role="dialog" aria-label={name} style={{ height: "max(340px, 46dvh)" }} className="absolute inset-x-0 bottom-0 max-w-[640px] mx-auto flex flex-col bg-paper rounded-t-[18px] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)] overflow-hidden">
+  // on a computer screen: a window in the middle over the faded room; on a phone, the sheet from the bottom
+  const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches;
+  return <div className={`absolute inset-0 z-[1660] ${wide ? "grid place-items-center" : ""}`}>
+    <div onClick={bye} className={`absolute inset-0 animate-[fadein_.15s_ease-out] ${wide ? "bg-[#18100a59] backdrop-blur-[3px]" : "bg-[#18100a55]"}`} />
+    <div ref={panel} {...(wide ? {} : swipe)} role="dialog" aria-label={name} style={wide ? { maxHeight: "84vh" } : { height: "max(340px, 46dvh)" }}
+      className={wide ? "relative w-[min(560px,92vw)] flex flex-col bg-paper rounded-2xl shadow-[0_24px_70px_#18100a59] animate-[pop_.2s_cubic-bezier(.2,.8,.2,1)] overflow-hidden"
+        : "absolute inset-x-0 bottom-0 max-w-[640px] mx-auto flex flex-col bg-paper rounded-t-[18px] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)] overflow-hidden"}>
       <div className="flex-none px-4 pt-2 pb-3" style={{ background: `linear-gradient(${mix(color, "#ffffff", 0.78)}, transparent)` }}>
-        <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />
+        {wide ? <div className="h-2" /> : <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />}
         <div className="flex items-center gap-3">
           {/* tap the face for hats, when the hat is yours to change */}
           <button type="button" disabled={!mayHat} onClick={() => setHats(!hats)} aria-expanded={mayHat ? hats : undefined} aria-label={mayHat ? `${name}'s hat` : undefined}
@@ -126,7 +130,7 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
           <div className={sec}>Working on it now</div>
           {working.map((t) => { const r = byId.get(t); return <button type="button" key={t || "main"} onClick={() => t && onOpen(t)}
             className="w-full flex items-center gap-2 py-2 px-2.5 mb-1 rounded-xl border border-line bg-[#fffdf6] gnaw-row text-left cursor-pointer">
-            {t && <ThreadHat id={t} className="w-5 h-5" />}<span className="flex-1 min-w-0 truncate font-mono text-[13px] font-semibold">{t ? threadTitle(r) : "the lobby"}</span><span className="lore font-mono text-[11px] font-semibold">gnawing…</span></button>; })}
+            {t && <ThreadHat id={t} className="w-5 h-5" />}<span className="flex-1 min-w-0 truncate font-mono text-[13px] font-semibold">{t ? threadTitle(r) : "a new chat"}</span><span className="lore font-mono text-[11px] font-semibold">gnawing…</span></button>; })}
         </>}
         {wolts.length > 0 && <>
           <div className={sec}>Their wolts</div>

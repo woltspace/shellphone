@@ -62,7 +62,7 @@ function faces(list: Msg[], ctx: Ctx, most = 3) {
   return out.slice(0, most);
 }
 
-// Home is the list of chats: there is no main chat to talk in (the old one is the lobby, one row on home).
+// Home is the list of chats: there is no main chat to talk in (every message said there is a chat of its own).
 export const useChatsHome = () => true;
 
 // What you've read in each thread lives on this phone only: the last message number you saw there.
@@ -77,6 +77,8 @@ export function useSeen() {
   return { seen, mark };
 }
 export const unread = (list: Msg[], seen: number | undefined, me: string) => list.some((m) => m.n > (seen || 0) && !(m.kind === "human" && m.email === me));
+// A chat's first message is new too, until you open the chat (or, from before chats, read it in the main chat).
+export const rootFresh = (r: Msg, seen: Record<string, number>, me: string) => r.n > Math.max(seen[r.id] || 0, seen.main || 0) && !(r.kind === "human" && r.email === me);
 
 // A message's thread, as a bar along the bottom of its bubble: who replied, how many, a dot when there's something new.
 // It's part of the message, so it reads as "tap to open".
@@ -151,7 +153,7 @@ type RowsProps = { main: Msg[]; all: Msg[]; roots: Msg[]; replies: Map<string, M
   onMain: () => void; onOpen: (id: string) => void; lobby?: boolean };
 export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain, onOpen, lobby }: RowsProps) {
   const newCount = (list: Msg[], id: string) => list.filter((m) => m.n > (seen[id] || 0) && !(m.kind === "human" && m.email === ctx.me)).length;
-  const items = roots.map((r) => { const rs = replies.get(r.id) || [], list = [r, ...rs]; return { id: r.id, r, list, last: list.at(-1)!, n: newCount(rs, r.id) }; });
+  const items = roots.map((r) => { const rs = replies.get(r.id) || [], list = [r, ...rs]; return { id: r.id, r, list, last: list.at(-1)!, n: newCount(rs, r.id) + (rootFresh(r, seen, ctx.me) ? 1 : 0) }; });
   if (all.length) items.push({ id: "", r: all[0], list: all, last: all.at(-1)!, n: main.length });
   items.sort((a, b) => b.last.at - a.last.at);
   const unreadRows = items.filter((i) => i.n).length;
@@ -168,7 +170,7 @@ export function chatRows({ main, all, roots, replies, ctx, seen, current, onMain
       className={`flex w-full text-left bg-transparent border-0 border-b-2 border-line px-3 py-4 cursor-pointer active:opacity-70 ${here ? "bg-[#c4531e0d]" : ""}`}>
       {/* the wallpaper shows around it; what you read sits on solid ground: the title in its own band, then the latest message
           in the colour of whoever said it */}
-      <span className="flex-1 min-w-0 rounded-2xl border-2 overflow-hidden shadow-[0_2px_8px_#18100a24]" style={{ borderColor: color + "99" }}>
+      <span className="flex-1 min-w-0 rounded-2xl border-2 overflow-hidden shadow-[0_2px_8px_#18100a24]" style={{ borderColor: here ? color : color + "99", boxShadow: here ? `0 0 0 3px ${color}66, 0 2px 8px #18100a24` : undefined }}>
         <span className="flex items-center gap-2 px-3.5 py-2 border-b-2 font-mono text-[14px] font-bold" style={{ borderColor: color + "55", background: mix(color, "#ffffff", 0.9) }}>
           <span className="flex-1 min-w-0 truncate" style={{ color }}>{id ? threadTitle(r) : lobby ? "# lobby" : "# main chat"}</span>
           {n > 0 && count(n)}

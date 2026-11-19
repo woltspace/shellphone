@@ -50,14 +50,15 @@ function newRoom(name, desk, via = (d) => d) {
     getWebSocketAutoResponseTimestamp: (sock) => (sock.pinged ? new Date(sock.pinged) : null),
   };
   const room = new Room(ctx, { BEAT_SECONDS: "10", DESK: { idFromName: () => "desk", get: () => via(desk) } });
-  const come = async (what, claim) => {
-    const res = await room.fetch({ url: `https://relay.test/r/${name}/${what}`, headers: { get: (h) => (h === "X-Shellphone-Claim" && claim) || null } });
+  const come = async (what, claim, instance) => {
+    const said = { "X-Shellphone-Claim": claim, "X-Shellphone-Instance": instance };
+    const res = await room.fetch({ url: `https://relay.test/r/${name}/${what}`, headers: { get: (h) => said[h] || null } });
     return res.status === 101 ? sockets.at(-1).sock : res.status;
   };
   const up = async () => JSON.parse((await room.fetch({ url: `https://relay.test/r/${name}/up` })).body).up;
   const ping = (sock) => { sock.pinged = clock; };  // what Cloudflare notes when a socket says it's here: the room isn't woken
   const gone = (sock) => { sock.closed = 1006; return room.webSocketClose(sock, 1006); };  // the other end went away
-  return { room, ctx, host: (claim) => come("host", claim), client: () => come("ws"), gone, up, ping };
+  return { room, ctx, host: (claim, instance) => come("host", claim, instance), client: () => come("ws"), gone, up, ping };
 }
 
 test("a room that reports too late loses its place, and is told so", () => {
@@ -74,6 +75,7 @@ test("a room that reports too late loses its place, and is told so", () => {
   assert.deepEqual(desk.report("a", a.gen, 2, 9), { ok: true });   // with a place free, a late room gets one back
   const s = desk.stats();
   assert.deepEqual([s.open_rooms, s.days[0].rooms_opened, s.days[0].connections, s.days[0].frames], [1, 2, 2, 9]);  // not a new room; its counts kept
+  assert.deepEqual([s.ever.relay, s.ever.tunnel, s.ever.all], [2, 0, 2]);  // the total so far counts a room once, like the day's
 });
 
 test("a goodbye from an earlier host can't close the room's next one", () => {
@@ -229,7 +231,7 @@ test("only one host at a time asks the desk for a room's place", async () => {
   assert.equal((await first).deserializeAttachment().gen, 1);
 });
 
-const MINE = "A".repeat(43), OTHER = "B".repeat(43);
+const MINE = "A".repeat(43), OTHER = "B".repeat(43), ME = "p".repeat(22), COPY = "q".repeat(22);  // ME, COPY: two processes
 
 test("a host that died without a goodbye is replaced by its own room coming back, and by nobody else", async () => {
   const desk = newDesk(), r = newRoom("a", desk);
@@ -237,11 +239,8 @@ test("a host that died without a goodbye is replaced by its own room coming back
   r.ping(first);
   const page = await r.client();
   assert.equal(await r.up(), true);
-  assert.equal(await r.host(MINE), 409);   // still saying it's here: nobody takes its place, not even itself
   later(20_000); r.ping(first);
-  later(59_000);
-  assert.equal(await r.host(MINE), 409);   // 59 s of silence isn't gone yet
-  later(1_000);                            // a minute: the connection died and the relay was never told
+  later(60_000);                           // a minute: the connection died and the relay was never told
   assert.equal(await r.up(), false);       // so the room no longer shows as up
   assert.equal(await r.client(), 404);     // and nobody is let in to talk to a dead socket
   assert.equal(await r.host(OTHER), 409);  // another room's claim doesn't open this one
@@ -276,6 +275,43 @@ test("a host that died without a goodbye is replaced by its own room coming back
   assert.equal(await r.up(), false);
   assert.equal(desk.stats().open_rooms, 0);
 });
+
+test("the room's own process coming back is let in at once, even while its old connection still looks alive", async () => {
+  const desk = newDesk(), r = newRoom("a", desk);
+  const first = await r.host(MINE, ME);    // a host that names its process
+  r.ping(first);
+  const page = await r.client();
+  later(5_000);                            // the old connection was cut seconds ago: the relay hasn't noticed
+  assert.equal(await r.host(OTHER, ME), 409);  // another room's claim still doesn't take it
+  assert.equal(await r.host(), 409);       // nor does no claim
+  assert.equal(await r.host(MINE), 409);   // nor its own claim from a host that names no process
+  assert.equal(await r.host(MINE, COPY), 409);  // nor another copy of the room, in another process
+  first.lingers = page.lingers = true;
+  const second = await r.host(MINE, ME);   // its own claim, from the same process: in, straight away
+  assert.equal(typeof second, "object");
+  assert.equal(first.closed, 4409);        // the one it replaced is told why, and stops
+  assert.equal(page.closed, 4404);
+  assert.equal(r.room.host(), second);
+  assert.equal(await r.up(), true);
+  assert.equal(desk.stats().open_rooms, 1);
+});
+
+for (const [listed, coming] of [[undefined, undefined], [undefined, ME], [ME, undefined], [ME, COPY]]) {
+  test(`not the same process (listed ${listed}, coming ${coming}): its own claim waits for the old one to go quiet`, async () => {
+    const desk = newDesk(), r = newRoom("a", desk);
+    const first = await r.host(MINE, listed);
+    r.ping(first);
+    later(59_000);
+    assert.equal(await r.host(MINE, coming), 409);  // still counted alive: the two copies don't put each other out
+    assert.equal(first.closed, null);
+    later(1_000);
+    first.lingers = true;
+    const second = await r.host(MINE, coming);      // gone quiet: in, as before
+    assert.equal(typeof second, "object");
+    assert.equal(first.closed, 4409);
+    assert.equal(r.room.host(), second);
+  });
+}
 
 test("a host from before claims is never judged and never replaced", async () => {
   const desk = newDesk(), r = newRoom("a", desk);
@@ -315,4 +351,69 @@ test("pages that went without a goodbye don't hold a place, and pages that never
   const before = host.sent.length;
   await r.room.webSocketClose(pages[1], 1006);  // its closing, arriving late, isn't counted or told twice
   assert.equal(host.sent.length, before);
+});
+
+test("the day's most online counts rooms carried over midnight, and is noted before a count goes down", () => {
+  const desk = newDesk({ MAX_ROOMS: "5" }), day = () => new Date(clock).toISOString().slice(0, 10);
+  const most = (d) => Object.fromEntries(desk.stats().peaks.filter((p) => p.day === d).map((p) => [p.what, p.n]));
+  clock = Date.parse("2027-03-01T23:59:00Z");
+  const a = desk.open("a");
+  assert.equal(desk.point("t", "claim", "proof", "https://a-b.trycloudflare.com", false, 1).ok, true);
+  const first = day();
+  assert.deepEqual(most(first), { relay: 1, tunnel: 1 });
+  later(2 * 60 * 1000);  // past midnight: nothing new opened
+  const second = day();
+  assert.notEqual(first, second);
+  assert.deepEqual(desk.report("a", a.gen, 0, 0), { ok: true });  // the room says it is still here
+  assert.deepEqual(most(second), { relay: 1, tunnel: 1 });       // both were online on the new day
+  desk.point("t", "claim", "proof", "", false, 2);                // the tunnel room closes
+  desk.leave("a", a.gen, 0, 0);                                   // and the relay room goes
+  assert.deepEqual([desk.stats().online.relay, desk.stats().online.tunnel], [0, 0]);
+  assert.deepEqual(most(second), { relay: 1, tunnel: 1 });       // the day's most stays what it was
+  assert.deepEqual(most(first), { relay: 1, tunnel: 1 });
+});
+
+test("a tunnel room carried over midnight counts for the new day even if the first thing it does is close", () => {
+  const desk = newDesk({ MAX_ROOMS: "5" });
+  clock = Date.parse("2027-04-01T23:59:00Z");
+  desk.point("t", "claim", "proof", "https://a-b.trycloudflare.com", false, 1);
+  later(2 * 60 * 1000);
+  const second = new Date(clock).toISOString().slice(0, 10);
+  desk.point("t", "claim", "proof", "", false, 2);
+  assert.deepEqual(desk.stats().peaks.filter((p) => p.day === second && p.what === "tunnel").map((p) => p.n), [1]);
+});
+
+test("a relay room that went silent the day before is not counted as online on the new day", () => {
+  const desk = newDesk({ MAX_ROOMS: "5" });
+  clock = Date.parse("2027-05-01T23:00:00Z");
+  desk.open("a");
+  later(3 * 3600 * 1000);  // long past its lease, and past midnight, without a word
+  const second = new Date(clock).toISOString().slice(0, 10);
+  assert.equal(desk.stats().online.relay, 0);
+  assert.deepEqual(desk.stats().peaks.filter((p) => p.day === second && p.what === "relay").map((p) => p.n), [0]);
+});
+
+test("a room whose late report gives it its place back counts for that day, with nobody reading the stats in between", () => {
+  const desk = newDesk({ MAX_ROOMS: "5" }), db = desk.sql;
+  const most = (d) => desk.sql.exec("select n from peaks where day = ? and what = 'relay'", d).toArray().map((r) => r.n);  // read straight from storage: stats() would note the count itself
+  clock = Date.parse("2027-06-01T23:00:00Z");
+  const a = desk.open("a");
+  later(2 * 3600 * 1000);  // past its lease and past midnight
+  const second = new Date(clock).toISOString().slice(0, 10);
+  assert.deepEqual(desk.report("a", a.gen, 0, 0), { ok: true });  // late, but its place was free: it has it back
+  assert.equal(desk.live(), 1);
+  assert.deepEqual(most(second), [1]);
+  later(3600 * 1000);  // silent again until the lease runs out
+  desk.open("b");
+  assert.deepEqual(most(second), [1]);  // the day's most stays
+});
+
+test("a room that reports in time after midnight counts for the new day, with nobody reading the stats", () => {
+  const desk = newDesk({ MAX_ROOMS: "5" });
+  clock = Date.parse("2027-07-01T23:59:55Z");
+  const a = desk.open("a");
+  later(8 * 1000);  // within its lease, past midnight
+  const second = new Date(clock).toISOString().slice(0, 10);
+  assert.deepEqual(desk.report("a", a.gen, 0, 0), { ok: true });
+  assert.deepEqual(desk.sql.exec("select n from peaks where day = ? and what = 'relay'", second).toArray().map((r) => r.n), [1]);
 });
