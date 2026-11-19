@@ -35,6 +35,7 @@ TRANSPORTS = {v.transport: v for v in (LOCAL, TUNNEL, RELAY, ACCESS)}
 RULES = {
     "share.see": ({HOST}, False),          # whether the room is shared, and through what
     "share.switch": ({HOST}, True),        # share the room, or stop: being the host is not enough, it takes the room's own computer
+    "room.close": ({HOST}, True),          # close the room itself, as Ctrl-C in its window does: the host, on the room's own computer
     "invite.see": ({HOST}, False),         # the link that lets people in as guests
     "guest_agents.set": ({HOST}, False),   # whether guests may bring agents of their own
     "agent.invite": ({HOST, MEMBER, GUEST}, False),  # a message for one of the caller's own agents (guests: while the host allows it)

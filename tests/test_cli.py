@@ -7,6 +7,7 @@ import http.cookiejar, json, os, re, shlex, signal, subprocess, sys, tempfile, t
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
 from aspage import as_page  # noqa: E402
+import threading
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -883,17 +884,22 @@ class ListAndStop(unittest.TestCase):
             r.proc.wait(10)
         self.assertEqual(self.listed(), [])
 
+    def stale(self, room, port):
+        """A note left behind by `room`, now pointing at `port` and at some other running program of this user's."""
+        folder = next(d for d in Path(self.tmp.name).glob("shellphone-room-*") if (d / "run.json").is_file())
+        note = json.loads((folder / "run.json").read_text())
+        sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        fake = Path(self.tmp.name) / f"shellphone-room-stale-{port}"
+        fake.mkdir()
+        (fake / "run.json").write_text(json.dumps({**note, "pid": sleeper.pid, "port": port}))
+        os.chmod(fake / "run.json", 0o600)
+        return sleeper
+
     def test_a_note_whose_room_no_longer_answers_is_left_alone(self):
         r = self.room()
         port = int(urllib.parse.urlsplit(r.url).port)
-        folder = next(d for d in Path(self.tmp.name).glob("shellphone-room-*") if (d / "run.json").is_file())
-        note = json.loads((folder / "run.json").read_text())
-        sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])  # some other program of this user's
+        sleeper = self.stale(r, 9)
         try:
-            fake = Path(self.tmp.name) / "shellphone-room-stale"
-            fake.mkdir()
-            (fake / "run.json").write_text(json.dumps({**note, "pid": sleeper.pid, "port": 9}))
-            os.chmod(fake / "run.json", 0o600)
             rooms = {x["port"]: x for x in self.listed()}
             self.assertEqual((rooms[9]["answers"], rooms[port]["answers"]), (False, True))
             got = self.cli("stop", "--port", "9")
@@ -903,6 +909,58 @@ class ListAndStop(unittest.TestCase):
         finally:
             sleeper.kill()
             sleeper.wait()
+
+    def test_stop_never_ends_a_program_itself_whatever_answers_on_the_notes_port(self):
+        import http.server
+        asked = []
+
+        class Anything(http.server.BaseHTTPRequestHandler):  # some other service of this user's, that says yes to everything
+            def answer(self):
+                asked.append((self.command, self.path))
+                body = b"{}" if self.path != "/api/close" or len([a for a in asked if a[1] == "/api/close"]) < 2 else b'{"closing": true}'
+                self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+            do_GET = do_POST = answer
+            def log_message(self, *a): pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Anything)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        r = self.room()
+        sleeper = self.stale(r, srv.server_address[1])
+        try:
+            got = self.cli("stop", "--port", str(srv.server_address[1]))
+            self.assertEqual(got.returncode, 1)
+            self.assertIn("doesn't answer as that room: left alone", got.stdout)
+            self.assertNotIn("Closed the room", got.stdout)
+            self.assertIsNone(sleeper.poll())
+            # and even a service that claims to be closing: the program in the note is not ended from here, so nothing is said to be closed
+            got = self.cli("stop", "--port", str(srv.server_address[1]))
+            self.assertIsNone(sleeper.poll())
+            self.assertNotIn("Closed the room", got.stdout)
+            self.assertEqual(got.returncode, 1)
+            self.assertIsNone(r.proc.poll())  # the real room next to it was never asked
+        finally:
+            srv.shutdown()
+            sleeper.kill()
+            sleeper.wait()
+
+    def test_only_the_host_on_the_rooms_own_computer_can_close_it(self):
+        r = self.room()
+        port = int(urllib.parse.urlsplit(r.url).port)
+        folder = next(d for d in Path(self.tmp.name).glob("shellphone-room-*") if (d / "run.json").is_file())
+        token = json.loads((folder / "run.json").read_text())["token"]
+
+        def close(**headers):
+            req = urllib.request.Request(r.url + "/api/close", data=b"{}", method="POST", headers={"Content-Type": "application/json", **headers})
+            try:
+                return urllib.request.urlopen(req, timeout=10).status
+            except urllib.error.HTTPError as e:
+                return e.code
+        self.assertEqual(close(), 403)                                                     # no key
+        self.assertEqual(close(Cookie=f"sp{port}=wrong", **{"X-Shellphone-Key": "wrong"}), 403)
+        self.assertEqual(close(Cookie=f"sp{port}={token}", Origin="https://elsewhere.example"), 403)  # another site's page, with the host's cookie
+        self.assertEqual(close(Cookie=f"sp{port}={token}"), 403)                           # no origin and no key of its own: not the room's own command
+        self.assertIsNone(r.proc.poll())
+        self.assertEqual(close(Cookie=f"sp{port}={token}", **{"X-Shellphone-Key": token}), 200)
+        self.assertEqual(r.proc.wait(10), 0)  # it closed itself, cleanly
 
 
 def HELLO_TEXT(out):
