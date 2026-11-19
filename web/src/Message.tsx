@@ -15,7 +15,48 @@ export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; p
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
+// A ```diff block (or one that reads like a unified diff) as a real diff: each file's name, each hunk's place, line
+// numbers, added lines green and removed lines red. Any other ``` block: plain code that scrolls sideways.
+const looksLikeDiff = (lang: string, body: string) => /^(diff|patch)$/i.test(lang) || /^(diff --git |--- |@@ )/m.test(body) && /^[+-]/m.test(body);
+function Diff({ body }: { body: string }) {
+  type Row = { kind: "file" | "hunk" | "add" | "del" | "ctx" | "meta"; text: string; a?: number; b?: number };
+  const rows: Row[] = []; let a = 0, b = 0;
+  for (const line of body.replace(/\n$/, "").split("\n")) {
+    if (line.startsWith("diff --git ")) { const m = line.match(/ b\/(.+)$/); rows.push({ kind: "file", text: m ? m[1] : line.slice(11) }); continue; }
+    if (/^(index |new file|deleted file|similarity|rename |old mode|new mode)/.test(line)) continue;
+    if (line.startsWith("--- ")) continue;
+    if (line.startsWith("+++ ")) { const f = line.slice(4).replace(/^b\//, ""); if (!rows.length || rows.at(-1)!.kind !== "file") rows.push({ kind: "file", text: f }); continue; }
+    const h = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
+    if (h) { a = +h[1]; b = +h[2]; rows.push({ kind: "hunk", text: h[3].trim() || `line ${b}` }); continue; }
+    if (line.startsWith("+")) rows.push({ kind: "add", text: line.slice(1), b: b++ });
+    else if (line.startsWith("-")) rows.push({ kind: "del", text: line.slice(1), a: a++ });
+    else if (line.startsWith("\\")) rows.push({ kind: "meta", text: line });
+    else rows.push({ kind: "ctx", text: line.slice(1), a: a++, b: b++ });
+  }
+  const added = rows.filter((r) => r.kind === "add").length, removed = rows.filter((r) => r.kind === "del").length;
+  return <div className="my-1.5 rounded-lg border border-[#d9cfbf] bg-white overflow-hidden whitespace-normal text-ink" data-tap>
+    <div className="flex items-center gap-2 px-2.5 py-1 bg-[#f6f1e8] border-b border-[#e6dccd] font-mono text-[11px] text-dim">
+      <span>diff</span><span className="text-[#2f7d4f] font-semibold">+{added}</span><span className="text-[#b33a2b] font-semibold">−{removed}</span></div>
+    <div className="max-h-[420px] overflow-auto"><table className="w-full border-collapse font-mono text-[12px] leading-[1.55]"><tbody>
+      {rows.map((r, i) => r.kind === "file" ? <tr key={i}><td colSpan={3} className="px-2.5 py-1 bg-[#efe8dc] border-y border-[#e2d8c8] font-semibold text-[12px] text-ink">{r.text}</td></tr>
+        : r.kind === "hunk" ? <tr key={i}><td colSpan={3} className="px-2.5 py-0.5 bg-[#eef3fb] text-[#4a5f86] text-[11px]">@@ {r.text}</td></tr>
+        : <tr key={i} className={r.kind === "add" ? "bg-[#e9f7ec]" : r.kind === "del" ? "bg-[#fdecea]" : ""}>
+          <td className="select-none w-0 px-1.5 text-right text-[10.5px] text-[#a99e8f] align-top">{r.a ?? ""}</td>
+          <td className="select-none w-0 px-1.5 text-right text-[10.5px] text-[#a99e8f] align-top">{r.b ?? ""}</td>
+          <td className="pl-1 pr-3 whitespace-pre align-top"><span className={`select-none inline-block w-3 ${r.kind === "add" ? "text-[#2f7d4f]" : r.kind === "del" ? "text-[#b33a2b]" : "text-transparent"}`}>{r.kind === "add" ? "+" : r.kind === "del" ? "−" : " "}</span>{r.text}</td></tr>)}
+    </tbody></table></div>
+  </div>;
+}
 function Words({ text, ctx }: { text: string; ctx: Ctx }) {
+  // fenced blocks first: a diff, or plain code; the rest is words
+  const parts = text.split(/```([\w+-]*)\n?([\s\S]*?)```/g);
+  if (parts.length > 1) return <>{parts.map((part, i) => i % 3 === 0 ? (part.trim() ? <Inline key={i} text={part.replace(/^\n|\n$/g, "")} ctx={ctx} /> : null)
+    : i % 3 === 1 ? null
+    : looksLikeDiff(parts[i - 1], part) ? <Diff key={i} body={part} />
+    : <pre key={i} className="my-1.5 max-h-[420px] overflow-auto rounded-lg border border-[#d9cfbf] bg-white px-3 py-2 font-mono text-[12px] leading-[1.55] whitespace-pre text-ink" data-tap>{part.replace(/\n$/, "")}</pre>)}</>;
+  return <Inline text={text} ctx={ctx} />;
+}
+function Inline({ text, ctx }: { text: string; ctx: Ctx }) {
   const names = mentionNames(ctx.wolts, ctx.people);  // same rule as the @ picker (mentions.js)
   // a little markdown, like the classic page: links, **bold**, `code`, and @tags
   return <>{text.split(/(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\*\*[^*\n]+\*\*|`[^`\n]+`|(?:^|\s)@[\w-]+)/g).map((part, i) => {
@@ -142,7 +183,7 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
       <div className={`flex items-end gap-2 px-3 md:px-5 ${firstOfRun ? "mt-3" : "mt-[3px]"} ${mine ? "justify-end" : ""}`} id={m.cid || m.id}>
         {!mine && (firstOfRun ? <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.openWho?.(human ? "p:" + m.email : "w:" + m.wolt); }} aria-label={`${human ? who.name : m.wolt}'s card`}
           className="flex-none self-start p-0 border-0 bg-transparent cursor-pointer hover:-translate-y-0.5 transition-transform"><img src={avatar} alt="" className="pixel w-9 h-9" /></button> : <span className="flex-none w-9" />)}
-        <div data-bubble className={`min-w-0 max-w-[82%] md:max-w-[min(68%,720px)] px-3.5 py-2 border rounded-[18px] shadow-[0_1px_1.5px_#18100a14] ${mine
+        <div data-bubble className={`min-w-0 ${m.text?.includes("```") ? "w-[92%] md:w-[min(88%,900px)]" : "max-w-[82%] md:max-w-[min(68%,720px)]"} px-3.5 py-2 border rounded-[18px] shadow-[0_1px_1.5px_#18100a14] ${mine
           ? (firstOfRun ? "rounded-tr-[5px]" : "") : (firstOfRun ? "rounded-tl-[5px]" : "")}`}
           style={{ background: mix(voice, "#ffffff", mine ? 0.8 : human ? 0.86 : 0.9), borderColor: mix(voice, "#ffffff", 0.6) }}>
           {!mine && firstOfRun && <div className="flex items-baseline gap-1.5 mb-0.5">
