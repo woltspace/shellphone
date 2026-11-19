@@ -62,6 +62,7 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main, inlin
     addEventListener("keydown", key, true); return () => removeEventListener("keydown", key, true);
   }, [open]);
   const face = (w: Wolt) => woltFace(w.wolt, w.creature);
+  const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 900px)").matches;  // a window in the middle on a computer screen
   const on = (w: Wolt) => marks[w.wolt] === "in" && !w.paused;
   const shown = ctx.wolts.filter((w) => marks[w.wolt] !== "out");
   const first = shown.slice(0, 3), more = shown.length - first.length;
@@ -96,11 +97,12 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main, inlin
         : <span className="grid place-items-center w-[28px] h-[28px] rounded-full border-2 border-dashed border-line text-dim text-sm">+</span>}
       {more > 0 && <span className="ml-1 font-mono text-[11px] text-dim">+{more}</span>}
     </button>
-    {open && <div className="fixed inset-0 z-[2950]" onClick={(e) => { e.stopPropagation(); setOpen(false); }}>
-      <div className="absolute inset-0 bg-[#18100a55] animate-[fadein_.15s_ease-out]" />
+    {open && <div className={`fixed inset-0 z-[2950] ${wide ? "grid place-items-center px-4" : ""}`} onClick={(e) => { e.stopPropagation(); setOpen(false); }}>
+      <div className={`absolute inset-0 animate-[fadein_.15s_ease-out] ${wide ? "bg-[#18100a59] backdrop-blur-[3px]" : "bg-[#18100a55]"}`} />
       <div role="dialog" aria-label="Who's in this thread" onClick={(e) => e.stopPropagation()}
-        className="absolute inset-x-0 bottom-0 max-w-[640px] mx-auto bg-paper rounded-t-[18px] px-4 pt-2 pb-[max(14px,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]">
-        <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />
+        className={wide ? "relative w-[min(520px,100%)] max-h-[84vh] overflow-y-auto bg-paper rounded-2xl px-5 pt-3 pb-4 shadow-[0_24px_70px_#18100a59] animate-[pop_.2s_cubic-bezier(.2,.8,.2,1)]"
+          : "absolute inset-x-0 bottom-0 max-w-[640px] mx-auto bg-paper rounded-t-[18px] px-4 pt-2 pb-[max(14px,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_#18100a33] animate-[rise_.22s_cubic-bezier(.2,.8,.2,1)]"}>
+        {!wide && <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />}
         <div className="flex items-center">
           <b className="flex-1 font-mono text-[13px] text-dim tracking-wide">WHO'S IN THIS THREAD</b>
           <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={18} /></button>
