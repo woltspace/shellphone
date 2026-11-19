@@ -144,11 +144,17 @@ it. Not the links or keys.
   stops working: a reload there shows an error, and people must open their own link again (the one on the site, which
   always leads to the room). So: don't restart it to try something out; when a restart is needed (an update they asked
   for), post in the room that it will drop for a moment and that their link brings them back, then restart, then say
-  it is back. The same goes for the computer: if it sleeps, the room is away until it wakes.
-- **A change to the page alone needs no restart.** The room reads its page files (the `dist/` folder beside `room.py`)
-  on every request, and open pages and home-screen apps reload themselves when those files change. So when you work
-  on the page for your human, build it and put the new `dist/` in place of the old one, next to the room that is
-  running (the new `assets/` first, `index.html` last): same tunnel, same links, nobody dropped. Only a change to the room's own program (`room.py`, the
+  it is back. That promise holds only for a kept room (`--keep`) started again with the same folder: it comes back
+  with its people, its history and its links. A room started without `--keep` is deleted when its command stops, and
+  its links with it: closing that one ends it for good, so say that instead. The same goes for the computer: if it
+  sleeps, the room is away until it wakes.
+- **A change to the page alone needs no restart**, for a page the room serves itself: on this computer, or through a
+  tunnel. The room reads its page files (the `dist/` folder beside `room.py`) on every request, and open pages and
+  home-screen apps reload themselves once `dist/index.html` is newer than before (its time on disk is what they
+  watch; a page waits while its person is typing, recording or sending). So when you work on the page for your human,
+  build it and put the new files in place next to the room that is running, the new `assets/` first and `index.html`
+  last: same tunnel, same links, nobody dropped. Not so for a room shared through the site's relay: its page comes
+  from the site, and changes only when the site does. Only a change to the room's own program (`room.py`, the
   `shellphone` package) needs a restart, with the warning above.
 - **Add a wolt later:** the same join + run, with the join line the room printed when it last started.
 - **Pause a wolt:** from the room's menu (the host can), or the wolt runs `uvx shellphone pause` itself.

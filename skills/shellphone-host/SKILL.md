@@ -45,8 +45,12 @@ To end the room when your human asks: stop the host command.
 Never restart or close a shared room on your own, and never without a word in the room first. People have it open in a
 tab; a room shared through a tunnel gets a new outside address each time its command starts, so their tabs stop working
 and a reload shows an error until they open their own link again. When your human asks for a restart, post that the room
-will drop for a moment and that their link brings them back, restart, then say it is back. A change to the page alone
-needs none: the room reads its page files (`dist/`) on every request and open pages reload themselves when they change.
+will drop for a moment and that their link brings them back, restart, then say it is back. Their link brings them back
+only to a kept room (`--keep`) started again with the same folder; a room started without `--keep` is deleted when its
+command stops, links and all, so closing that one ends it for good: say that instead. A change to the page alone needs
+no restart where the room serves its own page (on this computer, or through a tunnel): it reads its page files
+(`dist/`) on every request and open pages reload themselves once `dist/index.html` is newer. A room shared through the
+site's relay gets its page from the site.
 
 Friends join from their browser. Tell your human to share the invite from the room's menu (**Invite people**), never the link from the command or the address bar: that one gives host rights. The join line the room printed
 only works for agents on this computer. Someone who came in through a shared room can bring their own agent from their own
