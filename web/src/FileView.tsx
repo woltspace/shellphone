@@ -6,18 +6,12 @@ import { createPortal } from "react-dom";
 import { Download, Loader2, Share, X } from "lucide-react";
 import { canShareFiles, load, save, share } from "./sharefile.js";
 import type { FileInfo } from "./room";
+import { parseCsv } from "./csv.js";
 
 const Pdf = lazy(() => import("./Pdf"));
 const TEXT = /^(txt|md|markdown|py|js|mjs|ts|tsx|jsx|json|ya?ml|toml|ini|cfg|sh|zsh|bash|css|html?|xml|sql|rs|go|java|c|h|cpp|rb|log|diff|patch|csv|tsv)$/i;
 const ext = (f: FileInfo) => ((f.name || f.url).match(/\.([a-z0-9]{1,8})$/i) || [])[1]?.toLowerCase() || f.type.toLowerCase();
 export const canPreview = (f: FileInfo) => ext(f) === "pdf" || TEXT.test(ext(f));
-
-// a CSV/TSV line split on its separator, quotes kept together ("a, b" stays one cell)
-const cells = (line: string, sep: string) => {
-  const out: string[] = []; let cur = "", q = false;
-  for (const ch of line) { if (ch === '"') q = !q; else if (ch === sep && !q) { out.push(cur); cur = ""; } else cur += ch; }
-  return [...out, cur];
-};
 
 export function FileView({ f, onClose }: { f: FileInfo; onClose: () => void }) {
   const [body, setBody] = useState<{ pdf?: ArrayBuffer; text?: string } | null>(null), [error, setError] = useState("");
@@ -31,17 +25,24 @@ export function FileView({ f, onClose }: { f: FileInfo; onClose: () => void }) {
     }).catch((x: Error) => !gone && setError(x.message || "Couldn't get the file"));
     return () => { gone = true; };
   }, [f.url]);
+  // the viewer is a step in the browser's history, like a chat: Back (or the phone's back swipe) closes it and keeps the chat
+  const close = () => { if ((history.state as { shpFile?: number } | null)?.shpFile) history.back(); else onClose(); };
   useEffect(() => {
-    const esc = (k: KeyboardEvent) => { if (k.key === "Escape") { k.stopPropagation(); onClose(); } };
+    history.pushState({ ...(history.state || {}), shpFile: 1 }, "", location.href);
+    const back = () => onClose();
+    addEventListener("popstate", back); return () => removeEventListener("popstate", back);
+  }, []);
+  useEffect(() => {
+    const esc = (k: KeyboardEvent) => { if (k.key === "Escape") { k.stopPropagation(); close(); } };
     addEventListener("keydown", esc, true); return () => removeEventListener("keydown", esc, true);
   }, [onClose]);
   const shareIt = () => share(f.url, f.name).then((r: string) => setNote(r === "again" ? "Tap Share again" : "")).catch(() => setNote("Couldn't share it"));
   const btn = "flex-none h-10 min-w-10 px-2.5 inline-flex items-center justify-center gap-1.5 rounded-full border-0 bg-transparent text-acc cursor-pointer hover:bg-[#18100a0d] text-[14px] font-semibold";
   const sep = e === "tsv" ? "\t" : ",";
-  const rows = body?.text !== undefined && (e === "csv" || e === "tsv") ? body.text.trim().split(/\r?\n/).slice(0, 500).map((l) => cells(l, sep)) : null;
-  return createPortal(<div role="dialog" aria-label={f.name} className="fixed inset-0 z-[3000] flex flex-col bg-paper animate-[fadein_.15s_ease-out]">
+  const rows = body?.text !== undefined && (e === "csv" || e === "tsv") ? parseCsv(body.text, sep) : null;
+  return createPortal(<div role="dialog" aria-label={f.name} onTouchStart={(t) => t.stopPropagation()} onTouchMove={(t) => t.stopPropagation()} onTouchEnd={(t) => t.stopPropagation()} className="fixed inset-0 z-[3000] flex flex-col bg-paper animate-[fadein_.15s_ease-out]">
     <div className="flex-none flex items-center gap-1 pl-1 pr-2 pt-[env(safe-area-inset-top)] min-h-12 border-b border-line bg-paper">
-      <button type="button" aria-label="Close" onClick={onClose} className={btn}><X size={22} /></button>
+      <button type="button" aria-label="Close" onClick={close} className={btn}><X size={22} /></button>
       <div className="min-w-0 flex-1 px-1"><div className="font-semibold text-[15px] truncate">{f.name}</div>
         <div className="font-mono text-[11px] text-dim truncate">{note || `${e.toUpperCase()} · ${Math.max(1, Math.round(f.size / 1024))} KB`}</div></div>
       {canShareFiles() && <button type="button" aria-label="Share" onClick={shareIt} className={btn}><Share size={19} /></button>}
@@ -53,7 +54,7 @@ export function FileView({ f, onClose }: { f: FileInfo; onClose: () => void }) {
         : body.pdf ? <Suspense fallback={<div className="h-full grid place-items-center text-dim"><Loader2 size={22} className="animate-spin" /></div>}><Pdf data={body.pdf} /></Suspense>
         : rows ? <table className="text-[13px] border-collapse min-w-full">
             <thead className="sticky top-0 bg-panel"><tr>{rows[0].map((c, i) => <th key={i} className="text-left font-semibold px-3 py-2 border-b border-line whitespace-nowrap">{c}</th>)}</tr></thead>
-            <tbody>{rows.slice(1).map((r, i) => <tr key={i} className="odd:bg-[#faf7f1]">{r.map((c, j) => <td key={j} className="px-3 py-1.5 border-b border-line whitespace-nowrap font-mono">{c}</td>)}</tr>)}</tbody>
+            <tbody>{rows.slice(1).map((r, i) => <tr key={i} className="odd:bg-[#faf7f1]">{r.map((c, j) => <td key={j} className="px-3 py-1.5 border-b border-line whitespace-pre font-mono align-top">{c}</td>)}</tr>)}</tbody>
           </table>
         : <pre className="m-0 p-4 font-mono text-[12.5px] leading-[1.55] text-ink whitespace-pre-wrap break-words pb-[calc(16px+env(safe-area-inset-bottom))]">{body.text}</pre>}
     </div>
