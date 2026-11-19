@@ -2,7 +2,7 @@
 // Every person starts in, you always are; the room's main agent starts in, and anyone you @tag switches on by itself.
 // Start sends the first message and opens the chat; the room then hands it to the agents switched on.
 import { useState } from "react";
-import { X } from "lucide-react";
+import { SendHorizontal, X } from "lucide-react";
 import { mix, woltColor, type Ctx, woltFace } from "./Message";
 import type { Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
@@ -15,12 +15,16 @@ function Switch({ on, locked, label, flip }: { on: boolean; locked?: boolean; la
   </button>;
 }
 
-export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
+export function NewChatSheet({ ctx, people, wolts, main, fallback, host, onStart, onClose }: {
   ctx: Ctx; people: Person[]; wolts: Wolt[]; main?: string | null;
+  fallback?: "in" | "out"; host?: string;  // the room's default for a new chat, and its host (who may flip any agent)
   onStart: (text: string, agents: Record<string, boolean>, people: Record<string, boolean>, title: string) => void; onClose: () => void;
 }) {
   const [text, setText] = useState(""), [title, setTitle] = useState("");
-  const [agents, setAgents] = useState<Record<string, boolean>>(() => Object.fromEntries(wolts.map((w) => [w.wolt, w.wolt === main])));
+  const [agents, setAgents] = useState<Record<string, boolean>>(() => Object.fromEntries(wolts.map((w) => [w.wolt, w.wolt === main || fallback === "in"])));  // where each agent stands in a new chat
+  // the same rights as a thread's switches: the host on every agent, otherwise your own (the room decides; this hides what it would refuse)
+  const guest = !!ctx.people.find((p) => p.email === ctx.me)?.guest;
+  const may = (w: Wolt) => (!guest && ctx.me === host) || w.owner === ctx.me;
   const [folks, setFolks] = useState<Record<string, boolean>>(() => Object.fromEntries(people.map((p) => [p.email, true])));
   const tagged = (w: string) => new RegExp(`@${w}\\b`, "i").test(text);
   const agentIn = (w: Wolt) => !w.paused && (agents[w.wolt] || tagged(w.wolt));
@@ -46,12 +50,14 @@ export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
         </div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} placeholder="Name it (optional)"
           className="w-full mt-1 rounded-lg border border-line bg-white px-3 py-1.5 font-mono font-semibold text-[13px] outline-none focus:border-acc" />
-        {/* the first message, looking like one: your face and a bubble in your colour */}
+        {/* the first message, looking like one: a bubble in your colour, and the send arrow the chat box has */}
         <div className="flex items-end gap-2 mt-3">
           <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="Message…"
             className="flex-1 min-w-0 rounded-2xl rounded-br-sm border-2 px-3 py-2.5 text-[15px] leading-snug resize-none outline-none"
             style={{ background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82), borderColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.5) }} />
-          <img src={personAvatar(ctx.person(ctx.me).name, ctx.person(ctx.me).color, worn.people[ctx.me])} alt="" className="pixel flex-none w-8 h-8" />
+          <button type="button" aria-label="Send: starts the chat" onClick={start} disabled={!text.trim()}
+            onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()}
+            className="flex-none w-[46px] h-[46px] rounded-full bg-acc grid place-items-center border-0 cursor-pointer disabled:opacity-40 disabled:cursor-default"><SendHorizontal size={22} className="text-white" /></button>
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4">
@@ -64,12 +70,9 @@ export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
         {wolts.map((w) => { const yes = agentIn(w), byTag = tagged(w.wolt);
           return row(w.wolt, woltFace(w.wolt, w.creature), w.wolt, woltColor(w.wolt, ctx.wolts), yes,
             w.paused ? "paused in the room" : byTag ? "tagged in your message" : yes ? (w.wolt === main ? "default · in this chat" : "in this chat") : "not in this chat",
-            <Switch on={yes} locked={!!w.paused || byTag} label={`${yes ? "Leave out" : "Bring in"} ${w.wolt}`} flip={() => setAgents((s) => ({ ...s, [w.wolt]: !s[w.wolt] }))} />); })}
+            <Switch on={yes} locked={!!w.paused || byTag || !may(w)} label={`${yes ? "Leave out" : "Bring in"} ${w.wolt}`} flip={() => setAgents((s) => ({ ...s, [w.wolt]: !s[w.wolt] }))} />); })}
       </div>
-      <div className="flex-none px-4 pt-2 pb-[max(14px,env(safe-area-inset-bottom))] border-t border-line">
-        <button type="button" onClick={start} disabled={!text.trim()}
-          className="w-full rounded-xl border-0 bg-acc text-white font-mono font-bold text-[15px] py-3.5 cursor-pointer disabled:opacity-40">Send ➤ <span className="font-normal opacity-80">starts the chat</span></button>
-      </div>
+      <div className="flex-none pb-[max(14px,env(safe-area-inset-bottom))]" />
     </div>
   </div>;
 }

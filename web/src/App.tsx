@@ -613,7 +613,7 @@ export function App() {
   const where = (t?: string) => (t ? `&thread=${t}` : "");
   const stick = () => (thread ? stickThread : stickMain).current();
   // A voice note waits on this phone until the room has it. If it doesn't get there, it stays with "Tap to send again".
-  type Typed = { cid: string; text: string; thread?: string; title?: string };
+  type Typed = { cid: string; text: string; thread?: string; title?: string; who?: Record<string, "in" | "paused"> };
   const outgoing = useRef(new Map<string, Outgoing | Typed>());
   // A voice note shows as sent the moment you tap send; the room's copy takes its place under the same id once the
   // words are written down. The recording joins it a moment later, when the phone has handed it over.
@@ -709,23 +709,20 @@ export function App() {
   async function sendTyped(o: Typed) {
     outgoing.current.set(o.cid, o);
     shown(o.cid, { pending: true, failed: false });
-    settle(o.cid, await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: o.text, cid: o.cid, ...(o.thread ? { thread: o.thread } : {}), ...(o.title ? { title: o.title } : {}) }) }));
+    settle(o.cid, await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: o.text, cid: o.cid, ...(o.thread ? { thread: o.thread } : {}), ...(o.title ? { title: o.title } : {}), ...(o.who ? { who: o.who } : {}) }) }));
   }
 
-  // a chat started from the new-chat sheet: the first message, then who's in, once the room has given it its id
+  // a chat started from the new-chat sheet: the first message carries who's in, so the agents picked hear it too
   async function startChat(t: string, agents: Record<string, boolean>, _people: Record<string, boolean>, title = "") {  // people: not kept by the room yet
     setStarting(false);
-    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t, ...(title ? { title } : {}) };
+    // every agent's place in it, as chosen, so the chat starts with exactly that audience (the room asks permission
+    // only for a real change from where an agent already stands)
+    const who: Record<string, "in" | "paused"> = {};
+    for (const w of state.members.wolts) who[w.wolt] = agents[w.wolt] ? "in" : "paused";
+    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: t, ...(title ? { title } : {}), ...(Object.keys(who).length ? { who } : {}) };
     setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text: t, pending: true, ...(title ? { title } : {}) }]);
     setThread(o.cid);
     await sendTyped(o);
-    let real: Msg | undefined;  // the room's copy reaches the page a render later
-    for (let i = 0; i < 20 && !(real = msgsNow.current.find((x) => x.cid === o.cid && x.id !== o.cid)); i++) await new Promise((ok) => setTimeout(ok, 250));
-    if (!real) return;
-    for (const w of state.members.wolts) {
-      const was = w.wolt === state.main || state.who_default === "in", want = !!agents[w.wolt];
-      if (want !== was) report(await say("/api/thread-who", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread: real.id, wolt: w.wolt, state: want ? "in" : "paused" }) }));
-    }
   }
   // renaming a chat shows at once here; everyone else gets it with the room's next update. An empty name: back to its first one.
   const [, renamed] = useState(0);
@@ -778,7 +775,7 @@ export function App() {
           className="absolute right-4 bottom-[calc(18px+env(safe-area-inset-bottom))] z-[1400] flex items-center gap-1.5 h-14 pl-4 pr-5 rounded-full border-0 bg-acc text-white font-mono font-bold text-[15px] shadow-[0_4px_14px_#18100a40] cursor-pointer active:scale-95 transition-transform">
           <span className="text-2xl leading-none">＋</span>New chat</button>
         : composer)}
-      {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} onStart={startChat} onClose={() => setStarting(false)} />}
+      {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} fallback={state.who_default} host={state.host} onStart={startChat} onClose={() => setStarting(false)} />}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} all={main.filter((m) => m.kind === "human" || m.kind === "wolt")} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
       {thread && <ThreadSheet key={thread} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}

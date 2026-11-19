@@ -217,11 +217,17 @@ def thread_of(value):
     return {"thread": root.get("thread") or root["id"]}
 
 
-def append(**fields):
+def append(who=None, **fields):
+    """who: for a message that starts a chat, who is in it or paused in it from its first message ({agent: "in" | "paused"}).
+    Set in the same step as the message, so an agent picked for a new chat already hears its first message."""
+    if who:
+        fields = {**fields, "picked": True}  # its agents were picked with it: see hears_main
     m = {"id": uuid.uuid4().hex, "at": time.time(), **fields}
     rest = {k: v for k, v in fields.items() if k != "kind"}
     with tx() as c:
         n = c.execute("insert into messages (id, at, kind, data) values (?, ?, ?, ?)", (m["id"], m["at"], fields["kind"], json.dumps(rest))).lastrowid
+        for wolt, state in (who or {}).items():
+            c.execute("insert or replace into thread_who values (?, ?, ?)", (m["id"], wolt, state))
         if fields.get("thread") and fields["kind"] in ("human", "wolt"):
             brings_in(c, fields["thread"], m)
     m = {"n": n, **m}
@@ -230,7 +236,8 @@ def append(**fields):
     if fields.get("text") and fields.get("kind") in ("human", "patch"):
         email = fields.get("email") or (message(fields.get("of")) or {}).get("email")
         if email:
-            mark_asked(fields["text"], email, fields.get("thread") or (message(fields.get("of")) or {}).get("thread"))
+            mark_asked(fields["text"], email, fields.get("thread") or (message(fields.get("of")) or {}).get("thread"),
+                       m if fields["kind"] == "human" and not fields.get("thread") else None)
     return m
 
 
@@ -271,13 +278,14 @@ def stop_working(c, wolt, tid=None):
         c.execute("delete from working_in where wolt = ? and thread = ?", (wolt, tid))
 
 
-def mark_asked(text, email, tid=None):
-    """Tagged wolts light up the moment the message lands, even before their connector picks it up."""
+def mark_asked(text, email, tid=None, start=None):
+    """Tagged wolts light up the moment the message lands, even before their connector picks it up. start: a main-chat
+    message, which starts a chat of its own: they light up in that chat, where the person now is."""
     with tx() as c:
         for l in wolts():
-            m = {"kind": "human", "email": email, "text": text}
+            m = {**(start or {}), "kind": "human", "email": email, "text": text}
             if not l["paused"] and asks(m, l["wolt"], l["owner"]) and (hears(tid, l["wolt"]) if tid else hears_main(m, l["wolt"])):
-                set_working(c, l["wolt"], ASKED_FOR, tid)
+                set_working(c, l["wolt"], ASKED_FOR, tid or (start or {}).get("id"))
 
 
 # The main agent. A room's host can name one agent its main one. It is in every thread, so it hears a person wherever they
@@ -308,8 +316,14 @@ def keep_main(c):
 def hears_main(m, wolt):
     """A message in the main chat, once the room has a main agent, goes to the main agent and the agents @tagged in it (an
     agent also gets its own). Untagged, only the main agent hears it and brings in whoever it needs. No main agent: everyone."""
+    if m.get("kind") == "wolt" and m.get("wolt") == wolt:
+        return True
+    if m.get("picked") and m.get("id"):  # the chat this message starts was given its agents with it (the new chat sheet): that choice wins
+        picked = q("select state from thread_who where thread = ? and wolt = ?", m["id"], wolt)
+        if picked:
+            return picked[0]["state"] == "in"
     main = main_wolt()
-    return not main or wolt == main or tagged(m, wolt) or (m.get("kind") == "wolt" and m.get("wolt") == wolt)
+    return not main or wolt == main or tagged(m, wolt)
 
 
 def set_main(wolt):
@@ -1212,7 +1226,7 @@ def for_wolt(req, l):
             read = [m["id"] for m in new if m["kind"] == "human"]
             with tx() as c:  # the wolt is reading these now: a read receipt each, and it's working on them
                 for m in fresh:
-                    set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR, m.get("thread"))
+                    set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR, m.get("thread") or m["id"])  # a main-chat message starts its own chat: working there
                 c.executemany("insert or ignore into seen values (?, ?, ?)", [(i, l["wolt"], time.time()) for i in read])
             return reply(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
                                "connector": connector_version()})
@@ -1438,7 +1452,19 @@ def for_person(req, email):
             spot = thread_of(data.get("thread"))
             # a message that starts a chat may name it; without a title the chat is called by its first words
             named_as = " ".join(str(data.get("title") or "").split())[:80] if not spot else ""
-            return reply(200, append(kind="human", email=email, text=text, **spot,
+            # a message that starts a chat may also say who's in it: {agent: "in" | "paused"}, each one the sender may switch
+            who = data.get("who") if not spot and isinstance(data.get("who"), dict) else {}
+            here = {l["wolt"]: l for l in wolts()}
+            if any(w not in here or st not in ("in", "paused") for w, st in who.items()):
+                return reply(400, {"error": "who is {agent: in | paused}, for agents in this room"})
+            # saying where an agent already stands in a new chat (the main agent and the room's default: in; one paused in
+            # the room: out either way) takes no permission; only a real change does. An agent @tagged in the message is
+            # in by the tag, as from the chat box, so saying "in" for it is no change either
+            main = main_wolt()
+            stands = lambda w: "paused" if here[w]["paused"] else "in" if w == main or WHO_DEFAULT == "in" or tagged({"text": text}, w) else "paused"
+            if any(st != stands(w) and not may_switch(email, w) for w, st in who.items()):
+                return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
+            return reply(200, append(who=who, kind="human", email=email, text=text, **spot,
                                      **({"cid": cid} if named else {}), **({"title": named_as} if named_as else {})))
     if path == "/api/voice":
         where = thread_of(q.get("thread", [""])[0])

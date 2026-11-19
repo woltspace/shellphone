@@ -248,6 +248,35 @@ class FrontDoor(unittest.TestCase):
         rename({"thread": start["id"], "name": " "})
         self.assertEqual(r.state()["names"], {})  # back to the title it started with
 
+    def test_the_agents_picked_for_a_new_chat_hear_its_first_message(self):
+        r = self.room()
+        work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
+        work.mkdir(), other.mkdir()
+        self.assertEqual(run("join", r.agent, "--name", "helper", cwd=work).returncode, 0)
+        self.assertEqual(run("join", r.agent, "--name", "second", cwd=other).returncode, 0)
+        run("wait", "--timeout", "1", cwd=work), run("wait", "--timeout", "1", cwd=other)
+        r.browser.open(r.open)
+
+        def page(body):
+            try:
+                return json.load(r.browser.open(urllib.request.Request(r.url + "/api/messages", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})))
+            except urllib.error.HTTPError as e:
+                return e.code
+        hear = lambda folder, seconds=2: run("wait", "--timeout", str(seconds), cwd=folder).stdout
+        self.assertEqual(r.state()["main"], "helper")  # the host's first wolt: untagged main-chat messages reach only it
+        start = page({"text": "a chat for the release notes", "who": {"second": "in", "helper": "paused"}})
+        self.assertIn("release notes", hear(other, 5))  # picked: it hears the very first message, untagged
+        self.assertNotIn("release notes", hear(work))  # the main agent left out of this chat doesn't
+        self.assertEqual(r.state()["who"][start["id"]], {"second": "in", "helper": "paused"})
+        page({"text": "and the changelog", "thread": start["id"]})
+        self.assertIn("changelog", hear(other, 5))
+        self.assertEqual(page({"text": "x", "who": {"nobody": "in"}}), 400)
+        self.assertEqual(page({"text": "x", "who": {"second": "maybe"}}), 400)
+        plain = page({"text": "an ordinary message"})  # no who: as before, only the main agent hears it
+        self.assertIn("ordinary message", hear(work, 5))
+        self.assertNotIn("ordinary message", hear(other))
+        self.assertNotIn(plain["id"], r.state()["who"])
+
     def test_a_thread_reaches_the_agents_in_it(self):
         r = self.room()
         work, other = Path(self.tmp.name) / "a", Path(self.tmp.name) / "b"
@@ -312,12 +341,12 @@ class FrontDoor(unittest.TestCase):
         page("/api/messages", {"text": "@second one more look, please", "thread": top})
         self.assertEqual(r.state()["working_in"], {"second": [top]})  # lit the moment it is tagged, in that thread
         self.assertEqual(r.state()["working"], {"second": True})  # older pages still see who is working
-        page("/api/messages", {"text": "@second and a word in the main chat"})
-        self.assertEqual(r.state()["working_in"], {"second": [top, ""]})
+        word = page("/api/messages", {"text": "@second and a word in the main chat"})["id"]
+        self.assertEqual(r.state()["working_in"], {"second": [top, word]})  # a main-chat message starts its own chat: lit there
         self.assertEqual(agent(other, "/lodge/messages", {"text": "looked", "thread": top}), 200)
-        self.assertEqual(r.state()["working_in"], {"second": [""]})  # answering in the thread ends it there only
+        self.assertEqual(r.state()["working_in"], {"second": [word]})  # answering in the thread ends it there only
         self.assertEqual(agent(other, "/lodge/working", {"working": True}), 200)
-        self.assertEqual(r.state()["working_in"], {"second": [""]})  # "still at it" keeps what is lit, and adds nothing
+        self.assertEqual(r.state()["working_in"], {"second": [word]})  # "still at it" keeps what is lit, and adds nothing
         self.assertEqual(agent(other, "/lodge/working", {"working": False}), 200)
         self.assertEqual(r.state()["working_in"], {})
         hear(other, 3)
@@ -486,6 +515,37 @@ class FrontDoor(unittest.TestCase):
         self.assertIn("paused", run("page", "change", pid, cwd=other, stdin="1").stderr)  # a paused agent is off here too
         self.assertIn("paused", run("page", "get", pid, cwd=other).stderr)
         self.assertEqual(r.state()["pages"], {pid: {"v": 2, "n": 2}})
+
+    def test_a_new_chat_starts_with_the_audience_chosen_and_restating_takes_no_permission(self):
+        import importlib, io, contextlib
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SHELLPHONE_DATA": self.tmp.name}):
+            room = importlib.import_module("room")
+        self.addCleanup(sys.modules.pop, "room", None)
+        self.addCleanup(lambda: room.CON and room.CON.close())
+        with contextlib.redirect_stdout(io.StringIO()):
+            room.add_person("host@example.com", "Host")
+        for w in ("alpha", "beta"):
+            room.lodge_file(w, "host@example.com", "raccoon", None, "http://127.0.0.1:1")
+        room.set_main("alpha")
+        start = lambda who, body: room.for_person(room.Request("POST", "/api/messages", lambda limit: json.dumps(body).encode()), who)[:2]
+        with mock.patch.object(room, "WHO_DEFAULT", "in"):  # threads default to everyone in: the page sends each agent's place, as chosen
+            status, m = start("host@example.com", {"text": "both of you", "who": {"alpha": "in", "beta": "in"}})
+            self.assertEqual(status, 200, m)
+            self.assertTrue(room.hears_main(m, "alpha") and room.hears_main(m, "beta"))  # beta hears the first message too
+        guest = room.add_guest("Visitor")
+        room.set_paused("alpha", True)  # the main agent, paused in the whole room
+        status, m = start(guest, {"text": "my own chat", "who": {"alpha": "paused", "beta": "paused"}})
+        self.assertEqual(status, 200, m)  # where they already stand: no permission needed to say so
+        self.assertFalse(room.hears_main(m, "beta"))
+        self.assertEqual(start(guest, {"text": "bring beta", "who": {"beta": "in"}})[0], 403)  # a real change is still the host's or keeper's
+        room.set_paused("alpha", False)
+        self.assertEqual(start(guest, {"text": "leave out the main one", "who": {"alpha": "paused"}})[0], 403)
+        # a tag brings an agent in, as it does from the chat box: the sheet switches a tagged agent on, and that takes no permission
+        status, m = start(guest, {"text": "@beta please help", "who": {"alpha": "in", "beta": "in"}})
+        self.assertEqual(status, 200, m)
+        self.assertTrue(room.hears_main(m, "beta"))
+        self.assertEqual(start(guest, {"text": "@beta please stay out", "who": {"beta": "paused"}})[0], 403)  # a tag isn't a switch for leaving one out
 
     def test_a_guest_cant_pause_or_remove_an_agent(self):
         import importlib, io, contextlib
