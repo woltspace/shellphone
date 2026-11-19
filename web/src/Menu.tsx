@@ -11,7 +11,7 @@ const sec = "px-4 pt-4 pb-1 font-mono font-semibold text-[10.5px] tracking-[.08e
 
 export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts, people, push, freshCount, onThreads, onAgent, onEveryone, guestAgents }: {
   open: boolean; panel: React.RefObject<HTMLElement | null>; scrim: React.RefObject<HTMLDivElement | null>; touch: React.DOMAttributes<HTMLElement>; close: () => void; title: string; me: string; host?: string; wolts: Wolt[]; people: Person[];
-  push: { state: "ask" | "on" | "off"; turnOn: () => void }; freshCount: number; onThreads: () => void; onAgent: () => void; onEveryone: () => void; main?: string | null;
+  push: { state: "ask" | "on" | "off" | "none"; turnOn: () => void }; freshCount: number; onThreads: () => void; onAgent: () => void; onEveryone: () => void; main?: string | null;
   looks?: Record<string, Record<string, string>>; faces?: Record<string, string>; guestAgents?: boolean;  // undefined: a host from before 0.0.7, which can't take agents through the relay
 }) {
   // while a finger drags it, App moves these two directly; otherwise the classes below decide
@@ -32,7 +32,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         <div className={sec}>This room</div>
         {!relayRoom && <button type="button" onClick={push.state === "ask" ? push.turnOn : undefined} className={row}>
           {push.state === "on" ? <BellRing size={20} className="text-acc" /> : push.state === "ask" ? <Bell size={20} className="text-acc" /> : <BellOff size={20} className="text-dim" />}
-          <span className="flex-1">Notifications<small className="block text-xs text-dim">{push.state === "on" ? "On for this phone" : push.state === "ask" ? "Tap to turn on for this phone" : "Not available here (add the app to your home screen)"}</small></span>
+          <span className="flex-1">Notifications<small className="block text-xs text-dim">{push.state === "on" ? "On for this phone" : push.state === "ask" ? "Tap to turn on for this phone" : push.state === "none" ? "This shell doesn't send notifications yet" : "Not available here (add the app to your home screen)"}</small></span>
           {push.state === "on" ? <Check size={20} className="text-go" /> : push.state === "ask" ? <span className="font-mono font-semibold text-xs text-white bg-acc rounded-lg px-2.5 py-1">turn on</span> : null}
         </button>}
         {!relayRoom && <LinkRoom open={open} row={row} />}
