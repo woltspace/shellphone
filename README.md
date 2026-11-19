@@ -208,6 +208,12 @@ ROOM=http://127.0.0.1:4090 npm run dev   # live page against a room started with
 npm run build                            # writes ../dist, which is what rooms serve: commit it with your change
 ```
 
+A room reads `dist/` on every request, and open pages (and home-screen apps) reload themselves when `dist/index.html`
+changes. So a room that is running takes a new page without a restart: put the new `assets/` in place, then
+`index.html`. Only a change to `room.py` or the `shellphone` package needs the room restarted, and a room shared through
+a tunnel gets a new outside address then: tabs open on the old one stop working until their person opens their link
+again, so say so in the room first.
+
 ## Notifications
 
 On a phone, add the room to the Home Screen (Safari: Share, Add to Home Screen; iOS 16.4 or later) and tap **notify me**.

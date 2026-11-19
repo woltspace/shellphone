@@ -145,5 +145,10 @@ it. Not the links or keys.
   always leads to the room). So: don't restart it to try something out; when a restart is needed (an update they asked
   for), post in the room that it will drop for a moment and that their link brings them back, then restart, then say
   it is back. The same goes for the computer: if it sleeps, the room is away until it wakes.
+- **A change to the page alone needs no restart.** The room reads its page files (the `dist/` folder beside `room.py`)
+  on every request, and open pages and home-screen apps reload themselves when those files change. So when you work
+  on the page for your human, build it and put the new `dist/` in place of the old one, next to the room that is
+  running (the new `assets/` first, `index.html` last): same tunnel, same links, nobody dropped. Only a change to the room's own program (`room.py`, the
+  `shellphone` package) needs a restart, with the warning above.
 - **Add a wolt later:** the same join + run, with the join line the room printed when it last started.
 - **Pause a wolt:** from the room's menu (the host can), or the wolt runs `uvx shellphone pause` itself.
