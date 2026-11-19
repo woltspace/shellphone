@@ -15,8 +15,8 @@ type Item = { id: string; r: Msg; list: Msg[]; last: Msg; n: number; why: string
 const preview = (m: Msg) => ((m.text && m.text.replace(/\*\*|`/g, "")) || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
 const short = (s: string) => s.replace(/ ago$/, "").replace("just now", "now");
 
-export function Sidebar({ full, state, ctx, roots, replies, seen, current, title, menu, desk, onMenu, onDesk, onOpen, onNew, onPick, onAgent }: {
-  full?: boolean; state: State; ctx: Ctx; roots: Msg[]; replies: Map<string, Msg[]>; seen: Record<string, number>; current: string; title: string;
+export function Sidebar({ full, onInvite, state, ctx, roots, replies, seen, current, title, menu, desk, onMenu, onDesk, onOpen, onNew, onPick, onAgent }: {
+  full?: boolean; onInvite: () => void; state: State; ctx: Ctx; roots: Msg[]; replies: Map<string, Msg[]>; seen: Record<string, number>; current: string; title: string;
   menu: boolean; desk?: boolean; onMenu: () => void; onDesk?: () => void; onOpen: (id: string) => void; onNew: () => void; onPick: (who: Who) => void; onAgent: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -50,14 +50,15 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
   // wolt works in it, otherwise when it last moved. Unread is just bold.
   // who's in a chat, at a glance: the humans and agents who wrote there, and agents switched on in it, newest voice first
   const crew = (i: Item) => {
-    const out: { key: string; src: string; name: string }[] = [], seenKey = new Set<string>();
-    const add = (key: string, src: string, name: string) => { if (!seenKey.has(key)) { seenKey.add(key); out.push({ key, src, name }); } };
+    const out: { key: string; src: string; name: string; busy?: boolean }[] = [], seenKey = new Set<string>();
+    const working = new Set((ctx.busy?.(i.id) || []).map((w) => w.wolt));
+    const add = (key: string, src: string, name: string) => { if (!seenKey.has(key)) { seenKey.add(key); out.push({ key, src, name, busy: key.startsWith("w:") && working.has(name) }); } };
     for (const m of [...i.list].reverse()) {
       if (m.kind === "human") { const p = ctx.person(m.email); add("p:" + m.email, personAvatar(p.name, p.color, worn.people[m.email!]), p.name); }
       else if (m.kind === "wolt") add("w:" + m.wolt, woltFace(m.wolt, m.creature), m.wolt!);
     }
     for (const [w, st] of Object.entries(state.who?.[i.id] || {})) if (st === "in") { const x = wolts.find((y) => y.wolt === w); if (x) add("w:" + w, woltFace(w, x.creature), w); }
-    return out;
+    return out.sort((a, b) => Number(!!b.busy) - Number(!!a.busy));  // whoever is working here first, gnawing
   };
   const row = (i: Item) => {
     const here = i.id === current, busy = ctx.busy?.(i.id) || [], color = threadColor(i.id), who = crew(i);
@@ -70,10 +71,9 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
         <span className={`block truncate mt-0.5 text-[13px] leading-[18px] ${i.n ? "text-[#4a4038]" : "text-dim"}`}>{name(i.last)}: {preview(i.last)}</span>
       </span>
       <span className="flex-none flex items-center pl-2 h-[24px]" title={who.map((f) => f.name).join(", ")}>
-        {who.slice(0, 4).map((f) => <img key={f.key} src={f.src} alt="" className="pixel w-[26px] h-[26px] -ml-2 rounded-full" style={{ filter: "drop-shadow(0 0 1px #efe9de)" }} />)}
+        {who.slice(0, 4).map((f) => <img key={f.key} src={f.src} alt="" className={`pixel w-[26px] h-[26px] -ml-2 rounded-full ${f.busy ? "gnaw-img" : ""}`} style={{ filter: "drop-shadow(0 0 1px #efe9de)" }} />)}
         {who.length > 4 && <span className="ml-0.5 font-mono text-[10px] text-dim">+{who.length - 4}</span>}</span>
       {i.why ? <span className="flex-none mt-0.5 w-[18px] h-[18px] rounded-full bg-acc text-white text-[11px] font-bold leading-[18px] text-center" title="someone tagged you">@</span>
-        : busy.length ? <span className="flex-none flex mt-px">{busy.slice(0, 2).map((w) => <img key={w.wolt} src={woltFace(w.wolt, w.creature)} alt={w.wolt + " working"} className="gnaw-img pixel w-5 h-5" />)}</span>
         : <span className="flex-none font-mono text-[10.5px] leading-[22px] text-dim">{short(ago(i.last.at))}</span>}
     </button>;
   };
@@ -105,6 +105,10 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
       </div>
       <div className="flex w-[200%] transition-transform duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" style={{ transform: crowd === "agents" ? "translateX(-50%)" : "none" }}>
         <div className="w-1/2 flex gap-0.5 px-2 pt-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]" aria-hidden={crowd !== "humans"}>
+      <button type="button" onClick={onInvite} aria-label="Invite humans" className="flex-none w-[56px] flex flex-col items-center p-0 border-0 bg-transparent cursor-pointer text-dim">
+        <span className="w-11 h-11 rounded-full border-[1.5px] border-dashed border-line grid place-items-center text-lg">＋</span>
+        <span className="font-mono text-[10.5px]">invite</span>
+      </button>
       {state.members.people.map((h, i) => { const p = ctx.person(h.email);
         return <button key={h.email} type="button" onClick={() => onPick("p:" + h.email)} aria-label={p.name}
           className="flex-none w-[56px] flex flex-col items-center p-0 border-0 bg-transparent cursor-pointer">
@@ -115,6 +119,10 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
         </button>; })}
         </div>
         <div className="w-1/2 flex gap-0.5 px-2 pt-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]" aria-hidden={crowd !== "agents"}>
+      <button type="button" onClick={onAgent} aria-label="Add an agent" className="flex-none w-[56px] flex flex-col items-center p-0 border-0 bg-transparent cursor-pointer text-dim">
+        <span className="w-11 h-11 rounded-full border-[1.5px] border-dashed border-line grid place-items-center text-lg">＋</span>
+        <span className="font-mono text-[10.5px]">add</span>
+      </button>
       {[...wolts].sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)).map((w, i) => {
         const m = mood(w, state), color = woltColor(w.wolt, wolts), v = verbs(w.creature);
         return <button key={w.wolt} type="button" onClick={() => onPick("w:" + w.wolt)} aria-label={`${w.wolt}: ${m.word}`}
@@ -128,10 +136,6 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
             : <span className="font-mono text-[9.5px] text-dim">{m.word}</span>}
         </button>;
       })}
-      <button type="button" onClick={onAgent} aria-label="Add an agent" className="flex-none w-[56px] flex flex-col items-center p-0 border-0 bg-transparent cursor-pointer text-dim">
-        <span className="w-11 h-11 rounded-full border-[1.5px] border-dashed border-line grid place-items-center text-lg">＋</span>
-        <span className="font-mono text-[10.5px]">add</span>
-      </button>
         </div>
       </div>
     </div>
