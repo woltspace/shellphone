@@ -721,6 +721,17 @@ class FrontDoor(unittest.TestCase):
         self.assertFalse(gone.exists())
         self.assertTrue(stays.exists())
 
+    def test_test_notifications_answer_the_page_and_never_crash(self):
+        r = self.room()
+        r.browser.open(r.open)
+        page = lambda body: r.browser.open(urllib.request.Request(r.url + "/api/test-push", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}))
+        r.browser.open(urllib.request.Request(r.url + "/api/messages", data=json.dumps({"text": "something to land on"}).encode(), headers={"Content-Type": "application/json"}))
+        for body in ({"in": 10}, {"in": "soon"}):  # nobody has turned notifications on (or this room can't send them): a 400 that says so
+            with self.assertRaises(urllib.error.HTTPError) as no:
+                page(body)
+            self.assertEqual(no.exception.code, 400, body)
+            self.assertTrue(json.load(no.exception)["error"])
+
 
 if __name__ == "__main__":
     unittest.main()
