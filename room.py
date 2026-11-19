@@ -81,7 +81,7 @@ create table if not exists messages(n integer primary key autoincrement, id text
 create table if not exists working(wolt text primary key, until real not null);
 create table if not exists unreachable(wolt text primary key, since real not null);
 create table if not exists seen(msg text not null, wolt text not null, at real not null, primary key(msg, wolt));
-create table if not exists push(endpoint text primary key, email text not null, sub text not null);
+create table if not exists push(endpoint text primary key, email text not null, sub text not null, at text);
 create table if not exists pages(id text primary key, title text not null, line text not null, by text not null, at real not null,
                                  message text, told integer not null default 0);
 create table if not exists page_versions(page text not null, v integer not null, by text not null, at real not null, html text not null,
@@ -113,6 +113,8 @@ def con():
             CON.execute("alter table wolts add column paused integer not null default 0")
         if "via" not in [c[1] for c in CON.execute("pragma table_info(wolts)")]:  # which link an agent on another computer joined through (shellphone/link.py)
             CON.execute("alter table wolts add column via text")
+        if "at" not in [c[1] for c in CON.execute("pragma table_info(push)")]:  # the tunnel address a phone signed up for notifications at (None: unknown, from before; "": not through a tunnel)
+            CON.execute("alter table push add column at text")
         if "via" not in [c[1] for c in CON.execute("pragma table_info(invites)")]:  # which link an agent's code was handed out through: it works through that one only
             CON.execute("alter table invites add column via text")
         os.chmod(DB, 0o600)
@@ -560,6 +562,14 @@ def notify(m):
         body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['files'][0]['name']}" + (f" +{len(m['files']) - 1}" if len(m["files"]) > 1 else ""))[:180], "tag": m["id"],
                            "url": f"./#m={m['id']}" + (f"&t={m['thread']}" if m.get("thread") else "")})  # a tap lands on this message
         for row in q("select * from push"):
+            if row["at"]:  # signed up through a tunnel: at the address the room has now, or at one it no longer has?
+                with tx() as c:  # asked now, for this row, with the removal: never from a look taken before the rows were read. A tunnel may have changed in between, and a phone signed up at its new address
+                    now_at = OUTSIDE.host if OUTSIDE and OUTSIDE.open and OUTSIDE.host else None
+                    gone = row["at"] != now_at
+                    if gone:  # that app opens nothing any more; its person signs up again at the new address. Only this sign-up as it was read: one made again since, at another address, stays
+                        c.execute("delete from push where endpoint = ? and at = ?", (row["endpoint"], row["at"]))
+                if gone:
+                    continue
             if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
                 continue
             try:
@@ -991,7 +1001,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def call(self, method):
         """Hand a call that passed the door (a known person, or a wolt's key) to the room, and send back its answer."""
-        return Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0])
+        req = Request(method, self.path, self.body, (self.headers.get("Content-Type") or "").split(";")[0])
+        req.at = OUTSIDE.host if self.outside_host() else ""  # the tunnel address this call came in at, if it came through the tunnel
+        return req
 
     def via(self):
         """How this call came in, told from the connection itself, never from anything the caller sends as data:
@@ -1173,6 +1185,7 @@ class Request:  # whoever builds one (the web server, the relay) has checked who
         split = urllib.parse.urlsplit(target)
         self.method, self.path, self.q, self.kind = method, split.path, urllib.parse.parse_qs(split.query), kind
         self.read = read  # read(limit) -> the body's bytes; refuses a body over the limit
+        self.at = None  # the tunnel address the call came in at ("" for none); None when whoever built this doesn't say
 
 
 def reply(status, body, kind="application/json", **options):
@@ -1386,7 +1399,7 @@ def for_person(req, email):
                 sub = data.get("subscription") or {}
                 if not str(sub.get("endpoint", "")).startswith("https://"):
                     return reply(400, {"error": "not a push subscription"})
-                c.execute("insert or replace into push values (?, ?, ?)", (sub["endpoint"], email, json.dumps(sub)))
+                c.execute("insert or replace into push (endpoint, email, sub, at) values (?, ?, ?, ?)", (sub["endpoint"], email, json.dumps(sub), req.at))
         return reply(200, {"ok": True})
     if path == "/api/wolt":  # pause an agent, bring it back, or remove it ({"wolt": name, "state": "on" | "paused" | "removed"})
         data = json.loads(req.read(200_000) or b"{}")

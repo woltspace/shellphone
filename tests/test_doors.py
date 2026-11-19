@@ -147,6 +147,17 @@ class Doors(unittest.TestCase):
         self.assertEqual(g["push_signed_with"], [there, there, "mailto:Ada.Lovelace@example.org", there])
         self.assertEqual(g["push_contact"], ["mailto:me@gmail.com", "mailto:Me@Example.COM", there, there, there, there, there])
 
+    def test_an_app_that_signed_up_at_a_tunnel_address_the_room_no_longer_has_gets_no_more_notifications(self):
+        g = self.got
+        self.assertEqual(g["push_signup"], [200, 200])
+        self.assertEqual(g["push_signup_at"], {"through-the-tunnel": "door.trycloudflare.com", "on-this-computer": ""})
+        keeps = ["from-before", "this-address", "this-computer"]  # the old address's app is not sent to, and is forgotten; one from before this was kept track of stays
+        self.assertEqual(g["push_after_a_new_address"], [keeps, keeps])
+        self.assertEqual(g["push_after_sharing_stopped"], [["from-before", "this-computer"]] * 2)
+        # the address is looked at for each sign-up as it is acted on, never from an earlier look: a phone that signed up at the new address in between stays
+        self.assertEqual(g["push_signup_while_the_address_changes"], [["at-b"], ["at-b"]])
+        self.assertEqual(g["push_signed_up_again_meanwhile"], [["same-phone", "c.trycloudflare.com"]])
+
     def test_the_command_makes_and_ends_invites_and_says_so_when_none_is_open(self):
         v = self.got["invites"]
         self.assertEqual((v["command_says"], v["command_link_works"], v["command_forever"]), ([True, True, True], "Ada", True))
