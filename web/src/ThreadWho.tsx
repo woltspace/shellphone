@@ -71,8 +71,9 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main, inlin
         {ctx.wolts.map((w) => {
           const m = marks[w.wolt], yes = on(w), locked = !!w.paused || !may(w) || busy === w.wolt;
           return <div key={w.wolt} className="flex items-center gap-2.5 py-2 border-t border-line">
-            <img src={face(w)} alt="" className={`pixel w-[30px] h-[30px] rounded-full ${yes ? "" : "grayscale opacity-50"}`} />
-            <span className="flex-1 min-w-0">
+            <button type="button" onClick={() => ctx.openWho?.("w:" + w.wolt)} aria-label={`${w.wolt}'s card`} className="flex-none p-0 border-0 bg-transparent cursor-pointer hover:-translate-y-0.5 transition-transform">
+              <img src={face(w)} alt="" className={`pixel block w-[30px] h-[30px] rounded-full ${yes ? "" : "grayscale opacity-50"}`} /></button>
+            <span className="flex-1 min-w-0 cursor-pointer" onClick={() => ctx.openWho?.("w:" + w.wolt)}>
               <span className={`block truncate font-mono text-sm ${yes ? "" : "text-dim"}`} style={yes ? { color: woltColor(w.wolt, ctx.wolts) } : undefined}>{w.wolt}</span>
               <small className="block text-xs text-dim">{(w.owner === ctx.me ? "yours" : `${ctx.person(w.owner).name}'s`) + " · "}{w.paused ? "paused in the room" : yes ? (w.wolt === main ? "main · in every thread unless you switch it off" : "in this thread") : m === "paused" ? "paused here · still active elsewhere" : "not in this thread"}</small>
             </span>
