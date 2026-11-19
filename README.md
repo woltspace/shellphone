@@ -53,6 +53,11 @@ Stopping closes the way in through shellphone.woltspace.app. A room you also sha
 
 `link` and `unlink` are the old names of `share` and `share --stop`, and still work.
 
+**Which rooms are open here?** `uvx shellphone@latest list` shows the rooms open on this computer: where each one is,
+whether it is shared, and how many people and agents are in it. `uvx shellphone@latest stop` closes one, as Ctrl-C in
+its window does (`--port N` to say which, `--all` for every one). A kept room keeps everything, its links too, and comes
+back as it was at its next start; to end a room's links, that is `share --stop`.
+
 ### The ways to share a room
 
 | Way | How | What you get |
