@@ -10,6 +10,7 @@ import type { FileInfo, Msg, Person, Wolt } from "./room";
 import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mentionNames } from "./mentions.js";
+import { heldLayout } from "./held.js";
 
 export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; terminals?: Record<string, string>; reply?: (m: Msg) => void };
 
@@ -230,14 +231,15 @@ function useHold(on: boolean, fire: () => void) {
 // room below). It lives on the page itself, outside any thread sheet, so tapping out closes only the menu.
 type Item = { label: string; icon: ReactNode; color?: string; href?: string; run?: () => void; keep?: boolean };
 function Held({ rect, html, right, close, items }: { rect: DOMRect; html: string; right: boolean; close: () => void; items: Item[] }) {
-  const menuH = items.length * 48 + 8, gap = 8, vh = window.innerHeight;
-  const top = Math.max(16, Math.min(rect.top, vh - 24 - menuH - gap - rect.height));
+  const { top, height, cut, menuTop } = heldLayout(rect, items.length, window.innerHeight);
   const side = right ? { right: window.innerWidth - rect.right } : { left: rect.left };
   return createPortal(<div className="fixed inset-0 z-[3200] select-none [-webkit-touch-callout:none]" onClick={(e) => { e.stopPropagation(); close(); }} onPointerDown={(e) => e.stopPropagation()}>
     <div className="absolute inset-0 bg-[#18100a1a] backdrop-blur-[3px] animate-[fadein_.15s_ease-out]" />
-    <div className="absolute pointer-events-none [&>*]:!max-w-none [&>*]:!m-0" style={{ top, ...side, width: rect.width }} dangerouslySetInnerHTML={{ __html: html.replace(" invisible", "") }} />
+    {/* a message taller than the room left for it: cut short, and it scrolls in its frame */}
+    <div className={`absolute rounded-xl [&>*]:!max-w-none [&>*]:!m-0 ${cut ? "overflow-y-auto overscroll-contain pointer-events-auto" : "overflow-hidden pointer-events-none"}`} style={{ top, ...side, width: rect.width, height }}
+      onClick={(e) => e.stopPropagation()} dangerouslySetInnerHTML={{ __html: html.replace(" invisible", "") }} />
     <div role="menu" className="absolute min-w-[210px] rounded-xl bg-panel shadow-[0_8px_24px_#18100a2e] overflow-hidden animate-[fadein_.15s_ease-out]"
-      style={{ top: top + rect.height + gap, ...side }} onClick={(e) => e.stopPropagation()}>
+      style={{ top: menuTop, ...side }} onClick={(e) => e.stopPropagation()}>
       {items.map((it, i) => {
         const inner = <><span className="flex-1">{it.label}</span><span className="text-ink/80">{it.icon}</span></>;
         const cls = `flex items-center gap-3 w-full px-4 h-11 text-[15px] text-ink bg-transparent border-0 text-left no-underline cursor-pointer active:bg-line/40 ${i ? "border-t border-line/70" : ""}`;
