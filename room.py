@@ -536,6 +536,18 @@ def vapid():
     return str(pem), base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
 
+PUSH_CONTACT = "https://shellphone.dev"  # who a push service can reach about this room's notifications, when its person has no address of their own
+
+
+def push_contact(email):
+    """What a notification is signed with: the person's own address when it is a real one. A room on someone's own
+    computer knows its people by made-up addresses (host@shellphone.local, guest-…@room.local), and a push service
+    refuses a notification signed with one of those (Apple answers 403 BadJwtToken): then the project's address."""
+    name, _, domain = (email or "").strip().lower().rpartition("@")
+    made_up = not name or "." not in domain or domain.rsplit(".", 1)[1] in ("local", "localhost", "invalid", "test", "example", "internal")
+    return PUSH_CONTACT if made_up else "mailto:" + email.strip()
+
+
 def notify(m):
     """A new message goes to everyone who turned notifications on, except whoever sent it and anyone looking at the room."""
     if not pywebpush:
@@ -551,7 +563,7 @@ def notify(m):
             if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
                 continue
             try:
-                pywebpush.webpush(json.loads(row["sub"]), body, vapid_private_key=pem, vapid_claims={"sub": "mailto:" + row["email"]}, ttl=3600)
+                pywebpush.webpush(json.loads(row["sub"]), body, vapid_private_key=pem, vapid_claims={"sub": push_contact(row["email"])}, ttl=3600)
             except pywebpush.WebPushException as exc:
                 if exc.response is not None and exc.response.status_code in (404, 410):  # that phone unsubscribed
                     with tx() as c:
