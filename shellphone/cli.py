@@ -577,7 +577,12 @@ def listing(a):
         if r.get("shared") and r.get("reachable") is False:
             how += " (can't be reached from outside right now)"
         count = lambda n, word: f"{n} {word if n == 1 else {'person': 'people'}.get(word, word + 's')}"
-        print(f"  port {r['port']:<6} {r.get('name') or 'shell'}\n               {how} · {count(r.get('people', 0), 'person')} · {count(r.get('agents', 0), 'agent')}\n"
+        try:  # a middle dot between the counts, where the terminal can show one
+            "\u00b7".encode(sys.stdout.encoding or "ascii")
+            sep = " \u00b7 "
+        except (UnicodeError, LookupError):
+            sep = ", "
+        print(f"  port {r['port']:<6} {r.get('name') or 'shell'}\n               {how}{sep}{count(r.get('people', 0), 'person')}{sep}{count(r.get('agents', 0), 'agent')}\n"
               f"               {'kept in ' + r['dir'] if r['kept'] else 'not kept: deleted when it closes'}\n")
     print("Close one with `shellphone stop --port N`, all of them with `shellphone stop --all`.")
 

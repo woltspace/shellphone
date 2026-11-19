@@ -837,6 +837,9 @@ class ListAndStop(unittest.TestCase):
         self.assertIn("2 rooms open on this computer", words)
         self.assertIn("only on this computer", words)
         self.assertIn("not kept: deleted when it closes", words)
+        plain = subprocess.run([*CLI, "list"], capture_output=True, timeout=40, env={**self.env, "PYTHONIOENCODING": "ascii"})
+        self.assertEqual((plain.returncode, plain.stderr), (0, b""))  # a terminal that can't show the middle dot gets commas, not an error
+        self.assertIn("only on this computer, 1 person, 0 agents", plain.stdout.decode("ascii"))
         for r in (a, b):  # neither the host's key nor the agent's code is shown, in words or as JSON
             key = urllib.parse.parse_qs(urllib.parse.urlsplit(r.open).query)["k"][0]
             code = r.agent.split("#")[1]
