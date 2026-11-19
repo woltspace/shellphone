@@ -854,16 +854,18 @@ def hello():
     out = ui.console()
     out.print()
     if ui.can_draw(BANNER, out.file):
-        for line, shade in zip(BANNER.split("\n"), SHADE):  # the spiral shaded along its length, the words beside it as they are
-            row = ui.Text()
-            for i, ch in enumerate(line):
-                if 0x2800 <= ord(ch) <= 0x28FF:
-                    row.append(ch, style=ui.along(int(shade[i], 16) / 15 if i < len(shade) and shade[i].strip() else 0))
-                else:
-                    row.append(ch)
+        for line, shade in zip(BANNER.split("\n"), SHADE):  # the spiral shaded along its length; beside it the name in the same colours, and quiet words under it
             words = max((i for i, c in enumerate(line) if 0x2800 <= ord(c) <= 0x28FF), default=-1) + 1  # where the words beside it begin
-            if "s h e l l" in line[words:]:
-                row.stylize("bold", words)
+            row, said = ui.Text(), line[words:].strip()
+            for i, ch in enumerate(line[:words]):
+                row.append(ch, style=ui.along(int(shade[i], 16) / 15) if 0x2800 <= ord(ch) <= 0x28FF and i < len(shade) and shade[i].strip() else "")
+            row.append(line[words:len(line) - len(line[words:].lstrip())])
+            if "s h e l l" in said:  # the name, letter by letter, from the teal of the spiral's middle to the pink of its lip
+                letters = [i for i, ch in enumerate(said) if ch != " "]
+                for i, ch in enumerate(said):
+                    row.append(ch, style=f"bold {ui.along(letters.index(i) / (len(letters) - 1))}" if ch != " " else "")
+            else:
+                row.append(said, style=ui.DIM)
             out.print(row)
     else:
         out.print(PLAIN, markup=False)

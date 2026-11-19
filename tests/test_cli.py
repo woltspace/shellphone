@@ -958,6 +958,8 @@ class Colour(unittest.TestCase):
         self.assertGreaterEqual(len(shades), 8)  # the spiral changes colour along its length
         self.assertIn("23;146;153", shades)      # from the teal of its middle
         self.assertIn("234;118;203", shades)     # to the pink of its lip
+        name = next(l for l in loud.stdout.splitlines() if re.sub(r"\x1b\[[0-9;]*m", "", l).rstrip().endswith("s h e l l p h o n e"))
+        self.assertGreaterEqual(len(set(re.findall(r"38;2;(\d+;\d+;\d+)m[a-z]", name))), 8)  # the name is in the spiral's colours, letter by letter
         quiet = self.out(FORCE_COLOR="1", NO_COLOR="1")
         self.assertNotIn("38;2;", quiet.stdout)
         strip = lambda s: re.sub(r"\x1b\[[0-9;]*m", "", s)
