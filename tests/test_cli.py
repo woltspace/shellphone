@@ -541,6 +541,11 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(start(guest, {"text": "bring beta", "who": {"beta": "in"}})[0], 403)  # a real change is still the host's or keeper's
         room.set_paused("alpha", False)
         self.assertEqual(start(guest, {"text": "leave out the main one", "who": {"alpha": "paused"}})[0], 403)
+        # a tag brings an agent in, as it does from the chat box: the sheet switches a tagged agent on, and that takes no permission
+        status, m = start(guest, {"text": "@beta please help", "who": {"alpha": "in", "beta": "in"}})
+        self.assertEqual(status, 200, m)
+        self.assertTrue(room.hears_main(m, "beta"))
+        self.assertEqual(start(guest, {"text": "@beta please stay out", "who": {"beta": "paused"}})[0], 403)  # a tag isn't a switch for leaving one out
 
     def test_a_guest_cant_pause_or_remove_an_agent(self):
         import importlib, io, contextlib

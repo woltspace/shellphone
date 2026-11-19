@@ -1458,9 +1458,10 @@ def for_person(req, email):
             if any(w not in here or st not in ("in", "paused") for w, st in who.items()):
                 return reply(400, {"error": "who is {agent: in | paused}, for agents in this room"})
             # saying where an agent already stands in a new chat (the main agent and the room's default: in; one paused in
-            # the room: out either way) takes no permission; only a real change does
+            # the room: out either way) takes no permission; only a real change does. An agent @tagged in the message is
+            # in by the tag, as from the chat box, so saying "in" for it is no change either
             main = main_wolt()
-            stands = lambda w: "paused" if here[w]["paused"] else "in" if w == main or WHO_DEFAULT == "in" else "paused"
+            stands = lambda w: "paused" if here[w]["paused"] else "in" if w == main or WHO_DEFAULT == "in" or tagged({"text": text}, w) else "paused"
             if any(st != stands(w) and not may_switch(email, w) for w, st in who.items()):
                 return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
             return reply(200, append(who=who, kind="human", email=email, text=text, **spot,
