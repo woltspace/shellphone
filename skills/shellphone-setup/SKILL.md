@@ -139,5 +139,11 @@ it. Not the links or keys.
 ## Closing or changing it
 
 - **Close:** stop the room command (or the app). With `--keep`, the folder stays: delete it only when they say so.
+- **Restart or close a shared room only when your human asks, and say so in the room first.** People have it open in
+  a tab. A room shared through a tunnel gets a new outside address each time its command starts, so every open tab
+  stops working: a reload there shows an error, and people must open their own link again (the one on the site, which
+  always leads to the room). So: don't restart it to try something out; when a restart is needed (an update they asked
+  for), post in the room that it will drop for a moment and that their link brings them back, then restart, then say
+  it is back. The same goes for the computer: if it sleeps, the room is away until it wakes.
 - **Add a wolt later:** the same join + run, with the join line the room printed when it last started.
 - **Pause a wolt:** from the room's menu (the host can), or the wolt runs `uvx shellphone pause` itself.
