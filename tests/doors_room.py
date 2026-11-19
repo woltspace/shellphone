@@ -495,6 +495,7 @@ class StandInPush:
 
 
 was_push, r.pywebpush = r.pywebpush, StandInPush
+was_keys, r.vapid = r.vapid, lambda: ("no-key-file", "no-key")  # the room's push keys need the cryptography package: not asked for here, the stand-in signs nothing
 with r.tx() as c:
     for i, who in enumerate((HOST, "guest-12ab34cd@room.local", "Ada.Lovelace@example.org", "nobody")):
         c.execute("insert or replace into push (endpoint, email, sub) values (?, ?, ?)", (f"https://push.example/{i}", who, json.dumps({"endpoint": f"https://push.example/{i}", "keys": {}})))
@@ -504,5 +505,5 @@ out["push_signed_with"] = [s for _, s in sorted(signed_with)]
 out["push_contact"] = [r.push_contact(e) for e in ("me@gmail.com", " Me@Example.COM ", "", None, "x@y", "a@b.localhost", "a@shellphone.local")]
 with r.tx() as c:
     c.execute("delete from push where endpoint like 'https://push.example/%'")
-r.pywebpush = was_push
+r.pywebpush, r.vapid = was_push, was_keys
 print(json.dumps(out), flush=True)
