@@ -335,7 +335,13 @@ function useSwipeBack(close: () => void) {
   return {
     el, back,
     handlers: {
-      onTouchStart: (e: React.TouchEvent) => { const t = e.touches[0]; s.current = t.clientX < 28 ? { x: t.clientX, y: t.clientY, t: performance.now(), dx: 0 } : null; v.current = 0; },
+      // from anywhere on the left half (not only the very edge, which the phone's browser keeps for its own back swipe),
+      // but not from a box you type in or something that scrolls sideways itself (code, a row of pictures)
+      onTouchStart: (e: React.TouchEvent) => {
+        const t = e.touches[0], from = e.target as HTMLElement;
+        const own = from.closest?.("textarea, input, pre, .shp-code, [data-swipe-own]");
+        s.current = !own && t.clientX < window.innerWidth * 0.5 ? { x: t.clientX, y: t.clientY, t: performance.now(), dx: 0 } : null; v.current = 0;
+      },
       onTouchMove: (e: React.TouchEvent) => {
         const p = s.current; if (!p) return;
         v.current = track(p, e);
@@ -345,7 +351,7 @@ function useSwipeBack(close: () => void) {
       },
       onTouchEnd: () => {
         const p = s.current; s.current = null; if (!p || p.dir !== "x") return;
-        if (p.dx > 90 || (p.dx > 30 && v.current > 0.4)) back(); else glide(el.current, "translateX(0)");
+        if (p.dx > 70 || (p.dx > 25 && v.current > 0.3)) back(); else glide(el.current, "translateX(0)");
       },
     },
   };
@@ -613,9 +619,18 @@ export function App() {
   }, [msgs, thread, landing]);
   useEffect(() => {
     if (pageTab || /^#(m|page)=/.test(location.hash) && !/^#c=/.test(location.hash)) return;  // a landing link or a page tab keeps its own address
-    const want = thread ? `#c=${thread}` : "";
-    if (location.hash !== want) history.replaceState(null, "", location.pathname + location.search + want);
+    const want = thread ? `#c=${thread}` : "", base = location.pathname + location.search;
+    const inChat = (history.state as { shpChat?: number } | null)?.shpChat;
+    // opening a chat is a step in the browser's history, so the phone's own back swipe (or back button) comes back to
+    // the list instead of leaving the shell; a chat open since loading gets the list put under it first
+    if (thread && !inChat) { history.replaceState(null, "", base); history.pushState({ shpChat: 1 }, "", base + want); }
+    else if (!thread && inChat) history.back();
+    else if (location.hash !== want) history.replaceState(history.state, "", base + want);
   }, [thread]);
+  useEffect(() => {
+    const back = () => { if (!/^#(m|page)=/.test(location.hash)) setThread((location.hash.match(/^#c=([\w-]+)/) || [])[1] || ""); };
+    addEventListener("popstate", back); return () => removeEventListener("popstate", back);
+  }, []);
   // leaving the spot you landed on (back to the list, another thread) clears it from the address
   useEffect(() => {
     const h = new URLSearchParams(location.hash.slice(1));
