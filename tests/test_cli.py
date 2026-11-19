@@ -837,6 +837,16 @@ class ListAndStop(unittest.TestCase):
         self.assertIn("2 rooms open on this computer", words)
         self.assertIn("only on this computer", words)
         self.assertIn("not kept: deleted when it closes", words)
+        self.assertEqual(words.count("\U0001F41A"), 2)  # a shell beside each one
+        plain = subprocess.run([*CLI, "list"], capture_output=True, timeout=40, env={**self.env, "PYTHONIOENCODING": "ascii"})
+        self.assertEqual((plain.returncode, plain.stderr), (0, b""))
+        self.assertIn("2 rooms open on this computer", plain.stdout.decode("ascii"))  # and none where the terminal can't show it
+        self.assertIn("only on this computer, 1 person, 0 agents", plain.stdout.decode("ascii"))
+        stopped = subprocess.run([*CLI, "stop", "--all"], capture_output=True, timeout=60, env={**self.env, "PYTHONIOENCODING": "ascii"})
+        self.assertEqual((stopped.returncode, stopped.stderr), (0, b""))
+        self.assertEqual(stopped.stdout.decode("ascii").count("ok Closed the room"), 2)
+        for r in (a, b):
+            r.proc.wait(10)
         for r in (a, b):  # neither the host's key nor the agent's code is shown, in words or as JSON
             key = urllib.parse.parse_qs(urllib.parse.urlsplit(r.open).query)["k"][0]
             code = r.agent.split("#")[1]

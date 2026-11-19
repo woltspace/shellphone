@@ -570,19 +570,21 @@ def listing(a):
     out = ui.console()
     if not rooms:
         return out.print(ui.Text.assemble("No room is open on this computer. Open one with ", ui.command("shellphone room"), "."))
+    shell = "\U0001F41A " if ui.can_draw("\U0001F41A", out.file) else ""  # a shell beside each one, where the terminal can show it
+    dot, sep = ("\u25cf", " \u00b7 ") if ui.can_draw("\u25cf\u00b7", out.file) else ("*", ", ")  # and plain marks where it can't
     out.print(f"[bold]{len(rooms)} room{'s' if len(rooms) != 1 else ''} open on this computer[/bold]\n")
     count = lambda n, word: f"{n} {word if n == 1 else {'person': 'people'}.get(word, word + 's')}"
     for r in rooms:  # a few lines each, none of them cut or folded: a path stays whole to be copied
         where = ("kept in " + r["dir"]) if r["kept"] else "not kept: deleted when it closes"
         down = bool(r.get("shared")) and r.get("reachable") is False
         colour = ui.AMBER if down or not r["answers"] else ui.GREEN if r.get("shared") else ui.DIM
-        out.print(ui.Text.assemble("  ", ("●", colour), " ", (f"port {r['port']}", "bold"), "  ", (r.get("name") or "shell") if r["answers"] else ("doesn't answer", ui.AMBER)))
+        out.print(ui.Text.assemble("  ", shell, (f"port {r['port']}", "bold"), "  ", (r.get("name") or "shell") if r["answers"] else ("doesn't answer", ui.AMBER), "  ", (dot, colour)))
         if r["answers"]:
             how = ("shared, " + WAYS[r["via"]] if r.get("via") else "shared") if r.get("shared") else "only on this computer"
             if down:
                 how += " (can't be reached from outside right now)"
-            out.print(ui.Text.assemble("      ", (how, colour if r.get("shared") else ""), f" · {count(r.get('people', 0), 'person')} · {count(r.get('agents', 0), 'agent')}"))
-        out.print(ui.Text("      " + where, style=ui.DIM))
+            out.print(ui.Text.assemble("     " if shell else "  ", (how, colour if r.get("shared") else ""), f"{sep}{count(r.get('people', 0), 'person')}{sep}{count(r.get('agents', 0), 'agent')}"))
+        out.print(ui.Text(("     " if shell else "  ") + where, style=ui.DIM))
         out.print()
     out.print(ui.Text.assemble(("Close one with ", ui.DIM), ui.command("shellphone stop --port N"), (", all of them with ", ui.DIM), ui.command("shellphone stop --all"), (".", ui.DIM)))
 
@@ -593,6 +595,7 @@ def stop_rooms(a):
     import time
     from . import ui
     out = ui.console()
+    tick = "\u2713" if ui.can_draw("\u2713", out.file) else "ok"
     rooms = [r for r in open_rooms(a.keep) if a.port is None or r["port"] == a.port]
     if not rooms:
         sys.exit("no open room found" + (f" on port {a.port}" if a.port else " on this computer"))
@@ -619,9 +622,9 @@ def stop_rooms(a):
             out.print(f"[{ui.AMBER}]![/] The room on port {r['port']} was asked to close and is still running.")
             failed = True
         elif r["kept"]:
-            out.print(f"[{ui.GREEN}]✓[/] Closed the room on port {r['port']}. It is kept in {ui.escape(r['dir'])}: [bold]shellphone room --keep {ui.escape(shlex.quote(r['dir']))}[/bold] brings it back as it was.")
+            out.print(f"[{ui.GREEN}]{tick}[/] Closed the room on port {r['port']}. It is kept in {ui.escape(r['dir'])}: [bold]shellphone room --keep {ui.escape(shlex.quote(r['dir']))}[/bold] brings it back as it was.")
         else:
-            out.print(f"[{ui.GREEN}]✓[/] Closed the room on port {r['port']}. It wasn't kept: it is gone.")
+            out.print(f"[{ui.GREEN}]{tick}[/] Closed the room on port {r['port']}. It wasn't kept: it is gone.")
     if failed:
         sys.exit(1)
 
