@@ -10,7 +10,6 @@ import { worn } from "./hats";
 import { mood, type Who } from "./WoltStrip";
 import { Busy, ThreadHat, ago, rootFresh, threadColor, threadTitle } from "./Threads";
 
-type Filter = "needs" | "all" | "agents" | "unread";
 type Item = { id: string; r: Msg; list: Msg[]; last: Msg; n: number; why: string; busy: boolean };
 
 const preview = (m: Msg) => ((m.text && m.text.replace(/\*\*|`/g, "")) || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
@@ -20,7 +19,7 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
   state: State; ctx: Ctx; roots: Msg[]; replies: Map<string, Msg[]>; seen: Record<string, number>; current: string; title: string;
   menu: boolean; desk?: boolean; onMenu: () => void; onDesk?: () => void; onOpen: (id: string) => void; onNew: () => void; onPick: (who: Who) => void; onAgent: () => void;
 }) {
-  const [filter, setFilter] = useState<Filter>("all"), [q, setQ] = useState("");
+  const [q, setQ] = useState("");
   const box = useRef<HTMLInputElement>(null);
   // a busy wolt chews through its lines of lore, a new one every few seconds, as in the strip
   const [tick, setTick] = useState(0);
@@ -40,36 +39,26 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
   }).sort((a, b) => b.last.at - a.last.at), [roots, replies, seen, me, myName, state.working, state.working_in]);
 
   const found = q.trim() ? items.filter((i) => threadTitle(i.r).toLowerCase().includes(q.trim().toLowerCase())) : items;
-  const needs = found.filter((i) => i.why), working = found.filter((i) => !i.why && i.busy), rest = found.filter((i) => !i.why && !i.busy);
+  const needs = found.filter((i) => i.why);
   const name = (m: Msg) => (m.kind === "human" ? (m.email === me ? "you" : ctx.person(m.email).name) : m.wolt!);
   const face = (m: Msg) => { const p = ctx.person(m.kind === "human" ? m.email : m.owner);
     return m.kind === "human" ? personAvatar(p.name, p.color, worn.people[m.email!]) : woltFace(m.wolt, m.creature); };
 
+  // one quiet line per chat: its colour, its name, and only what matters: @ when someone tagged you, a gnawing face while a
+  // wolt works in it, otherwise when it last moved. Unread is just bold.
   const row = (i: Item) => {
     const here = i.id === current, busy = ctx.busy?.(i.id) || [], color = threadColor(i.id);
-    return <button key={i.id} type="button" onClick={() => onOpen(i.id)} aria-current={here || undefined}
-      className={`relative flex w-[calc(100%-12px)] mx-1.5 my-px items-center gap-2.5 px-2.5 py-[7px] rounded-[10px] border-0 text-left cursor-pointer ${here ? "shadow-[0_1px_3px_#18100a1a]" : "bg-transparent hover:bg-[#ffffff80]"}`} style={here ? { background: mix(color, "#ffffff", 0.9) } : undefined}>
-      <i className={`absolute left-0 top-1.5 bottom-1.5 rounded-full ${here ? "w-[4px]" : "w-[3px] opacity-70"}`} style={{ background: color }} />
-      <img src={face(i.last)} alt="" className="pixel flex-none w-9 h-9" />
-      <span className="flex-1 min-w-0">
-        <span className={`flex items-center gap-1 truncate text-[13.5px] ${i.n ? "font-bold" : "font-medium"}`} style={{ color }}><ThreadHat id={i.id} className="w-4 h-4 flex-none" /><span className="truncate">{threadTitle(i.r)}</span></span>
-        {busy.length && !i.why ? <span className="flex mt-px"><Busy wolts={busy} ctx={ctx} /></span>
-          : <span className={`block truncate text-[12.5px] ${i.n ? "text-[#4a4038]" : "text-dim"}`}>
-            {i.why && <b className="text-acc font-semibold">{i.why === "mentions you" ? "mentions you: " : "replied: "}</b>}{name(i.last)}: {preview(i.last)}</span>}
-      </span>
-      <span className="flex-none flex flex-col items-end gap-1 font-mono text-[10.5px] text-dim">
-        {short(ago(i.last.at))}
-        {i.n > 0 && <span className={`min-w-[18px] h-[18px] px-1.5 rounded-full text-white font-semibold text-[10.5px] leading-[18px] text-center ${i.why ? "bg-acc" : "bg-[#bdb3a4]"}`}>{i.why === "mentions you" ? "@" : i.n}</span>}
-      </span>
+    return <button key={i.id} type="button" onClick={() => onOpen(i.id)} aria-current={here || undefined} title={`${name(i.last)}: ${preview(i.last)}`}
+      className={`flex w-[calc(100%-12px)] mx-1.5 items-center gap-2.5 h-[34px] px-2.5 rounded-lg border-0 text-left cursor-pointer ${here ? "" : "bg-transparent hover:bg-[#ffffff90]"}`}
+      style={here ? { background: mix(color, "#ffffff", 0.82) } : undefined}>
+      <i className="flex-none w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+      <span className={`flex-1 min-w-0 truncate text-[14px] ${i.n ? "font-bold text-ink" : "text-[#5a5047]"}`}>{threadTitle(i.r)}</span>
+      {i.why ? <span className="flex-none w-[18px] h-[18px] rounded-full bg-acc text-white text-[11px] font-bold leading-[18px] text-center" title="someone tagged you">@</span>
+        : busy.length ? <span className="flex-none flex">{busy.slice(0, 2).map((w) => <img key={w.wolt} src={woltFace(w.wolt, w.creature)} alt={w.wolt + " working"} className="gnaw-img pixel w-5 h-5" />)}</span>
+        : <span className="flex-none font-mono text-[10.5px] text-dim">{short(ago(i.last.at))}</span>}
     </button>;
   };
-  const section = (label: string, list: Item[]) => list.length > 0 && <>
-    <div className="px-3.5 pt-3 pb-1 font-mono text-[10.5px] font-semibold tracking-[.07em] uppercase text-dim">{label}</div>{list.map(row)}</>;
-  const shown = filter === "needs" ? needs : filter === "agents" ? found.filter((i) => i.busy) : filter === "unread" ? found.filter((i) => i.n) : null;
-  const chip = (f: Filter, label: string, n?: number) => <button type="button" onClick={() => setFilter(f)}
-    className={`flex-none px-2.5 py-[3px] rounded-full border font-mono text-[11.5px] cursor-pointer ${filter === f ? "bg-ink text-white border-ink" : "bg-white text-dim border-line hover:text-ink"}`}>
-    {label}{n ? <b className={`ml-1 ${filter === f ? "text-[#ffb38a]" : "text-acc"}`}>{n}</b> : null}</button>;
-
+  const list = [...needs, ...found.filter((i) => !i.why)];
   return <aside aria-label="Chats" className="w-[300px] flex-none h-full flex flex-col bg-[#efe9de] border-r border-line">
     <div className="flex-none flex items-center gap-2 pl-1.5 pr-2 pt-2.5 pb-2">
       <button type="button" aria-label={menu ? "Close menu" : "Menu"} onClick={onMenu} className={`relative ${menu ? "z-[1720]" : ""} w-9 h-9 grid place-items-center border-0 bg-transparent text-acc cursor-pointer rounded-lg hover:bg-[#ffffff80]`}><MenuIcon size={20} /></button>
@@ -103,12 +92,8 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
         <span className="font-mono text-[10.5px]">add</span>
       </button>
     </div>
-    <div className="flex-none flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
-      {chip("all", "All")}{chip("needs", "Needs you", needs.length)}{chip("agents", "Agents", found.filter((i) => i.busy).length)}{chip("unread", "Unread", found.filter((i) => i.n).length)}
-    </div>
-    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-2">
-      {shown ? (shown.length ? shown.map(row) : <p className="text-center text-dim font-mono text-xs mt-6 px-6">{filter === "needs" ? "Nothing waiting on you 👍" : "Nothing here"}</p>)
-        : <>{section("Needs you", needs)}{section("Working", working)}{section(needs.length || working.length ? "Recent" : "Chats", rest)}</>}
+    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-2">
+      {list.map(row)}
       {!found.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">{q ? "No chat by that name" : "No chats yet. Start one below."}</p>}
     </div>
     <button type="button" onClick={onNew} className="flex-none m-3 mt-1 flex items-center justify-center gap-2 py-2.5 rounded-[10px] border-0 bg-acc text-white font-mono font-bold text-[14px] cursor-pointer shadow-[0_2px_8px_#18100a30] active:scale-[.98]">
