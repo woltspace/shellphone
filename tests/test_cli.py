@@ -953,6 +953,11 @@ class Colour(unittest.TestCase):
         self.assertIn("38;2;23;146;153", loud.stdout)  # the site's teal: the spiral, and what a command does
         self.assertIn("38;2;223;142;29m--share", loud.stdout)  # an option in its yellow
         self.assertIn("38;2;114;135;253m'<link>'", loud.stdout)  # what you fill in yourself in its lavender
+        spiral = [l for l in loud.stdout.splitlines() if any(0x2800 <= ord(ch) <= 0x28FF for ch in l)]
+        shades = set(re.findall(r"38;2;(\d+;\d+;\d+)m", "".join(spiral)))
+        self.assertGreaterEqual(len(shades), 8)  # the spiral changes colour along its length
+        self.assertIn("23;146;153", shades)      # from the teal of its middle
+        self.assertIn("234;118;203", shades)     # to the pink of its lip
         quiet = self.out(FORCE_COLOR="1", NO_COLOR="1")
         self.assertNotIn("38;2;", quiet.stdout)
         strip = lambda s: re.sub(r"\x1b\[[0-9;]*m", "", s)

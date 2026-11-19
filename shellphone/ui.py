@@ -13,6 +13,17 @@ ACC, GREEN, AMBER, DIM = "#179299", "#40a02b", "#df8e1d", "#8a7a68"
 FLAG, ARG = "#df8e1d", "#7287fd"  # in a command as it is typed: an option in the site's yellow, what you fill in yourself in its lavender
 
 
+SEA = ("#179299", "#209fb5", "#7287fd", "#8839ef", "#ea76cb")  # the site's teal, sapphire, lavender, mauve and pink: a shell from its deep middle to the pink of its lip
+
+
+def along(t, stops=SEA):
+    """The colour a part t of the way along (0 to 1) through the stops, blended between the two nearest."""
+    t = min(1.0, max(0.0, t)) * (len(stops) - 1)
+    i = min(int(t), len(stops) - 2)
+    a, b = (tuple(int(c[k:k + 2], 16) for k in (1, 3, 5)) for c in (stops[i], stops[i + 1]))
+    return "#" + "".join(f"{round(x + (y - x) * (t - i)):02x}" for x, y in zip(a, b))
+
+
 def console(err=False):
     """Nothing is guessed at: no automatic colouring of numbers and paths, no emoji codes, and a line is never cut to
     fit (a path or a command must stay whole to be copied)."""
@@ -50,4 +61,4 @@ def grid(rows, quiet=False):
     return t
 
 
-__all__ = ["ACC", "GREEN", "AMBER", "DIM", "FLAG", "ARG", "console", "can_draw", "command", "grid", "escape", "Table", "Text"]
+__all__ = ["ACC", "GREEN", "AMBER", "DIM", "FLAG", "ARG", "SEA", "along", "console", "can_draw", "command", "grid", "escape", "Table", "Text"]

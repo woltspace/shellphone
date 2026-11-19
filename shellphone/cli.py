@@ -817,6 +817,19 @@ BANNER = "\n".join((
     '                ⠹⣄         ⢀⡤⠞',
     '                 ⠈⠙⠲⠤⠤⢤⠤⠤⠴⠚⠉',
 ))
+# How far along the spiral each of its dots is, from its middle (0) to its mouth (f): what its colour goes by.
+SHADE = (
+    '     feeeddddccccbbbaaaa9',
+    '  ffff                  9999',
+    '                           888',
+    '                             88',
+    '                              77',
+    '                               7',
+    '                2211010        7',
+    '                2  0000      667',
+    '                33         666',
+    '                 33344445555',
+)
 PLAIN = "  s h e l l p h o n e\n\n  a chat for you and your coding agents, on your own computer"  # for a terminal that can't draw the dots
 
 HELLO = (  # where to start: a command, and what it does
@@ -841,10 +854,17 @@ def hello():
     out = ui.console()
     out.print()
     if ui.can_draw(BANNER, out.file):
-        for line in BANNER.split("\n"):  # the spiral in the site's teal, the words beside it as they are
-            dots = max((i for i, ch in enumerate(line) if 0x2800 <= ord(ch) <= 0x28FF), default=-1) + 1
-            words = line[dots:]
-            out.print(ui.Text.assemble((line[:dots], ui.ACC), (words, "bold" if "s h e l l" in words else "")))
+        for line, shade in zip(BANNER.split("\n"), SHADE):  # the spiral shaded along its length, the words beside it as they are
+            row = ui.Text()
+            for i, ch in enumerate(line):
+                if 0x2800 <= ord(ch) <= 0x28FF:
+                    row.append(ch, style=ui.along(int(shade[i], 16) / 15 if i < len(shade) and shade[i].strip() else 0))
+                else:
+                    row.append(ch)
+            words = max((i for i, c in enumerate(line) if 0x2800 <= ord(c) <= 0x28FF), default=-1) + 1  # where the words beside it begin
+            if "s h e l l" in line[words:]:
+                row.stylize("bold", words)
+            out.print(row)
     else:
         out.print(PLAIN, markup=False)
     out.print()
