@@ -22,6 +22,7 @@ import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, X } from "l
 const Desk = lazy(() => import("./Desk"));  // terminals and their library load only on a computer that opens the desk
 import { usePush } from "./push";
 import { forget, onTap, pendingTap } from "./landing";
+import { taker } from "./landing-notes.js";
 import { trace } from "./trace";
 
 // iPhone Safari doesn't shrink the page for the keyboard, so size the app to the part of the screen still visible.
@@ -533,10 +534,10 @@ export function App() {
   // chat scrolled to it. Opening it normally, or coming back after a while, lands home: the threads list.
   const target = useRef<{ m: string; t: string; key?: string; at?: number } | null>(null);  // key: the tap's note, removed once landed
   const [landing, setLanding] = useState(0);
-  const taps = useRef(new Set<string>());  // the taps already landed, so one arriving both ways lands once
+  const take = useRef(taker());  // a tap arriving both ways lands once, and one older than the newest taken never lands (landing-notes.js)
   const goTo = (url: string, key?: string, how = "address", at?: number) => {
     const h = new URLSearchParams(new URL(url, location.href).hash.slice(1));
-    if (key) { if (taps.current.has(key)) return; taps.current.add(key); }
+    if ((key || at !== undefined) && !take.current(key, at)) { trace("tap skipped: already taken, or older than the newest", { how }); return; }
     if (!h.get("m")) { forget(key, at); return; }  // nowhere to go: nothing to keep it for
     trace("goTo", { how, m: h.get("m"), t: h.get("t") || "" });
     target.current = { m: h.get("m")!, t: h.get("t") || "", key, at };

@@ -4,7 +4,19 @@
 //     superseded (older taps) are cleared on the way, so landing on the newest never lets an older one come back after it
 //   forget(cache, key, at) → once the app has landed on a tap, its note is gone, and so is any older one it supersedes
 //     (however the tap arrived: as a note, or straight from the worker); a newer one stays
+//   taker() → take(key, at): whether the app should go to this tap. Not one it already took (a tap arrives both ways), and
+//     not one older than the newest it took: a slow cache lookup can come back with an old tap after a newer one came
+//     straight from the worker, and must not send the app back to the old one
 const FRESH = 60_000;
+
+export function taker() {
+  const seen = new Set(); let newest = -Infinity;
+  return (key, at) => {
+    if (key) { if (seen.has(key)) return false; seen.add(key); }
+    if (typeof at === "number") { if (at < newest) return false; newest = at; }
+    return true;
+  };
+}
 
 export async function pending(cache, now = Date.now()) {
   let best = null; const fresh = [];

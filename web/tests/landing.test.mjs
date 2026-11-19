@@ -2,7 +2,7 @@
 //   node --test web/tests/landing.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { forget, pending } from "../src/landing-notes.js";
+import { forget, pending, taker } from "../src/landing-notes.js";
 
 const S = "https://room.test/";
 // a stand-in for the Cache API: an ordered map of URL → body, each step async like the real one
@@ -103,4 +103,19 @@ test("without the tap's time, it's read from its note", async () => {
   await c.put(S + "landing-note/b", note("b", now - 1000));
   await forget(c, S + "landing-note/b");
   assert.equal(await pending(c, now), null);
+});
+
+test("a slow lookup's older tap never replaces a newer one that came straight from the worker", () => {
+  const take = taker();
+  assert.equal(take(S + "landing-note/B", 2000), true);   // B, newer, arrives as a message first
+  assert.equal(take(S + "landing-note/A", 1000), false);  // then the lookup that read A earlier comes back: not taken
+  assert.equal(take(S + "landing-note/B", 2000), false);  // and B arriving the other way lands once
+  assert.equal(take(S + "landing-note/C", 3000), true);   // a later tap still lands
+});
+
+test("in order, each newer tap is taken; a tap with no note (the address) always is", () => {
+  const take = taker();
+  assert.equal(take(S + "landing-note/A", 1000), true);
+  assert.equal(take(S + "landing-note/B", 2000), true);
+  assert.equal(take(undefined, undefined), true);
 });
