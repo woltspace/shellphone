@@ -29,10 +29,6 @@ export function ChatSide({ thread, list, ctx, room, fallback, host, main }: {
           : <p className="m-0 text-[12px] text-dim">No one has written here yet.</p>}
         <div className="mt-4" />{head("Agents")}
         <ThreadWho inline thread={thread} list={list} ctx={ctx} room={room} fallback={fallback} host={host} main={main} />
-        <div className="mt-4" />{head("Keys")}
-        <div className="rounded-[10px] border border-line bg-white px-3 py-2 text-[12px] leading-[2] text-dim">
-          {[["⌘K", "jump to a chat"], ["N", "new chat"], ["Esc", "close this chat"]].map(([k, t]) => <div key={k}><kbd className="font-mono text-[10.5px] border border-line border-b-2 rounded px-1 mr-1.5 bg-paper">{k}</kbd>{t}</div>)}
-        </div>
       </>}
       {tab === "pages" && (pages.length ? pages.map((m) => <button key={m.id} type="button" onClick={() => ctx.openPage?.(m.page!.id)}
         className="block w-full text-left mb-2 rounded-[10px] border border-line bg-white px-3 py-2.5 cursor-pointer hover:border-acc">

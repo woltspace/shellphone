@@ -286,7 +286,7 @@ function ThreadSheet({ docked, side, startFull, chat, name, onRename, color, wal
         {who}
         {side && <button type="button" aria-label={side.on ? "Hide the side pane" : "Show the side pane"} title="Who's in it, pages, files" onClick={side.flip}
           className={`flex-none w-9 h-9 grid place-items-center border cursor-pointer rounded-lg ${side.on ? "bg-white border-line text-ink" : "bg-transparent border-transparent text-dim hover:bg-panel"}`}><PanelRight size={18} /></button>}
-        <button type="button" aria-label="Close the chat" title="Close (Esc)" onClick={close} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer rounded-lg hover:bg-panel"><X size={18} /></button>
+        <button type="button" aria-label="Close the chat" onClick={close} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer rounded-lg hover:bg-panel"><X size={18} /></button>
       </div>
     </div>
     {children}
@@ -768,17 +768,6 @@ export function App() {
   // the side pane beside the open chat (who's in it, pages, files): open by default on a wide screen, remembered here
   const [sideOn, setSideOn] = useState(() => { try { return localStorage.getItem("side") !== "0"; } catch { return true; } });
   const setSide = (on: boolean) => { setSideOn(on); try { localStorage.setItem("side", on ? "1" : "0"); } catch { /* fine */ } };
-  // keys on a computer: Esc closes the open chat, N starts a new one (not while typing, not over a sheet)
-  useEffect(() => {
-    if (!twoPane) return;
-    const key = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement, typing = t.closest?.("input,textarea,[contenteditable=true]");
-      if (who || starting || menu || paging || viewing || adding) return;
-      if (e.key === "Escape" && thread && !typing) setThread("");
-      else if ((e.key === "n" || e.key === "N") && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); setStarting(true); }
-    };
-    addEventListener("keydown", key); return () => removeEventListener("keydown", key);
-  }, [twoPane, thread, who, starting, menu, paging, viewing, adding]);
   const chatSheet = (docked: boolean) => (
 <ThreadSheet key={thread} docked={docked} side={docked ? { on: sideOn, flip: () => setSide(!sideOn) } : undefined} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={docked ? undefined : threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
@@ -823,7 +812,7 @@ export function App() {
       </div>}
       {twoPane && <div className="flex-1 min-w-0 relative flex">{thread ? <><div className="flex-1 min-w-0 relative">{chatSheet(true)}</div>
         {sideOn && <ChatSide thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}</> : <div className="flex-1 h-full grid place-items-center text-center px-8">
-        <div><div className="font-mono text-acc font-semibold">Pick a chat</div><div className="text-dim text-[13px] mt-1">or start a new one. <kbd className="font-mono text-[11px] border border-line rounded px-1">N</kbd></div></div></div>}</div>}
+        <div><div className="font-mono text-acc font-semibold">Pick a chat</div><div className="text-dim text-[13px] mt-1">or start a new one.</div></div></div>}</div>}
       </div> : <>
         {chatsHome && <button type="button" onClick={() => setLobby(false)} className="flex-none flex items-center gap-1 px-3 py-2 border-0 border-b border-line bg-panel font-mono text-[12px] text-acc text-left cursor-pointer">
           <ChevronLeft size={16} /> chats <span className="text-dim">· lobby: the old main chat. Anything you say here starts a chat.</span></button>}

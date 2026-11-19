@@ -8,7 +8,7 @@ import type { Msg, State } from "./room";
 import { personAvatar, verbs, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mood, type Who } from "./WoltStrip";
-import { Busy, ago, rootFresh, threadTitle } from "./Threads";
+import { Busy, ThreadHat, ago, rootFresh, threadColor, threadTitle } from "./Threads";
 
 type Filter = "needs" | "all" | "agents" | "unread";
 type Item = { id: string; r: Msg; list: Msg[]; last: Msg; n: number; why: string; busy: boolean };
@@ -22,11 +22,6 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
 }) {
   const [filter, setFilter] = useState<Filter>("all"), [q, setQ] = useState("");
   const box = useRef<HTMLInputElement>(null);
-  // ⌘K / Ctrl+K: find a chat by name
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); box.current?.focus(); box.current?.select(); } };
-    addEventListener("keydown", key); return () => removeEventListener("keydown", key);
-  }, []);
   // a busy wolt chews through its lines of lore, a new one every few seconds, as in the strip
   const [tick, setTick] = useState(0);
   const wolts = state.members.wolts;
@@ -40,8 +35,7 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
     if (rootFresh(r, seen, me)) fresh.unshift(r);
     // waiting on you, guessed from what's there: someone tagged you, or someone answered in a chat you're part of
     const tagged = fresh.some((m) => new RegExp(`@${myName.replace(/[^\w-]/g, "")}\\b`, "i").test(m.text || ""));
-    const mine = list.some((m) => m.kind === "human" && m.email === me);
-    const why = tagged ? "mentions you" : fresh.length && mine && !(last.kind === "human" && last.email === me) ? "replied" : "";
+    const why = tagged ? "mentions you" : "";
     return { id: r.id, r, list, last, n: fresh.length, why, busy: (ctx.busy?.(r.id) || []).length > 0 };
   }).sort((a, b) => b.last.at - a.last.at), [roots, replies, seen, me, myName, state.working, state.working_in]);
 
@@ -52,13 +46,13 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
     return m.kind === "human" ? personAvatar(p.name, p.color, worn.people[m.email!]) : woltFace(m.wolt, m.creature); };
 
   const row = (i: Item) => {
-    const here = i.id === current, busy = ctx.busy?.(i.id) || [];
+    const here = i.id === current, busy = ctx.busy?.(i.id) || [], color = threadColor(i.id);
     return <button key={i.id} type="button" onClick={() => onOpen(i.id)} aria-current={here || undefined}
-      className={`relative flex w-[calc(100%-12px)] mx-1.5 my-px items-center gap-2.5 px-2.5 py-[7px] rounded-[10px] border-0 text-left cursor-pointer ${here ? "bg-white shadow-[0_1px_3px_#18100a1a]" : "bg-transparent hover:bg-[#ffffff80]"}`}>
-      {here && <i className="absolute -left-1.5 top-2 bottom-2 w-[3px] rounded-full bg-acc" />}
+      className={`relative flex w-[calc(100%-12px)] mx-1.5 my-px items-center gap-2.5 px-2.5 py-[7px] rounded-[10px] border-0 text-left cursor-pointer ${here ? "shadow-[0_1px_3px_#18100a1a]" : "bg-transparent hover:bg-[#ffffff80]"}`} style={here ? { background: mix(color, "#ffffff", 0.9) } : undefined}>
+      <i className={`absolute left-0 top-1.5 bottom-1.5 rounded-full ${here ? "w-[4px]" : "w-[3px] opacity-70"}`} style={{ background: color }} />
       <img src={face(i.last)} alt="" className="pixel flex-none w-9 h-9" />
       <span className="flex-1 min-w-0">
-        <span className={`block truncate text-[13.5px] ${i.n ? "font-bold text-ink" : "text-ink"}`}>{threadTitle(i.r)}</span>
+        <span className={`flex items-center gap-1 truncate text-[13.5px] ${i.n ? "font-bold" : "font-medium"}`} style={{ color }}><ThreadHat id={i.id} className="w-4 h-4 flex-none" /><span className="truncate">{threadTitle(i.r)}</span></span>
         {busy.length && !i.why ? <span className="flex mt-px"><Busy wolts={busy} ctx={ctx} /></span>
           : <span className={`block truncate text-[12.5px] ${i.n ? "text-[#4a4038]" : "text-dim"}`}>
             {i.why && <b className="text-acc font-semibold">{i.why === "mentions you" ? "mentions you: " : "replied: "}</b>}{name(i.last)}: {preview(i.last)}</span>}
@@ -88,7 +82,6 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
       <Search size={14} />
       <input ref={box} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setQ(""); e.currentTarget.blur(); } if (e.key === "Enter" && found[0]) { onOpen(found[0].id); setQ(""); e.currentTarget.blur(); } }}
         placeholder="Jump to a chat…" className="flex-1 min-w-0 border-0 outline-none bg-transparent text-[13px] text-ink" />
-      <kbd className="font-mono text-[10.5px] border border-line border-b-2 rounded px-1">⌘K</kbd>
     </label>
     {/* your wolts, faces with their hats: gnawing when they're on something, tap one for its card */}
     <div className="flex-none flex gap-0.5 px-2 pt-1.5 pb-2.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] border-b border-line">
@@ -119,7 +112,7 @@ export function Sidebar({ state, ctx, roots, replies, seen, current, title, menu
       {!found.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">{q ? "No chat by that name" : "No chats yet. Start one below."}</p>}
     </div>
     <button type="button" onClick={onNew} className="flex-none m-3 mt-1 flex items-center justify-center gap-2 py-2.5 rounded-[10px] border-0 bg-acc text-white font-mono font-bold text-[14px] cursor-pointer shadow-[0_2px_8px_#18100a30] active:scale-[.98]">
-      ＋ New chat <kbd className="font-mono text-[10.5px] border border-[#ffffff60] rounded px-1 bg-[#ffffff25]">N</kbd>
+      ＋ New chat
     </button>
   </aside>;
 }
