@@ -20,6 +20,8 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
   menu: boolean; desk?: boolean; onMenu: () => void; onDesk?: () => void; onOpen: (id: string) => void; onNew: () => void; onPick: (who: Who) => void; onAgent: () => void;
 }) {
   const [q, setQ] = useState("");
+  const [crowd, setCrowd] = useState<"humans" | "agents">(() => { try { return localStorage.getItem("crowd") === "agents" ? "agents" : "humans"; } catch { return "humans"; } });
+  const pickCrowd = (c: "humans" | "agents") => { setCrowd(c); try { localStorage.setItem("crowd", c); } catch { /* fine */ } };
   const box = useRef<HTMLInputElement>(null);
   // a busy wolt chews through its lines of lore, a new one every few seconds, as in the strip
   const [tick, setTick] = useState(0);
@@ -74,12 +76,18 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
       <input ref={box} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setQ(""); e.currentTarget.blur(); } if (e.key === "Enter" && found[0]) { onOpen(found[0].id); setQ(""); e.currentTarget.blur(); } }}
         placeholder="Jump to a chat…" className="flex-1 min-w-0 border-0 outline-none bg-transparent text-[13px] text-ink" />
     </label>
-    {/* who's here, split down the middle: humans on the left, agents on the right (gnawing when they're on something);
-        faces with their hats, tap one for its card */}
-    <div className="flex-none flex border-b border-line">
-      <div className="flex-1 min-w-0">
-        <div className="px-3 font-mono text-[10.5px] font-semibold tracking-[.07em] uppercase text-dim">Humans · {state.members.people.length}</div>
-        <div className="flex gap-0.5 px-2 pt-1 pb-2.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
+    {/* who's here, in a slider: Humans | Agents. The switch slides, and the row slides with it. Faces with their hats,
+        agents gnawing when they're on something; tap one for its card */}
+    <div className="flex-none pb-2 border-b border-line overflow-hidden">
+      <div className="relative mx-3 mb-1.5 grid grid-cols-2 p-[3px] rounded-[10px] bg-[#e3dacb]">
+        <i className="absolute top-[3px] bottom-[3px] left-[3px] w-[calc(50%-3px)] rounded-[8px] bg-white shadow-[0_1px_3px_#18100a26] transition-transform duration-300 ease-[cubic-bezier(.2,.8,.2,1)]"
+          style={{ transform: crowd === "agents" ? "translateX(100%)" : "none" }} />
+        {(["humans", "agents"] as const).map((c) => <button key={c} type="button" onClick={() => pickCrowd(c)} aria-pressed={crowd === c}
+          className={`relative z-[1] py-1 border-0 bg-transparent font-mono text-[11.5px] font-semibold cursor-pointer transition-colors ${crowd === c ? "text-ink" : "text-dim"}`}>
+          {c === "humans" ? `Humans · ${state.members.people.length}` : `Agents · ${wolts.length}`}</button>)}
+      </div>
+      <div className="flex w-[200%] transition-transform duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" style={{ transform: crowd === "agents" ? "translateX(-50%)" : "none" }}>
+        <div className="w-1/2 flex gap-0.5 px-2 pt-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]" aria-hidden={crowd !== "humans"}>
       {state.members.people.map((h, i) => { const p = ctx.person(h.email);
         return <button key={h.email} type="button" onClick={() => onPick("p:" + h.email)} aria-label={p.name}
           className="flex-none w-[56px] flex flex-col items-center p-0 border-0 bg-transparent cursor-pointer">
@@ -89,11 +97,7 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
           <span className="font-mono text-[9.5px] text-dim">{h.email === state.me ? "you" : state.host === h.email ? "host" : (h as { guest?: boolean }).guest ? "guest" : "human"}</span>
         </button>; })}
         </div>
-      </div>
-      <i className="flex-none w-px my-2 bg-line" />
-      <div className="flex-1 min-w-0">
-        <div className="px-3 font-mono text-[10.5px] font-semibold tracking-[.07em] uppercase text-dim">Agents · {wolts.length}</div>
-        <div className="flex gap-0.5 px-2 pt-1 pb-2.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
+        <div className="w-1/2 flex gap-0.5 px-2 pt-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]" aria-hidden={crowd !== "agents"}>
       {[...wolts].sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)).map((w, i) => {
         const m = mood(w, state), color = woltColor(w.wolt, wolts), v = verbs(w.creature);
         return <button key={w.wolt} type="button" onClick={() => onPick("w:" + w.wolt)} aria-label={`${w.wolt}: ${m.word}`}
