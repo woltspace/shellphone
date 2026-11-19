@@ -137,13 +137,13 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
   // on a computer screen: bubbles like WhatsApp or Instagram. Yours on the right in the chat's own colour; everyone else on
   // the left on white, their name in their colour on the first of a run, with their face (hat and all) beside it
   if (ctx.rows) {
-    const tint = ctx.tint || "#c4531e", voice = human ? who.color : woltColor(m.wolt, ctx.wolts);
+    const voice = human ? who.color : woltColor(m.wolt, ctx.wolts);  // each sender their own light colour, as on the phone
     return (
       <div className={`flex items-end gap-2 px-5 ${firstOfRun ? "mt-3" : "mt-[3px]"} ${mine ? "justify-end" : ""}`} id={m.cid || m.id}>
         {!mine && (firstOfRun ? <img src={avatar} alt="" className="pixel w-9 h-9 flex-none self-start" /> : <span className="flex-none w-9" />)}
-        <div data-bubble className={`min-w-0 max-w-[min(68%,720px)] px-3.5 py-2 shadow-[0_1px_1.5px_#18100a1f] ${mine
-          ? `tinted text-white rounded-[18px] ${firstOfRun ? "rounded-tr-[5px]" : ""}`
-          : `bg-white border border-[#ece4d8] rounded-[18px] ${firstOfRun ? "rounded-tl-[5px]" : ""}`}`} style={mine ? { background: tint } : undefined}>
+        <div data-bubble className={`min-w-0 max-w-[min(68%,720px)] px-3.5 py-2 border rounded-[18px] shadow-[0_1px_1.5px_#18100a14] ${mine
+          ? (firstOfRun ? "rounded-tr-[5px]" : "") : (firstOfRun ? "rounded-tl-[5px]" : "")}`}
+          style={{ background: mix(voice, "#ffffff", mine ? 0.8 : human ? 0.86 : 0.9), borderColor: mix(voice, "#ffffff", 0.6) }}>
           {!mine && firstOfRun && <div className="flex items-baseline gap-1.5 mb-0.5">
             <b className="text-[13px]" style={{ color: voice }}>{human ? who.name : m.wolt}</b>
             {!human && <span className="font-mono text-[10.5px] text-dim">{owner === ctx.me ? "yours" : who.name + "'s"}</span>}
@@ -152,11 +152,11 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
           {m.audio ? <div className="min-w-[260px]"><Voice m={m} ctx={ctx} /></div> : m.text ? <div className="text-[14.5px] leading-[1.45] whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
           {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
           <Card msg={m} all={ctx.all} />
-          {m.page && <div className="text-ink"><PageTile m={m} ctx={ctx} /></div>}
+          {m.page && <PageTile m={m} ctx={ctx} />}
           {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
             className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
             style={{ color: voice, borderColor: mix(voice, "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}
-          <div className={`flex justify-end items-center gap-1 -mb-0.5 font-mono text-[10px] ${mine ? "text-[#ffffffb3]" : "text-dim"}`}>
+          <div className="flex justify-end items-center gap-1 -mb-0.5 font-mono text-[10px] text-dim">
             {time(m.at)}
             {readers.length > 0 && <span className="inline-flex gap-px" title={"Read by " + readers.join(", ")}>
               {readers.map((r) => { const w = ctx.wolts.find((x) => x.wolt === r); return <img key={r} alt={r} className="pixel w-[15px] h-[15px]" src={woltFace(r, w?.creature)} />; })}</span>}
