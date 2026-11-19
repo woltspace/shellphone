@@ -35,6 +35,7 @@ DEV = False
 LINKER = None  # set by the `shellphone` command: the room's switch between "only on this computer" and "linked" (info, on, off)
 OUTSIDE = None  # set by the `shellphone` command while the room is linked through a tunnel (shellphone/outside.py): its address there, and who each outside link belongs to
 CORE = None  # set by the `shellphone` command: the room's rules, who may do what (shellphone/core.py). Every door asks it
+CLOSE = None  # `shellphone room` sets this: what closes this room, as its own Ctrl-C would (see /api/close)
 LOCAL = {}  # `shellphone room` (a room on this computer only): login token -> email. The token comes in the link the host opens.
 # Behind Cloudflare Access: the team domain and the Access app's audience tag. With both set, people must carry a valid Access login.
 ACCESS_TEAM = os.environ.get("SHELLPHONE_ACCESS_TEAM", "")
@@ -1036,7 +1037,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return 400, {"error": "send a JSON object"}
         if path.endswith("/end"):
             return rules().end_invites(email, via, mark, body.get("id"))
-        status, out = rules().make_invite(email, via, mark, body.get("ends_in", 86400), body.get("uses"), body.get("for"))
+        status, out = rules().make_invite(email, via, mark, uses=body.get("uses"), for_name=body.get("for"), **({"ends_in": body["ends_in"]} if "ends_in" in body else {}))  # no length said: the rules' usual one
         if status == 200:
             out["link"] = door.invite_link(out.pop("token"))  # said once, here: the room keeps only a hash of it
         return status, out
@@ -1126,6 +1127,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(403, {"error": "not on this room's list"})
             if path == "/api/link":
                 return self.send(*self.link_call(email, json.loads(self.body() or b"{}"), post=True))
+            if path == "/api/close":  # `shellphone stop`: the room closes itself, asked by its host on its own computer. Nothing outside it ever ends its program
+                if not (LOCAL and CLOSE):
+                    return self.send(403, {"error": "only the room's host can do that, on the computer the room runs on"})
+                no = rules().refusal(email, "room.close", self.via())
+                if no:
+                    return self.send(*no)
+                self.send(200, {"closing": True})
+                return CLOSE()
             if path in ("/api/invites", "/api/invites/end"):
                 return self.send(*self.invites_call(email, path, json.loads(self.body() or b"{}"), True))
             if path == "/api/agent-invite":

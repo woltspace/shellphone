@@ -1,6 +1,6 @@
 """A room linked through a tunnel of its own (shellphone/outside.py): who gets in by which key, what an unlink leaves
 behind, and where an agent's calls may go. No tunnel, no site and no network: stand-ins for both."""
-import contextlib, hashlib, hmac, http.client, http.server, json, os, re, socket, subprocess, sys, tempfile, threading, types, unittest, urllib.error
+import contextlib, hashlib, hmac, http.client, http.server, json, os, re, socket, subprocess, sys, tempfile, threading, time, types, unittest, urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -485,3 +485,376 @@ class Moved(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Carries(unittest.TestCase):
+    """A tunnel whose program still runs but which carries nothing (the computer slept, the network changed) is replaced,
+    within limits: longer waits between tries, and an end to them."""
+
+    def shared(self, td, answers=(), ups=(), online=True):
+        from shellphone import outside as mod
+        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: o.said.append(a[0]))
+        o.said, o.open, o.room, o.host, o.mod = [], True, "room-1", "old-name.trycloudflare.com", mod
+
+        class Running:
+            stopped = False
+            def alive(self): return not self.stopped
+            def stop(self): self.stopped = True
+        o.Running, o.tunnel, o.ups, answers, ups = Running, Running(), [], list(answers), list(ups)
+        o.first = o.tunnel
+
+        def up():
+            why = ups.pop(0) if ups else None
+            o.ups.append(why)
+            if not why:
+                o.tunnel, o.host = Running(), "new-name.trycloudflare.com"
+            return why
+        o._up, o._answers, o._online = up, lambda: answers.pop(0), lambda: online if isinstance(online, bool) else online.pop(0)
+        return o
+
+    def test_two_misses_in_a_row_while_online_and_the_tunnel_is_replaced(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [False, False, True])
+            self.assertIsNone(o._check(now=0))  # one miss could be a hiccup
+            self.assertEqual((o.ups, o.first.stopped), ([], False))
+            self.assertEqual(o._check(now=60), "reopened")
+            self.assertEqual((o.ups, o.first.stopped, o.host), ([None], True, "new-name.trycloudflare.com"))  # the old program is ended, not left running
+            self.assertIsNone(o._check(now=120))
+            self.assertEqual((o.ups, o._tries, o._next), ([None], 0, 0))  # seen to carry: settled
+
+    def test_a_miss_then_an_answer_starts_the_count_again(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [False, True, False, True, False])
+            for i in range(5):
+                self.assertIsNone(o._check(now=60 * i))
+            self.assertEqual((o.ups, o.first.stopped), ([], False))
+
+    def test_a_computer_that_is_cut_off_keeps_its_tunnel_and_uses_up_no_tries(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [None] * 6)  # no way out at all: a new tunnel would mend nothing
+            for i in range(6):
+                self.assertIsNone(o._check(now=60 * i))
+            self.assertEqual((o.ups, o.first.stopped), ([], False))
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [False, None, False, False])  # cut off in between: the earlier miss still counts once it is back
+            self.assertEqual([o._check(now=60 * i) for i in range(3)], [None, None, "reopened"])
+        with tempfile.TemporaryDirectory() as td:  # the tunnel's program died while the computer is cut off: waited for, however long
+            o = self.shared(td, online=False)
+            o.tunnel.stopped = True
+            for i in range(500):
+                self.assertIsNone(o._mend(now=3 * i))
+            self.assertEqual((o.ups, o._tries, o._gave_up), ([], 0, None))
+
+    def test_a_room_that_isnt_shared_or_whose_tunnel_ended_is_left_to_the_other_watch(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [])  # nothing is even asked
+            o.open = False
+            self.assertIsNone(o._check(now=0))
+            o.open, o.tunnel.stopped = True, True
+            self.assertIsNone(o._check(now=0))
+            self.assertEqual(o.ups, [])
+
+    def test_each_failed_try_waits_longer_and_after_ten_it_stops_and_says_so(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, ups=["no tunnel"] * 50)
+            o.tunnel.stopped = True  # its program died, and no new one can be opened
+            tried, now = [], 0
+            while now < 6 * 3600:  # looked at every three seconds for six hours, as the watch does
+                if o._mend(now):
+                    tried.append(now)
+                now += 3
+            WAITS, TRIES = o.mod.WAITS, o.mod.TRIES
+            self.assertEqual(len(tried), TRIES)
+            gaps = [b - a for a, b in zip(tried, tried[1:])]
+            for gap, wait in zip(gaps, list(WAITS) + [WAITS[-1]] * 10):
+                self.assertTrue(wait <= gap < wait + 6, (gaps, wait))  # looked at every three seconds; a try itself takes a moment
+            self.assertEqual(o._gave_up, "no tunnel")
+            self.assertIn("stops trying", o.said[-1])
+            status, info = 200, o.info()
+            self.assertEqual((info["linked"], info["state"]), (True, "down"))
+            self.assertIn("couldn't be reopened", info["note"])
+
+    def test_a_tunnel_that_opens_and_drops_again_counts_as_a_try_too(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, answers=[False] * 400)  # every new tunnel opens, and none is ever seen to carry
+            opened, now = 0, 0
+            while now < 6 * 3600:
+                if o._check(now=now) == "reopened":
+                    opened += 1
+                now += 60
+            self.assertEqual(opened, o.mod.TRIES)  # it kept trying for a while, more and more slowly, and then stopped
+            self.assertEqual(o._gave_up, "each new tunnel stopped carrying")
+            self.assertEqual(o.info()["state"], "down")
+            self.assertFalse(o.tunnel.stopped)  # the last tunnel is left as it is: it may yet come back
+            o._answers = lambda: True
+            self.assertIsNone(o._check(now=now))  # and when it is seen to carry after all, the room says it is up again
+            self.assertEqual((o.info()["state"], o._gave_up, o._tries), ("up", None, 0))
+
+    def test_one_look_that_finds_it_carrying_settles_everything(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, answers=[False, False, True], ups=["no tunnel"])
+            o._check(now=0)
+            self.assertEqual(o._check(now=60), "failed")
+            self.assertEqual(o._tries, 1)
+            self.assertAlmostEqual(o._next, 60 + o.mod.WAITS[0], delta=0.5)
+            self.assertIsNone(o._mend(now=61))             # not yet
+            self.assertEqual(o._mend(now=61 + o.mod.WAITS[0]), "reopened")
+            self.assertEqual(o._tries, 2)                  # opened, but not yet seen to carry
+            self.assertIsNone(o._check(now=200))           # it answers
+            self.assertEqual((o._tries, o._next, o._missed), (0, 0, 0))
+
+    def test_sharing_again_after_it_stopped_trying_starts_over_through_the_real_switch_and_keeps_the_links(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, ups=["no tunnel"] * 10)
+            o.tunnel.stopped = True
+            now = 0
+            while not o._gave_up:
+                o._mend(now); now += 3
+            self.assertEqual(len(o.ups), 10)
+            o.core = lambda: types.SimpleNamespace(invite_open=lambda *a: False, guest_count=lambda *a: 0)
+            o.door_mark = lambda: "mark"
+            o.r, o.site, o.host_token, o.secret = None, "https://site.example", "host-key", "s3cret"
+            o.saved = lambda: {"room": o.room}
+            share = cli.Share({"relay": types.SimpleNamespace(info=lambda: {"linked": False}, saved=lambda: None), "tunnel": o}, "relay")
+            self.assertEqual(share.info()["state"], "down")
+            status, info = share.on()  # what `shellphone share` and the menu reach: the room's one switch
+            self.assertEqual((status, info["linked"], info["state"], info["via"]), (200, True, "up", "tunnel"))
+            self.assertEqual((o._gave_up, len(o.ups), o.ups[-1]), (None, 11, None))  # one new try, at once, and it opened
+            self.assertEqual((o.room, o.host_token, o.secret), ("room-1", "host-key", "s3cret"))  # the same room, the same keys: no link was ended
+            self.assertIn("/t/room-1#k.host-key", info["link"])
+            status, info = share.on()  # and asked once more while it is up: nothing is touched
+            self.assertEqual((status, info["state"], len(o.ups)), (200, "up", 11))
+
+    def test_a_try_that_raises_is_a_failed_try_counted_and_waited_after(self):
+        import http.client
+        with tempfile.TemporaryDirectory() as td:
+            o, calls = self.shared(td), []
+            o.tunnel.stopped = True
+
+            def broken():
+                calls.append(1)
+                raise http.client.IncompleteRead(b"x")
+            o._up = broken
+            tried, now = [], 0
+            while now < 6 * 3600:  # through the watch's own round, every three seconds, as it runs
+                if o._look(o._mend, now):
+                    tried.append(now)
+                now += 3
+            self.assertEqual((len(calls), len(tried)), (o.mod.TRIES, o.mod.TRIES))
+            gaps = [b - a for a, b in zip(tried, tried[1:])]
+            for gap, wait in zip(gaps, list(o.mod.WAITS) + [o.mod.WAITS[-1]] * 10):
+                self.assertTrue(wait <= gap < wait + 6, (gaps, wait))  # looked at every three seconds; a try itself takes a moment
+            self.assertIn("IncompleteRead", o._gave_up)
+            self.assertEqual(o.info()["state"], "down")
+
+    def test_the_wait_runs_from_when_a_try_ended_not_from_when_it_began(self):
+        with tempfile.TemporaryDirectory() as td:
+            o, clock, began = self.shared(td), [0], []
+            o.tunnel.stopped = True
+
+            def slow():
+                began.append(clock[0])
+                clock[0] += 100  # a tunnel that takes 100 seconds to fail
+                return "no tunnel"
+            o._up = slow
+            with patch.object(o.mod.time, "time", lambda: clock[0]):
+                self.assertEqual(o._mend(0), "failed")
+                self.assertEqual(o._next, 100 + o.mod.WAITS[0])
+                self.assertIsNone(o._mend(clock[0]))  # just ended: not again at once
+                self.assertIsNone(o._mend(100 + o.mod.WAITS[0] - 1))
+                self.assertEqual(o._mend(100 + o.mod.WAITS[0]), "failed")
+                self.assertEqual((began, o._next), ([0, 100], 230 + o.mod.WAITS[1]))  # it ended at 230: the second wait runs from there
+
+    def test_a_new_tunnel_the_site_couldnt_be_told_of_is_closed_not_left_running(self):
+        import http.client
+        from shellphone import outside as mod
+        with tempfile.TemporaryDirectory() as td:
+            o, opened = self.shared(td), []
+            o.tunnel.stopped = True  # the old one died
+            o._up = mod.Outside._up.__get__(o)  # the real thing: open a tunnel, tell the site
+
+            class NewTunnel(o.Running):
+                why = ""
+                def __init__(self, port): opened.append(self)
+                def start(self): return "https://new-name.trycloudflare.com"
+            told = []
+
+            def cut_short(url, **kw):
+                told.append(url)
+                raise http.client.IncompleteRead(b"{")
+            o._tell = cut_short
+            with patch.object(mod, "Tunnel", NewTunnel):
+                self.assertEqual(o._look(o._mend, 0), "failed")
+            self.assertEqual((len(opened), opened[0].stopped, o.tunnel, o.host), (1, True, None, None))  # closed, and the room holds no tunnel
+            self.assertEqual((o._tries, told), (1, ["https://new-name.trycloudflare.com"]))
+            self.assertIn("IncompleteRead", o.said[-1])
+            # nothing is left for a look to find carrying: the count stands until the site really has an address
+            o._answers = lambda: self.fail("there is no tunnel to look at")
+            self.assertIsNone(o._check(now=60))
+            self.assertEqual(o._tries, 1)
+            o._tell = lambda url, **kw: None  # the site answers again
+            with patch.object(mod, "Tunnel", NewTunnel):
+                self.assertEqual(o._mend(60 + mod.WAITS[0]), "reopened")
+            self.assertEqual((len(opened), opened[1].stopped, o.host), (2, False, "new-name.trycloudflare.com"))
+
+    def fake_cloudflared(self, td):
+        exe = Path(td) / "cloudflared"
+        exe.write_text('#!/bin/sh\necho "https://fake-name.trycloudflare.com" >&2\necho "Registered tunnel connection" >&2\nexec sleep 60\n')
+        exe.chmod(0o755)
+        return str(exe)
+
+    def test_a_tunnel_program_whose_start_goes_wrong_is_stopped_not_left_running(self):
+        import http.client, subprocess
+        from shellphone import outside as mod
+        with tempfile.TemporaryDirectory() as td:
+            exe, started, real = self.fake_cloudflared(td), [], subprocess.Popen
+
+            def popen(*a, **kw):
+                started.append(real(*a, **kw))
+                return started[-1]
+
+            def cut_short(self, wait=40):
+                raise http.client.IncompleteRead(b"{")
+            try:
+                with patch.object(mod.shutil, "which", lambda name: exe), patch.object(mod.subprocess, "Popen", popen):
+                    with patch.object(mod.Tunnel, "_named", cut_short):  # the program runs, has said its address, and then the start itself fails
+                        t = mod.Tunnel(1)
+                        self.assertIsNone(t.start())
+                        self.assertIn("IncompleteRead", t.why)
+                        self.assertEqual((len(started), t.proc, t.alive()), (1, None, False))
+                        self.assertIsNotNone(started[0].wait(5))  # the program is gone
+
+                        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)  # and through the room's own way of opening one, three times over
+                        o._tell = lambda url, **kw: self.fail("there is no address to tell the site of")
+                        for _ in range(3):
+                            self.assertIn("IncompleteRead", o._up())
+                        self.assertEqual((len(started), o.tunnel, o.host), (4, None, None))
+                        for proc in started:
+                            self.assertIsNotNone(proc.wait(5))
+
+                    def interrupted(self, wait=40):
+                        raise KeyboardInterrupt
+                    with patch.object(mod.Tunnel, "_named", interrupted):  # stopped by hand in the middle: it goes too, and the stop is passed on
+                        t = mod.Tunnel(1)
+                        self.assertRaises(KeyboardInterrupt, t.start)
+                        self.assertIsNotNone(started[-1].wait(5))
+            finally:
+                for proc in started:
+                    if proc.poll() is None:
+                        proc.kill()
+
+    def test_asking_for_a_new_tunnels_name_goes_on_after_an_answer_cut_short(self):
+        import http.client
+        from shellphone import outside as mod
+        t, asked = mod.Tunnel(1), []
+        t.url, t.alive = "https://fake-name.trycloudflare.com", lambda: True
+
+        class Said:
+            def read(self): return b'{"Answer": [{"data": "1.2.3.4"}]}'
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def urlopen(req, timeout=None):
+            asked.append(req.full_url)
+            if len(asked) == 1:
+                raise http.client.IncompleteRead(b"{")
+            return Said()
+        with patch.object(mod.urllib.request, "urlopen", urlopen), patch.object(mod.time, "sleep", lambda s: None):
+            self.assertTrue(t._named())
+        self.assertEqual(len(asked), 2)
+
+    def test_what_counts_as_an_answer(self):
+        from shellphone import outside as mod
+        import http.client
+        with tempfile.TemporaryDirectory() as td:
+            o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)
+            o.open, o.room, o.secret, o.host = True, "room-1", "s3cret", "name.trycloudflare.com"
+
+            class Said:
+                def __init__(self, body, status=200): self.body, self.status = body, status
+                def read(self, n=-1):
+                    if isinstance(self.body, Exception): raise self.body
+                    return self.body
+                def __enter__(self): return self
+                def __exit__(self, *a): return False
+            asked = []
+
+            def net(room_answer, online):
+                class Opener:
+                    def open(self, req, timeout=None):
+                        url = req.full_url
+                        if "trycloudflare.com" in url:
+                            n = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["n"][0]
+                            asked.append(n)
+                            got = room_answer(n) if callable(room_answer) else room_answer
+                            if isinstance(got, Exception) and not isinstance(got, http.client.IncompleteRead): raise got
+                            return got if isinstance(got, Said) else Said(got)
+                        if not online: raise OSError("no network")
+                        return Said(b"ok")
+                return Opener()
+            mine = lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": o.proof(n)}).encode()
+            cases = (
+                (mine, True, True), (mine, False, True),
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": ""}).encode(), True, False),          # this room's name, no proof
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": "0" * 64}).encode(), True, False),    # a wrong proof
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": o.proof("0" * 32)}).encode(), True, False),  # a proof for another number
+                (lambda n: json.dumps({"shellphone": True, "room": "someone-else", "proof": o.proof(n)}).encode(), True, False),
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1"}).encode(), True, False),
+                (b"<html>not a room</html>", True, False), (b"[]", True, False),
+                (lambda n: Said(mine(n), status=203), True, False),
+                (OSError("name not known"), True, False), (OSError("name not known"), False, None),
+                (http.client.IncompleteRead(b"{"), True, False),          # an answer cut short is a miss like any other
+                (http.client.RemoteDisconnected("gone"), True, False), (http.client.BadStatusLine("x"), False, None),
+            )
+            for room_answer, online, want in cases:
+                with patch.object(mod, "STAY", net(room_answer, online)):
+                    self.assertIs(o._answers(), want, (room_answer, online))
+            self.assertTrue(all(re.fullmatch(r"[0-9a-f]{32}", n) for n in asked) and len(set(asked)) == len(asked))  # a new number each time
+            o.host = None
+            self.assertIsNone(o._answers())
+
+    def test_no_redirect_is_followed_when_the_room_looks_at_itself(self):
+        from shellphone import outside as mod
+        self.assertIsInstance(mod.STAY, urllib.request.OpenerDirector)
+        seen = []
+
+        class Elsewhere(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.path)
+                if self.path.startswith("/api/up"):
+                    self.send_response(302); self.send_header("Location", "/elsewhere"); self.end_headers()
+                else:
+                    self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+            def log_message(self, *a): pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Elsewhere)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with self.assertRaises(urllib.error.HTTPError):
+                mod.STAY.open(f"http://127.0.0.1:{srv.server_address[1]}/api/up?n=1", timeout=5)
+            self.assertEqual(seen, ["/api/up?n=1"])
+        finally:
+            srv.shutdown()
+
+    def test_the_watch_goes_on_whatever_goes_wrong_in_one_round(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td)
+            def broken(*a): raise RuntimeError("an answer cut short")
+            self.assertIsNone(o._look(broken))
+            self.assertIn("Still watching", o.said[-1])
+            self.assertEqual(o._look(lambda: "reopened"), "reopened")
+        # and for real: a watch whose every look fails is still looking, and still ends when the room stops sharing
+        with tempfile.TemporaryDirectory() as td:
+            from shellphone import outside as mod
+            o, looks = self.shared(td), []
+            def check(): looks.append(1); raise RuntimeError("cut short")
+            o._check = check
+            stop = threading.Event()
+
+            class Quick:
+                def wait(self, s): time.sleep(0.01); return stop.is_set()
+                def is_set(self): return stop.is_set()
+            with patch.object(mod, "CHECK", 0):
+                t = threading.Thread(target=o._watch, args=(Quick(),), daemon=True); t.start()
+                time.sleep(0.5); stop.set(); t.join(2)
+            self.assertGreater(len(looks), 3)
+            self.assertFalse(t.is_alive())

@@ -145,6 +145,10 @@ class Doors(unittest.TestCase):
         v = self.got["invites"]
         self.assertEqual((v["command_says"], v["command_link_works"], v["command_forever"]), ([True, True, True], "Ada", True))
         self.assertEqual(v["command_bad"], "refused:")
+        self.assertEqual(v["command_lengths"], [True] * 5)  # 30 minutes unless said, and said back as people say it
+        self.assertEqual(v["command_one_length"], ["refused:"] * 5)
+        self.assertTrue(v["share_says_how_long"])
+        self.assertTrue(v["page_default"])  # a page that names no length gets the same 30 minutes
         self.assertTrue(v["command_words_without_an_invite"])  # share's own words, once the first invite was ended
         self.assertEqual(v["command_end"], "0 open invites ended. ")
 
@@ -164,6 +168,7 @@ class Doors(unittest.TestCase):
 
     def test_invites_through_the_relay_follow_the_same_rules(self):
         v = self.relay()["relay_invites"]
+        self.assertEqual((v["default_length"], v["no_end_when_said"], v["default_over_after_30_minutes"] != 200), (True, True, True))  # 30 minutes through the relay too, unless said
         self.assertEqual((v["made"], v["link_is_this_links"], v["comes_in"], v["is_in"], v["once"], v["at_another_link"]), (200, True, 200, 200, 403, 403))
         self.assertEqual(v["only_a_name_is_asked_of_it"], 403)  # an invite is not a key: it can ask for a place, nothing else
         self.assertEqual((v["guest_makes"], v["guest_lists"], v["guest_ends"], v["guest_sets_the_switch"]), (403, 403, 403, 403))
