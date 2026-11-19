@@ -286,9 +286,9 @@ class Outside:
     def _online(self):
         """Has this computer a way out at all, right now?"""
         try:
-            with urllib.request.urlopen(urllib.request.Request("https://1.1.1.1/cdn-cgi/trace", headers={"User-Agent": "shellphone-room/1"}), timeout=8):
+            with STAY.open(urllib.request.Request("https://1.1.1.1/cdn-cgi/trace", headers={"User-Agent": "shellphone-room/1"}), timeout=8):
                 return True
-        except OSError:
+        except Exception:  # whatever went wrong on the way: no answer is no way out
             return False
 
     def _answers(self):
@@ -297,13 +297,15 @@ class Outside:
         host, room = self.host, self.room
         if not host or not room:
             return None
-        try:
-            req = urllib.request.Request(f"https://{host}/api/up?n=0", headers={"User-Agent": "shellphone-room/1"})
-            with urllib.request.urlopen(req, timeout=8) as res:
-                got = json.loads(res.read(2000))
-            if isinstance(got, dict) and got.get("shellphone") is True and got.get("room") == room:
+        try:  # asked as the site asks before it sends anyone on: a number picked now, signed with the key only this room holds. No redirect is followed
+            n = secrets.token_hex(16)
+            req = urllib.request.Request(f"https://{host}/api/up?n={n}", headers={"User-Agent": "shellphone-room/1"})
+            with STAY.open(req, timeout=8) as res:
+                got = json.loads(res.read(2000)) if res.status == 200 else None
+            want = self.proof(n)
+            if isinstance(got, dict) and got.get("shellphone") is True and got.get("room") == room and want and isinstance(got.get("proof"), str) and hmac.compare_digest(got["proof"], want):
                 return True
-        except (OSError, ValueError):
+        except Exception:  # a refused connection, a name that isn't known, an answer cut short, anything that isn't this room's own answer: a miss
             pass
         return False if self._online() else None  # not answering: is it the tunnel, or is this computer cut off from everything?
 
@@ -368,10 +370,19 @@ class Outside:
                 if self.tunnel and self.tunnel.alive():
                     if time.time() - looked >= CHECK:  # its program runs: does it still carry?
                         looked = time.time()
-                        self._check()
+                        self._look(self._check)
                     continue
-                if self._mend(time.time()):  # the tunnel's program died
+                if self._look(self._mend, time.time()):  # the tunnel's program died
                     looked = time.time()
+
+    def _look(self, what, *a):
+        """One round of the watch. Whatever goes wrong in it, the watch goes on: a room that stopped watching would
+        never mend its tunnel again."""
+        try:
+            return what(*a)
+        except Exception as exc:
+            self.say(f"Looking after the tunnel went wrong this time ({type(exc).__name__}: {exc}). Still watching.", flush=True)
+            return None
 
     def on(self):
         with self.lock:

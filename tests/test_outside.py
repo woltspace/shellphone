@@ -1,6 +1,6 @@
 """A room linked through a tunnel of its own (shellphone/outside.py): who gets in by which key, what an unlink leaves
 behind, and where an agent's calls may go. No tunnel, no site and no network: stand-ins for both."""
-import contextlib, hashlib, hmac, http.client, http.server, json, os, re, socket, subprocess, sys, tempfile, threading, types, unittest, urllib.error
+import contextlib, hashlib, hmac, http.client, http.server, json, os, re, socket, subprocess, sys, tempfile, threading, time, types, unittest, urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -618,30 +618,96 @@ class Carries(unittest.TestCase):
 
     def test_what_counts_as_an_answer(self):
         from shellphone import outside as mod
+        import http.client
         with tempfile.TemporaryDirectory() as td:
             o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)
-            o.room, o.host = "room-1", "name.trycloudflare.com"
+            o.open, o.room, o.secret, o.host = True, "room-1", "s3cret", "name.trycloudflare.com"
 
             class Said:
-                def __init__(self, body): self.body = body
-                def read(self, n=-1): return self.body
+                def __init__(self, body, status=200): self.body, self.status = body, status
+                def read(self, n=-1):
+                    if isinstance(self.body, Exception): raise self.body
+                    return self.body
                 def __enter__(self): return self
                 def __exit__(self, *a): return False
+            asked = []
 
             def net(room_answer, online):
-                def urlopen(req, timeout=None):
-                    url = req.full_url
-                    if "trycloudflare.com" in url:
-                        if isinstance(room_answer, Exception): raise room_answer
-                        return Said(room_answer)
-                    if not online: raise OSError("no network")
-                    return Said(b"ok")
-                return urlopen
-            mine = json.dumps({"shellphone": True, "room": "room-1", "proof": "x"}).encode()
-            other = json.dumps({"shellphone": True, "room": "someone-else", "proof": "x"}).encode()
-            for room_answer, online, want in ((mine, True, True), (mine, False, True), (other, True, False), (b"<html>not a room</html>", True, False),
-                                              (OSError("name not known"), True, False), (OSError("name not known"), False, None)):
-                with patch.object(mod.urllib.request, "urlopen", net(room_answer, online)):
+                class Opener:
+                    def open(self, req, timeout=None):
+                        url = req.full_url
+                        if "trycloudflare.com" in url:
+                            n = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["n"][0]
+                            asked.append(n)
+                            got = room_answer(n) if callable(room_answer) else room_answer
+                            if isinstance(got, Exception) and not isinstance(got, http.client.IncompleteRead): raise got
+                            return got if isinstance(got, Said) else Said(got)
+                        if not online: raise OSError("no network")
+                        return Said(b"ok")
+                return Opener()
+            mine = lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": o.proof(n)}).encode()
+            cases = (
+                (mine, True, True), (mine, False, True),
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": ""}).encode(), True, False),          # this room's name, no proof
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": "0" * 64}).encode(), True, False),    # a wrong proof
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1", "proof": o.proof("0" * 32)}).encode(), True, False),  # a proof for another number
+                (lambda n: json.dumps({"shellphone": True, "room": "someone-else", "proof": o.proof(n)}).encode(), True, False),
+                (lambda n: json.dumps({"shellphone": True, "room": "room-1"}).encode(), True, False),
+                (b"<html>not a room</html>", True, False), (b"[]", True, False),
+                (lambda n: Said(mine(n), status=203), True, False),
+                (OSError("name not known"), True, False), (OSError("name not known"), False, None),
+                (http.client.IncompleteRead(b"{"), True, False),          # an answer cut short is a miss like any other
+                (http.client.RemoteDisconnected("gone"), True, False), (http.client.BadStatusLine("x"), False, None),
+            )
+            for room_answer, online, want in cases:
+                with patch.object(mod, "STAY", net(room_answer, online)):
                     self.assertIs(o._answers(), want, (room_answer, online))
+            self.assertTrue(all(re.fullmatch(r"[0-9a-f]{32}", n) for n in asked) and len(set(asked)) == len(asked))  # a new number each time
             o.host = None
             self.assertIsNone(o._answers())
+
+    def test_no_redirect_is_followed_when_the_room_looks_at_itself(self):
+        from shellphone import outside as mod
+        self.assertIsInstance(mod.STAY, urllib.request.OpenerDirector)
+        seen = []
+
+        class Elsewhere(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.path)
+                if self.path.startswith("/api/up"):
+                    self.send_response(302); self.send_header("Location", "/elsewhere"); self.end_headers()
+                else:
+                    self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+            def log_message(self, *a): pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Elsewhere)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with self.assertRaises(urllib.error.HTTPError):
+                mod.STAY.open(f"http://127.0.0.1:{srv.server_address[1]}/api/up?n=1", timeout=5)
+            self.assertEqual(seen, ["/api/up?n=1"])
+        finally:
+            srv.shutdown()
+
+    def test_the_watch_goes_on_whatever_goes_wrong_in_one_round(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td)
+            def broken(*a): raise RuntimeError("an answer cut short")
+            self.assertIsNone(o._look(broken))
+            self.assertIn("Still watching", o.said[-1])
+            self.assertEqual(o._look(lambda: "reopened"), "reopened")
+        # and for real: a watch whose every look fails is still looking, and still ends when the room stops sharing
+        with tempfile.TemporaryDirectory() as td:
+            from shellphone import outside as mod
+            o, looks = self.shared(td), []
+            def check(): looks.append(1); raise RuntimeError("cut short")
+            o._check = check
+            stop = threading.Event()
+
+            class Quick:
+                def wait(self, s): time.sleep(0.01); return stop.is_set()
+                def is_set(self): return stop.is_set()
+            with patch.object(mod, "CHECK", 0):
+                t = threading.Thread(target=o._watch, args=(Quick(),), daemon=True); t.start()
+                time.sleep(0.5); stop.set(); t.join(2)
+            self.assertGreater(len(looks), 3)
+            self.assertFalse(t.is_alive())
