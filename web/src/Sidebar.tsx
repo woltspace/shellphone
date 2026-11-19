@@ -71,8 +71,8 @@ export function Sidebar({ full, onInvite, state, ctx, roots, replies, seen, curr
         <span className={`block truncate mt-0.5 text-[13px] leading-[18px] ${i.n ? "text-[#4a4038]" : "text-dim"}`}>{name(i.last)}: {preview(i.last)}</span>
       </span>
       <span className="flex-none flex items-center pl-2 h-[24px]" title={who.map((f) => f.name).join(", ")}>
-        {who.slice(0, 4).map((f) => <img key={f.key} src={f.src} alt="" className={`pixel w-[26px] h-[26px] -ml-2 rounded-full ${f.busy ? "gnaw-img" : ""}`} style={{ filter: "drop-shadow(0 0 1px #efe9de)" }} />)}
-        {who.length > 4 && <span className="ml-0.5 font-mono text-[10px] text-dim">+{who.length - 4}</span>}</span>
+        {who.slice(0, 3).map((f) => <img key={f.key} src={f.src} alt="" className={`pixel w-[26px] h-[26px] -ml-2 rounded-full ${f.busy ? "gnaw-img" : ""}`} style={{ filter: "drop-shadow(0 0 1px #efe9de)" }} />)}
+        {who.length > 3 && <span className="ml-0.5 font-mono text-[10px] text-dim">+{who.length - 3}</span>}</span>
       {i.why ? <span className="flex-none mt-0.5 w-[18px] h-[18px] rounded-full bg-acc text-white text-[11px] font-bold leading-[18px] text-center" title="someone tagged you">@</span>
         : <span className="flex-none font-mono text-[10.5px] leading-[22px] text-dim">{short(ago(i.last.at))}</span>}
     </button>;
