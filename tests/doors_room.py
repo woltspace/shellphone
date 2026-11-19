@@ -292,6 +292,12 @@ class Switch:  # what the room's switch says: shared through the tunnel t
 inv = out["invites"] = {}
 r.LINKER = Switch()
 host_out = "spo=" + "t" * 32
+# a phone signs up for notifications: the room keeps the tunnel address it did so at
+out["push_signup"] = [tell("POST", "/api/push", t.host, host_out, {"subscription": {"endpoint": "https://push.example/through-the-tunnel"}})[0],
+                      tell("POST", "/api/push", "127.0.0.1", here, {"subscription": {"endpoint": "https://push.example/on-this-computer"}})[0]]
+out["push_signup_at"] = {row["endpoint"].rsplit("/", 1)[1]: row["at"] for row in r.q("select * from push")}
+with r.tx() as c:
+    c.execute("delete from push")
 inv["first_invite_shown"] = "invite" in tell("GET", "/api/link", "127.0.0.1", here)[1]
 status, made = tell("POST", "/api/invites", "127.0.0.1", here, {"ends_in": 3600, "uses": 2})
 inv["made_here"] = status
@@ -502,6 +508,21 @@ with r.tx() as c:
 r.ACTIVE.clear()
 r.notify({"id": "0" * 32, "email": "someone-else@room.local", "text": "hello", "files": []})
 out["push_signed_with"] = [s for _, s in sorted(signed_with)]
+# the room's tunnel address changed: an app that signed up at the old one gets nothing more and is forgotten
+import types
+with r.tx() as c:
+    c.execute("delete from push")
+    for name, at in (("old-address", "old.trycloudflare.com"), ("this-address", "new.trycloudflare.com"), ("this-computer", ""), ("from-before", None)):
+        c.execute("insert into push (endpoint, email, sub, at) values (?, ?, ?, ?)", (f"https://push.example/{name}", HOST, json.dumps({"endpoint": f"https://push.example/{name}", "keys": {}}), at))
+was_outside, r.OUTSIDE = r.OUTSIDE, types.SimpleNamespace(open=True, host="new.trycloudflare.com")
+signed_with.clear()
+r.notify({"id": "1" * 32, "email": "someone-else@room.local", "text": "hello", "files": []})
+out["push_after_a_new_address"] = (sorted(e.rsplit("/", 1)[1] for e, _ in signed_with), sorted(row["endpoint"].rsplit("/", 1)[1] for row in r.q("select * from push")))
+r.OUTSIDE = None  # and when the room is not shared through a tunnel at all any more
+signed_with.clear()
+r.notify({"id": "2" * 32, "email": "someone-else@room.local", "text": "hello", "files": []})
+out["push_after_sharing_stopped"] = (sorted(e.rsplit("/", 1)[1] for e, _ in signed_with), sorted(row["endpoint"].rsplit("/", 1)[1] for row in r.q("select * from push")))
+r.OUTSIDE = was_outside
 out["push_contact"] = [r.push_contact(e) for e in ("me@gmail.com", " Me@Example.COM ", "", None, "x@y", "a@b.localhost", "a@shellphone.local")]
 with r.tx() as c:
     c.execute("delete from push where endpoint like 'https://push.example/%'")
