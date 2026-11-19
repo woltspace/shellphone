@@ -522,6 +522,49 @@ r.OUTSIDE = None  # and when the room is not shared through a tunnel at all any 
 signed_with.clear()
 r.notify({"id": "2" * 32, "email": "someone-else@room.local", "text": "hello", "files": []})
 out["push_after_sharing_stopped"] = (sorted(e.rsplit("/", 1)[1] for e, _ in signed_with), sorted(row["endpoint"].rsplit("/", 1)[1] for row in r.q("select * from push")))
+# the tunnel gets a new address, and a phone signs up at it, while a notification is on its way: that sign-up is kept and sent to
+with r.tx() as c:
+    c.execute("delete from push")
+    c.execute("insert into push (endpoint, email, sub, at) values (?, ?, ?, ?)", ("https://push.example/at-a", HOST, json.dumps({"endpoint": "https://push.example/at-a", "keys": {}}), "a.trycloudflare.com"))
+r.OUTSIDE = types.SimpleNamespace(open=True, host="a.trycloudflare.com")
+real_q, changed = r.q, []
+
+
+def q_as_the_tunnel_changes(sql, *args):
+    if "from push" in sql and not changed:  # just before the sign-ups are read
+        changed.append(1)
+        r.OUTSIDE.host = "b.trycloudflare.com"
+        with r.tx() as c:
+            c.execute("insert into push (endpoint, email, sub, at) values (?, ?, ?, ?)", ("https://push.example/at-b", HOST, json.dumps({"endpoint": "https://push.example/at-b", "keys": {}}), "b.trycloudflare.com"))
+    return real_q(sql, *args)
+
+
+r.q = q_as_the_tunnel_changes
+signed_with.clear()
+r.notify({"id": "3" * 32, "email": "someone-else@room.local", "text": "hello", "files": []})
+r.q = real_q
+out["push_signup_while_the_address_changes"] = (sorted(e.rsplit("/", 1)[1] for e, _ in signed_with), sorted(row["endpoint"].rsplit("/", 1)[1] for row in r.q("select * from push")))
+# and a sign-up made again at the new address after it was read at the old one is not removed with it
+with r.tx() as c:
+    c.execute("delete from push")
+    c.execute("insert into push (endpoint, email, sub, at) values (?, ?, ?, ?)", ("https://push.example/same-phone", HOST, json.dumps({"endpoint": "https://push.example/same-phone", "keys": {}}), "b.trycloudflare.com"))
+r.OUTSIDE.host, changed[:] = "b.trycloudflare.com", []
+
+
+def q_then_signed_up_again(sql, *args):
+    rows = real_q(sql, *args)
+    if "from push" in sql and not changed:  # just after the sign-ups were read: the address changes and the same phone signs up again
+        changed.append(1)
+        r.OUTSIDE.host = "c.trycloudflare.com"
+        with r.tx() as c:
+            c.execute("insert or replace into push (endpoint, email, sub, at) values (?, ?, ?, ?)", ("https://push.example/same-phone", HOST, json.dumps({"endpoint": "https://push.example/same-phone", "keys": {}}), "c.trycloudflare.com"))
+    return rows
+
+
+r.q = q_then_signed_up_again
+r.notify({"id": "4" * 32, "email": "someone-else@room.local", "text": "hello", "files": []})
+r.q = real_q
+out["push_signed_up_again_meanwhile"] = [(row["endpoint"].rsplit("/", 1)[1], row["at"]) for row in r.q("select * from push")]
 r.OUTSIDE = was_outside
 out["push_contact"] = [r.push_contact(e) for e in ("me@gmail.com", " Me@Example.COM ", "", None, "x@y", "a@b.localhost", "a@shellphone.local")]
 with r.tx() as c:

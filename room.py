@@ -561,12 +561,15 @@ def notify(m):
         who += " 🧵" if m.get("thread") else ""
         body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['files'][0]['name']}" + (f" +{len(m['files']) - 1}" if len(m["files"]) > 1 else ""))[:180], "tag": m["id"],
                            "url": f"./#m={m['id']}" + (f"&t={m['thread']}" if m.get("thread") else "")})  # a tap lands on this message
-        now_at = OUTSIDE.host if OUTSIDE and OUTSIDE.open and OUTSIDE.host else None
         for row in q("select * from push"):
-            if row["at"] and row["at"] != now_at:  # signed up at a tunnel address the room no longer has: that app opens nothing any more, and its person signs up again at the new one
-                with tx() as c:
-                    c.execute("delete from push where endpoint = ?", (row["endpoint"],))
-                continue
+            if row["at"]:  # signed up through a tunnel: at the address the room has now, or at one it no longer has?
+                with tx() as c:  # asked now, for this row, with the removal: never from a look taken before the rows were read. A tunnel may have changed in between, and a phone signed up at its new address
+                    now_at = OUTSIDE.host if OUTSIDE and OUTSIDE.open and OUTSIDE.host else None
+                    gone = row["at"] != now_at
+                    if gone:  # that app opens nothing any more; its person signs up again at the new address. Only this sign-up as it was read: one made again since, at another address, stays
+                        c.execute("delete from push where endpoint = ? and at = ?", (row["endpoint"], row["at"]))
+                if gone:
+                    continue
             if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
                 continue
             try:
