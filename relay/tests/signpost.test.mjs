@@ -15,8 +15,7 @@ const file = join(mkdtempSync(join(tmpdir(), "relay-")), "index.mjs");
 writeFileSync(file, source.replace(line, "class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }"));
 const { Desk } = await import(pathToFileURL(file).href);
 
-function newDesk(vars = {}) {
-  const db = new DatabaseSync(":memory:");
+function newDesk(vars = {}, db = new DatabaseSync(":memory:")) {
   const sql = { exec(q, ...p) { const st = db.prepare(q); const rows = st.columns().length ? st.all(...p) : (st.run(...p), []); return { toArray: () => rows, one: () => rows[0] }; } };
   return new Desk({ storage: { sql } }, vars);
 }
@@ -95,5 +94,47 @@ test("the counts say how many were made, moved and looked up, and nothing about 
   const s = d.stats();
   assert.deepEqual([s.signs, s.signs_unlinked], [1, 0]);
   assert.deepEqual([s.sign_days[0].made, s.sign_days[0].moved, s.sign_days[0].lookups], [1, 1, 3]);
+  assert.deepEqual([s.ever.tunnel, s.ever.relay, s.ever.all, typeof s.ever.since], [1, 0, 1, "string"]);  // one room so far, however often it moved
   assert.ok(!JSON.stringify(s).includes("trycloudflare"));
+});
+
+test("the totals so far begin with the days the desk had kept, survive a new start, and no day is dropped", () => {
+  const db = new DatabaseSync(":memory:");
+  newDesk({}, db);  // a desk from before the totals: its tables, and two days of history
+  db.exec("delete from counters");
+  db.exec("insert into days (day, rooms_opened) values ('2026-09-01', 4), ('2026-11-17', 3)");
+  db.exec("insert into sign_days (day, made, lookups) values ('2026-11-17', 2, 9)");
+  const d = newDesk({}, db);  // the first start with the totals
+  assert.deepEqual(d.stats().ever, { relay: 7, tunnel: 2, all: 9, since: "2026-09-01" });
+  d.point("r", "c", "p", A, false, 1);
+  assert.equal(d.open("room-1").ok, true);
+  const again = newDesk({}, db);  // a new start (a deploy, or the desk waking up): nothing is counted twice, nothing is lost
+  assert.deepEqual(again.stats().ever, { relay: 8, tunnel: 3, all: 11, since: "2026-09-01" });
+  again.tidy(Date.now() + 400 * 86400 * 1000);  // more than a year on
+  again.point("late", "c", "p", B, false, 1);
+  assert.equal(db.prepare("select rooms_opened as n from days where day = '2026-09-01'").get().n, 4);
+  assert.equal(db.prepare("select made as n from sign_days where day = '2026-11-17'").get().n, 2);
+  assert.equal(again.stats().ever.all, 12);
+});
+
+test("a desk with no history starts its totals at nothing, from its first room", () => {
+  const d = newDesk();
+  assert.deepEqual(d.stats().ever, { relay: 0, tunnel: 0, all: 0, since: null });
+  d.point("r", "c", "p", A, false, 1);
+  const e = d.stats().ever;
+  assert.deepEqual([e.tunnel, e.all, e.since], [1, 1, new Date().toISOString().slice(0, 10)]);
+});
+
+test("how many are online now, and the most at once that day, by way", () => {
+  const d = newDesk();
+  d.point("r1", "c1", "p", A, false, 1); d.point("r2", "c2", "p", B, false, 1);
+  assert.equal(d.open("relay-room").ok, true);
+  assert.deepEqual(d.stats().online, { relay: 1, tunnel: 2, all: 3, estimate: true });
+  d.point("r1", "c1", "p", "", false, 2);  // one closes
+  const s = d.stats(), today = new Date().toISOString().slice(0, 10);
+  assert.deepEqual(s.online, { relay: 1, tunnel: 1, all: 2, estimate: true });
+  assert.deepEqual(s.peaks.map((p) => [p.day, p.what, p.n]), [[today, "relay", 1], [today, "tunnel", 2]]);  // the day's most stays
+  d.point("r2", "c2", "p", "", true, 2);  // the other unlinks for good
+  assert.equal(d.stats().online.tunnel, 0);
+  assert.ok(!JSON.stringify(d.stats().peaks).includes("r1"));
 });
