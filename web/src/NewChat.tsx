@@ -15,12 +15,16 @@ function Switch({ on, locked, label, flip }: { on: boolean; locked?: boolean; la
   </button>;
 }
 
-export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
+export function NewChatSheet({ ctx, people, wolts, main, fallback, host, onStart, onClose }: {
   ctx: Ctx; people: Person[]; wolts: Wolt[]; main?: string | null;
+  fallback?: "in" | "out"; host?: string;  // the room's default for a new chat, and its host (who may flip any agent)
   onStart: (text: string, agents: Record<string, boolean>, people: Record<string, boolean>, title: string) => void; onClose: () => void;
 }) {
   const [text, setText] = useState(""), [title, setTitle] = useState("");
-  const [agents, setAgents] = useState<Record<string, boolean>>(() => Object.fromEntries(wolts.map((w) => [w.wolt, w.wolt === main])));
+  const [agents, setAgents] = useState<Record<string, boolean>>(() => Object.fromEntries(wolts.map((w) => [w.wolt, w.wolt === main || fallback === "in"])));  // where each agent stands in a new chat
+  // the same rights as a thread's switches: the host on every agent, otherwise your own (the room decides; this hides what it would refuse)
+  const guest = !!ctx.people.find((p) => p.email === ctx.me)?.guest;
+  const may = (w: Wolt) => (!guest && ctx.me === host) || w.owner === ctx.me;
   const [folks, setFolks] = useState<Record<string, boolean>>(() => Object.fromEntries(people.map((p) => [p.email, true])));
   const tagged = (w: string) => new RegExp(`@${w}\\b`, "i").test(text);
   const agentIn = (w: Wolt) => !w.paused && (agents[w.wolt] || tagged(w.wolt));
@@ -66,7 +70,7 @@ export function NewChatSheet({ ctx, people, wolts, main, onStart, onClose }: {
         {wolts.map((w) => { const yes = agentIn(w), byTag = tagged(w.wolt);
           return row(w.wolt, woltFace(w.wolt, w.creature), w.wolt, woltColor(w.wolt, ctx.wolts), yes,
             w.paused ? "paused in the room" : byTag ? "tagged in your message" : yes ? (w.wolt === main ? "default · in this chat" : "in this chat") : "not in this chat",
-            <Switch on={yes} locked={!!w.paused || byTag} label={`${yes ? "Leave out" : "Bring in"} ${w.wolt}`} flip={() => setAgents((s) => ({ ...s, [w.wolt]: !s[w.wolt] }))} />); })}
+            <Switch on={yes} locked={!!w.paused || byTag || !may(w)} label={`${yes ? "Leave out" : "Bring in"} ${w.wolt}`} flip={() => setAgents((s) => ({ ...s, [w.wolt]: !s[w.wolt] }))} />); })}
       </div>
       <div className="flex-none pb-[max(14px,env(safe-area-inset-bottom))]" />
     </div>

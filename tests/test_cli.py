@@ -516,6 +516,32 @@ class FrontDoor(unittest.TestCase):
         self.assertIn("paused", run("page", "get", pid, cwd=other).stderr)
         self.assertEqual(r.state()["pages"], {pid: {"v": 2, "n": 2}})
 
+    def test_a_new_chat_starts_with_the_audience_chosen_and_restating_takes_no_permission(self):
+        import importlib, io, contextlib
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"SHELLPHONE_DATA": self.tmp.name}):
+            room = importlib.import_module("room")
+        self.addCleanup(sys.modules.pop, "room", None)
+        self.addCleanup(lambda: room.CON and room.CON.close())
+        with contextlib.redirect_stdout(io.StringIO()):
+            room.add_person("host@example.com", "Host")
+        for w in ("alpha", "beta"):
+            room.lodge_file(w, "host@example.com", "raccoon", None, "http://127.0.0.1:1")
+        room.set_main("alpha")
+        start = lambda who, body: room.for_person(room.Request("POST", "/api/messages", lambda limit: json.dumps(body).encode()), who)[:2]
+        with mock.patch.object(room, "WHO_DEFAULT", "in"):  # threads default to everyone in: the page sends each agent's place, as chosen
+            status, m = start("host@example.com", {"text": "both of you", "who": {"alpha": "in", "beta": "in"}})
+            self.assertEqual(status, 200, m)
+            self.assertTrue(room.hears_main(m, "alpha") and room.hears_main(m, "beta"))  # beta hears the first message too
+        guest = room.add_guest("Visitor")
+        room.set_paused("alpha", True)  # the main agent, paused in the whole room
+        status, m = start(guest, {"text": "my own chat", "who": {"alpha": "paused", "beta": "paused"}})
+        self.assertEqual(status, 200, m)  # where they already stand: no permission needed to say so
+        self.assertFalse(room.hears_main(m, "beta"))
+        self.assertEqual(start(guest, {"text": "bring beta", "who": {"beta": "in"}})[0], 403)  # a real change is still the host's or keeper's
+        room.set_paused("alpha", False)
+        self.assertEqual(start(guest, {"text": "leave out the main one", "who": {"alpha": "paused"}})[0], 403)
+
     def test_a_guest_cant_pause_or_remove_an_agent(self):
         import importlib, io, contextlib
         from unittest import mock

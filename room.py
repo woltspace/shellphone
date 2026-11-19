@@ -1454,10 +1454,14 @@ def for_person(req, email):
             named_as = " ".join(str(data.get("title") or "").split())[:80] if not spot else ""
             # a message that starts a chat may also say who's in it: {agent: "in" | "paused"}, each one the sender may switch
             who = data.get("who") if not spot and isinstance(data.get("who"), dict) else {}
-            here = {l["wolt"] for l in wolts()}
+            here = {l["wolt"]: l for l in wolts()}
             if any(w not in here or st not in ("in", "paused") for w, st in who.items()):
                 return reply(400, {"error": "who is {agent: in | paused}, for agents in this room"})
-            if any(not may_switch(email, w) for w in who):
+            # saying where an agent already stands in a new chat (the main agent and the room's default: in; one paused in
+            # the room: out either way) takes no permission; only a real change does
+            main = main_wolt()
+            stands = lambda w: "paused" if here[w]["paused"] else "in" if w == main or WHO_DEFAULT == "in" else "paused"
+            if any(st != stands(w) and not may_switch(email, w) for w, st in who.items()):
                 return reply(403, {"error": "only the room's host, or the agent's own keeper, can do that"})
             return reply(200, append(who=who, kind="human", email=email, text=text, **spot,
                                      **({"cid": cid} if named else {}), **({"title": named_as} if named_as else {})))
