@@ -24,7 +24,7 @@ export function ChatSide({ thread, list, ctx, room, fallback, host, main }: {
     <div className="flex-1 min-h-0 overflow-y-auto p-3">
       {tab === "info" && <>
         {head("Humans")}
-        {people.length ? people.map((e) => { const p = ctx.person(e); return <div key={e} className="flex items-center gap-2.5 py-1.5 text-[13px]">
+        {people.length ? people.map((e) => { const p = ctx.person(e); return <div key={e} onClick={() => ctx.openWho?.("p:" + e)} className="flex items-center gap-2.5 py-1.5 text-[13px] cursor-pointer rounded-md hover:bg-[#18100a08]">
           <img src={personAvatar(p.name, p.color, worn.people[e])} alt="" className="pixel w-[30px] h-[30px]" />{p.name}{e === ctx.me && <span className="text-dim">· you</span>}</div>; })
           : <p className="m-0 text-[12px] text-dim">No one has written here yet.</p>}
         <div className="mt-4" />{head("Agents")}

@@ -10,7 +10,7 @@ import { personAvatar, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mentionNames } from "./mentions.js";
 
-export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean; tint?: string };  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
+export type Ctx = { me: string; person: (e?: string) => Person; wolts: Wolt[]; people: Person[]; seen: Record<string, string[]>; all: Msg[]; view: (urls: string[], at?: number, names?: string[]) => void; retry?: (cid: string) => void; openPage?: (id: string) => void; busy?: (place: string) => Wolt[]; showTerminal?: (wolt: string) => void; rows?: boolean; tint?: string; openWho?: (who: string) => void };  // openWho: a face tapped anywhere opens its card ("p:email" or "w:name")  // rows: a computer screen's chat, plain lines like Slack instead of bubbles
 
 const IMAGE = /^(png|jpe?g|gif|webp|avif|heic|bmp)$/i, VIDEO = /^(mp4|mov|m4v|webm)$/i;
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -140,7 +140,8 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
     const voice = human ? who.color : woltColor(m.wolt, ctx.wolts);  // each sender their own light colour, as on the phone
     return (
       <div className={`flex items-end gap-2 px-3 md:px-5 ${firstOfRun ? "mt-3" : "mt-[3px]"} ${mine ? "justify-end" : ""}`} id={m.cid || m.id}>
-        {!mine && (firstOfRun ? <img src={avatar} alt="" className="pixel w-9 h-9 flex-none self-start" /> : <span className="flex-none w-9" />)}
+        {!mine && (firstOfRun ? <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.openWho?.(human ? "p:" + m.email : "w:" + m.wolt); }} aria-label={`${human ? who.name : m.wolt}'s card`}
+          className="flex-none self-start p-0 border-0 bg-transparent cursor-pointer hover:-translate-y-0.5 transition-transform"><img src={avatar} alt="" className="pixel w-9 h-9" /></button> : <span className="flex-none w-9" />)}
         <div data-bubble className={`min-w-0 max-w-[82%] md:max-w-[min(68%,720px)] px-3.5 py-2 border rounded-[18px] shadow-[0_1px_1.5px_#18100a14] ${mine
           ? (firstOfRun ? "rounded-tr-[5px]" : "") : (firstOfRun ? "rounded-tl-[5px]" : "")}`}
           style={{ background: mix(voice, "#ffffff", mine ? 0.8 : human ? 0.86 : 0.9), borderColor: mix(voice, "#ffffff", 0.6) }}>
@@ -168,7 +169,8 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
   }
   return (
     <div className={`flex items-end gap-1.5 px-2.5 ${firstOfRun ? "mt-2.5" : "mt-1"} ${mine ? "flex-row-reverse" : ""}`} id={m.cid || m.id}>
-      <img src={avatar} alt="" className={`pixel w-7 h-7 flex-none rounded-full ${firstOfRun ? "" : "invisible"}`} />
+      <button type="button" data-tap disabled={!firstOfRun} onClick={(e) => { e.stopPropagation(); ctx.openWho?.(human ? "p:" + m.email : "w:" + m.wolt); }} aria-label={`${human ? who.name : m.wolt}'s card`}
+        className={`flex-none p-0 border-0 bg-transparent cursor-pointer ${firstOfRun ? "" : "invisible"}`}><img src={avatar} alt="" className="pixel w-7 h-7 rounded-full" /></button>
       {/* a message with a thread sits in a frame of the thread's wallpaper; the message itself stays on its own solid color */}
       <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border ${wallpaper ? "px-2.5 pt-2.5 pb-1.5 bg-paper" : `px-2.5 py-1.5 ${solid.backgroundColor ? "" : "bg-panel"}`} border-line`}
         style={wallpaper ? { ...wallpaper } : solid}>
