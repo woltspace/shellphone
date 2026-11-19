@@ -697,6 +697,72 @@ class Carries(unittest.TestCase):
                 self.assertEqual(o._mend(60 + mod.WAITS[0]), "reopened")
             self.assertEqual((len(opened), opened[1].stopped, o.host), (2, False, "new-name.trycloudflare.com"))
 
+    def fake_cloudflared(self, td):
+        exe = Path(td) / "cloudflared"
+        exe.write_text('#!/bin/sh\necho "https://fake-name.trycloudflare.com" >&2\necho "Registered tunnel connection" >&2\nexec sleep 60\n')
+        exe.chmod(0o755)
+        return str(exe)
+
+    def test_a_tunnel_program_whose_start_goes_wrong_is_stopped_not_left_running(self):
+        import http.client, subprocess
+        from shellphone import outside as mod
+        with tempfile.TemporaryDirectory() as td:
+            exe, started, real = self.fake_cloudflared(td), [], subprocess.Popen
+
+            def popen(*a, **kw):
+                started.append(real(*a, **kw))
+                return started[-1]
+
+            def cut_short(self, wait=40):
+                raise http.client.IncompleteRead(b"{")
+            try:
+                with patch.object(mod.shutil, "which", lambda name: exe), patch.object(mod.subprocess, "Popen", popen):
+                    with patch.object(mod.Tunnel, "_named", cut_short):  # the program runs, has said its address, and then the start itself fails
+                        t = mod.Tunnel(1)
+                        self.assertIsNone(t.start())
+                        self.assertIn("IncompleteRead", t.why)
+                        self.assertEqual((len(started), t.proc, t.alive()), (1, None, False))
+                        self.assertIsNotNone(started[0].wait(5))  # the program is gone
+
+                        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)  # and through the room's own way of opening one, three times over
+                        o._tell = lambda url, **kw: self.fail("there is no address to tell the site of")
+                        for _ in range(3):
+                            self.assertIn("IncompleteRead", o._up())
+                        self.assertEqual((len(started), o.tunnel, o.host), (4, None, None))
+                        for proc in started:
+                            self.assertIsNotNone(proc.wait(5))
+
+                    def interrupted(self, wait=40):
+                        raise KeyboardInterrupt
+                    with patch.object(mod.Tunnel, "_named", interrupted):  # stopped by hand in the middle: it goes too, and the stop is passed on
+                        t = mod.Tunnel(1)
+                        self.assertRaises(KeyboardInterrupt, t.start)
+                        self.assertIsNotNone(started[-1].wait(5))
+            finally:
+                for proc in started:
+                    if proc.poll() is None:
+                        proc.kill()
+
+    def test_asking_for_a_new_tunnels_name_goes_on_after_an_answer_cut_short(self):
+        import http.client
+        from shellphone import outside as mod
+        t, asked = mod.Tunnel(1), []
+        t.url, t.alive = "https://fake-name.trycloudflare.com", lambda: True
+
+        class Said:
+            def read(self): return b'{"Answer": [{"data": "1.2.3.4"}]}'
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def urlopen(req, timeout=None):
+            asked.append(req.full_url)
+            if len(asked) == 1:
+                raise http.client.IncompleteRead(b"{")
+            return Said()
+        with patch.object(mod.urllib.request, "urlopen", urlopen), patch.object(mod.time, "sleep", lambda s: None):
+            self.assertTrue(t._named())
+        self.assertEqual(len(asked), 2)
+
     def test_what_counts_as_an_answer(self):
         from shellphone import outside as mod
         import http.client

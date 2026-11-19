@@ -66,15 +66,22 @@ class Tunnel:
         # its own empty settings: a tunnel someone set up on this computer for something else is none of this room's
         self.proc = subprocess.Popen([exe, "tunnel", "--no-autoupdate", "--config", os.devnull, "--url", f"http://127.0.0.1:{self.port}"],
                                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, start_new_session=True)
-        threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
-        self._found.wait(wait)
-        if not self.url or self.proc.poll() is not None:
-            self.why = self.why or "cloudflared gave no address"
+        try:  # from here on the program runs: whatever goes wrong before start() has answered, it is stopped. Nobody else holds it yet
+            threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
+            self._found.wait(wait)
+            if not self.url or self.proc.poll() is not None:
+                self.why = self.why or "cloudflared gave no address"
+                self.stop()
+                return None
+            self._ready.wait(20)  # the address is printed a moment before anything answers on it
+            self._named()
+            return self.url
+        except BaseException as exc:
             self.stop()
+            if not isinstance(exc, Exception):
+                raise
+            self.why = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
             return None
-        self._ready.wait(20)  # the address is printed a moment before anything answers on it
-        self._named()
-        return self.url
 
     def _named(self, wait=40):
         """A new tunnel's name takes a few seconds to exist. Asking for it too early is remembered as "no such name"
@@ -88,7 +95,7 @@ class Tunnel:
                     if json.loads(res.read()).get("Answer"):
                         time.sleep(1.5)
                         return True
-            except (OSError, ValueError):
+            except Exception:  # no answer, one cut short, one that isn't JSON: asked again
                 pass
             time.sleep(1)
         return False
