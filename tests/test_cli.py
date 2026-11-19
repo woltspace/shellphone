@@ -900,3 +900,21 @@ class ListAndStop(unittest.TestCase):
         finally:
             sleeper.kill()
             sleeper.wait()
+
+
+class Hello(unittest.TestCase):
+    def test_the_bare_command_says_what_it_is_and_where_to_start(self):
+        with tempfile.TemporaryDirectory() as td:
+            got = subprocess.run(CLI, capture_output=True, text=True, timeout=30, env={**ENV, "TMPDIR": td}, cwd=td)
+        self.assertEqual((got.returncode, got.stderr), (0, ""))
+        out = got.stdout
+        for word in ("s h e l l p h o n e", "shellphone room", "shellphone list", "shellphone stop", "shellphone share", "shellphone invite", "shellphone join", "-h"):
+            self.assertIn(word, out)
+        self.assertTrue(out.isascii())  # it draws in any terminal
+        self.assertLessEqual(max(len(line) for line in out.splitlines()), 80)
+        self.assertNotIn("usage:", out)
+
+    def test_a_wrong_command_is_still_told_so(self):
+        got = subprocess.run([*CLI, "nonsense"], capture_output=True, text=True, timeout=30, env=ENV)
+        self.assertEqual(got.returncode, 2)
+        self.assertIn("usage:", got.stderr)
