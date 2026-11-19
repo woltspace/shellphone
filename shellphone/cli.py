@@ -187,6 +187,8 @@ def run(a, r, data, server, banner, closing=lambda: None):
             stopping.append(True)
             raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop)
+    # asked to close by `shellphone stop` (room.py, /api/close): after its answer has gone out, the room stops itself the way a signal would
+    r.CLOSE = lambda: threading.Timer(0.3, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
     if signal.getsignal(signal.SIGINT) is not signal.SIG_IGN:  # started in the background, Ctrl-C isn't ours to take
         signal.signal(signal.SIGINT, stop)
     print(banner, flush=True)
@@ -603,14 +605,23 @@ def stop_rooms(a):
         sys.exit(f"{len(rooms)} rooms are open on this computer (ports {', '.join(str(r['port']) for r in rooms)}): say which with --port N, or close them all with --all")
     failed = False
     for r in rooms:
-        if ask_room(r, "/api/link") is None:  # what's written down doesn't answer as that room any more: not ours to end
-            out.print(f"[{ui.AMBER}]![/] The room on port {r['port']} doesn't answer: left alone.")
-            failed = True
-            continue
+        # The room is asked to close itself, as its host (the token in its own note), and nothing is ever ended from
+        # here: a note can outlive its room, and its number can come to belong to some other program of this user's.
+        import urllib.request
+        from .outside import STAY
+        req = urllib.request.Request(f"http://127.0.0.1:{r['port']}/api/close", data=b"{}", method="POST",
+                                     headers={"Content-Type": "application/json", "Cookie": f"sp{r['port']}={r['token']}", "X-Shellphone-Key": r["token"]})
         try:
-            os.kill(r["pid"], signal.SIGTERM)
-        except OSError as exc:
-            out.print(f"[{ui.AMBER}]![/] Couldn't close the room on port {r['port']}: {ui.escape(str(exc))}")
+            with STAY.open(req, timeout=10) as res:
+                said = json.loads(res.read())
+            closing = res.status == 200 and isinstance(said, dict) and said.get("closing") is True
+            why = None if closing else "doesn't answer as that room"
+        except urllib.error.HTTPError as exc:
+            closing, why = False, "runs an older shellphone that can't be closed from here: close it in its own window (Ctrl-C)" if exc.code == 404 else f"wouldn't close (it answered {exc.code})"
+        except Exception:
+            closing, why = False, "doesn't answer"
+        if not closing:
+            out.print(f"[{ui.AMBER}]![/] The room on port {r['port']} {ui.escape(why)}: left alone.")
             failed = True
             continue
         # closed: its program is gone, or (where whoever started it hasn't looked at it yet, so its number lingers) it took

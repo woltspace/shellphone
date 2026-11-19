@@ -1,7 +1,9 @@
 """How the shellphone command looks in a terminal: one console, the room's own colours, a few small pieces.
 Only the command's own screens use this (the bare command, list, stop). What agents read (the connector's output)
 and the room's start-up lines are printed plainly and need none of it. Piped, or with NO_COLOR set, everything
-here comes out as plain text."""
+here comes out as plain text, with no code of any kind in it."""
+import os
+
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
@@ -27,7 +29,8 @@ def along(t, stops=SEA):
 def console(err=False):
     """Nothing is guessed at: no automatic colouring of numbers and paths, no emoji codes, and a line is never cut to
     fit (a path or a command must stay whole to be copied)."""
-    return Console(stderr=err, highlight=False, emoji=False, soft_wrap=True)
+    plain = bool(os.environ.get("NO_COLOR"))  # asked for plain: then not a single code goes out, bold included
+    return Console(stderr=err, highlight=False, emoji=False, soft_wrap=True, **({"color_system": None} if plain else {}))
 
 
 def can_draw(text, out):
