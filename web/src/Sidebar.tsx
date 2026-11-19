@@ -20,8 +20,6 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
   menu: boolean; desk?: boolean; onMenu: () => void; onDesk?: () => void; onOpen: (id: string) => void; onNew: () => void; onPick: (who: Who) => void; onAgent: () => void;
 }) {
   const [q, setQ] = useState("");
-  const [crowd, setCrowd] = useState<"agents" | "humans">(() => { try { return localStorage.getItem("crowd") === "humans" ? "humans" : "agents"; } catch { return "agents"; } });
-  const pickCrowd = (c: "agents" | "humans") => { setCrowd(c); try { localStorage.setItem("crowd", c); } catch { /* fine */ } };
   const box = useRef<HTMLInputElement>(null);
   // a busy wolt chews through its lines of lore, a new one every few seconds, as in the strip
   const [tick, setTick] = useState(0);
@@ -76,22 +74,27 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
       <input ref={box} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setQ(""); e.currentTarget.blur(); } if (e.key === "Enter" && found[0]) { onOpen(found[0].id); setQ(""); e.currentTarget.blur(); } }}
         placeholder="Jump to a chat…" className="flex-1 min-w-0 border-0 outline-none bg-transparent text-[13px] text-ink" />
     </label>
-    {/* who's here: the agents (gnawing when they're on something) or the humans, faces with their hats; tap one for its card */}
-    <div className="flex-none flex gap-1 px-3 pb-1">
-      {(["agents", "humans"] as const).map((c) => <button key={c} type="button" onClick={() => pickCrowd(c)}
-        className={`px-2 py-0.5 rounded-md border-0 font-mono text-[11px] cursor-pointer ${crowd === c ? "bg-white text-ink shadow-[0_1px_2px_#18100a1a]" : "bg-transparent text-dim hover:text-ink"}`}>
-        {c === "agents" ? `Agents · ${wolts.length}` : `Humans · ${state.members.people.length}`}</button>)}
-    </div>
-    <div className="flex-none flex gap-0.5 px-2 pt-1.5 pb-2.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] border-b border-line">
-      {crowd === "humans" ? state.members.people.map((h, i) => { const p = ctx.person(h.email);
+    {/* who's here, split down the middle: humans on the left, agents on the right (gnawing when they're on something);
+        faces with their hats, tap one for its card */}
+    <div className="flex-none flex border-b border-line">
+      <div className="flex-1 min-w-0">
+        <div className="px-3 font-mono text-[10.5px] font-semibold tracking-[.07em] uppercase text-dim">Humans · {state.members.people.length}</div>
+        <div className="flex gap-0.5 px-2 pt-1 pb-2.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
+      {state.members.people.map((h, i) => { const p = ctx.person(h.email);
         return <button key={h.email} type="button" onClick={() => onPick("p:" + h.email)} aria-label={p.name}
           className="flex-none w-[56px] flex flex-col items-center p-0 border-0 bg-transparent cursor-pointer">
           <span className="relative block idle-bob" style={{ animationDelay: `${(i % 5) * -0.6}s` }}>
             <img src={personAvatar(p.name, p.color, worn.people[h.email])} alt="" className="pixel block w-11 h-11" /></span>
           <span className="max-w-full truncate font-mono text-[10.5px] font-semibold" style={{ color: p.color }}>{p.name}</span>
           <span className="font-mono text-[9.5px] text-dim">{h.email === state.me ? "you" : state.host === h.email ? "host" : (h as { guest?: boolean }).guest ? "guest" : "human"}</span>
-        </button>; })
-      : [...wolts].sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)).map((w, i) => {
+        </button>; })}
+        </div>
+      </div>
+      <i className="flex-none w-px my-2 bg-line" />
+      <div className="flex-1 min-w-0">
+        <div className="px-3 font-mono text-[10.5px] font-semibold tracking-[.07em] uppercase text-dim">Agents · {wolts.length}</div>
+        <div className="flex gap-0.5 px-2 pt-1 pb-2.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
+      {[...wolts].sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)).map((w, i) => {
         const m = mood(w, state), color = woltColor(w.wolt, wolts), v = verbs(w.creature);
         return <button key={w.wolt} type="button" onClick={() => onPick("w:" + w.wolt)} aria-label={`${w.wolt}: ${m.word}`}
           className={`flex-none w-[56px] flex flex-col items-center p-0 border-0 bg-transparent cursor-pointer ${m.awake ? "" : "opacity-60"}`}>
@@ -104,10 +107,12 @@ export function Sidebar({ full, state, ctx, roots, replies, seen, current, title
             : <span className="font-mono text-[9.5px] text-dim">{m.word}</span>}
         </button>;
       })}
-      {crowd === "agents" && <button type="button" onClick={onAgent} aria-label="Add an agent" className="flex-none w-[56px] flex flex-col items-center p-0 border-0 bg-transparent cursor-pointer text-dim">
+      <button type="button" onClick={onAgent} aria-label="Add an agent" className="flex-none w-[56px] flex flex-col items-center p-0 border-0 bg-transparent cursor-pointer text-dim">
         <span className="w-11 h-11 rounded-full border-[1.5px] border-dashed border-line grid place-items-center text-lg">＋</span>
         <span className="font-mono text-[10.5px]">add</span>
-      </button>}
+      </button>
+        </div>
+      </div>
     </div>
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pt-2 pb-[calc(64px+env(safe-area-inset-bottom))]">
       {list.map(row)}
