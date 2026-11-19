@@ -479,7 +479,8 @@ export function App() {
   const [desk, setDeskOn] = useState(() => { try { return wide && localStorage.getItem("desk") === "1"; } catch { return false; } });
   const setDesk = (on: boolean) => { setDeskOn(on); try { localStorage.setItem("desk", on ? "1" : "0"); } catch { /* private mode */ } };
   const [focus, setFocus] = useState<{ wolt: string; at: number } | null>(null);
-  const [thread, setThread] = useState("");
+  // the open chat is in the address (#c=ID), so a reload, or a copied link, brings you back to it
+  const [thread, setThread] = useState(() => typeof location !== "undefined" ? (location.hash.match(/^#c=([\w-]+)/) || [])[1] || "" : "");
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
@@ -607,6 +608,11 @@ export function App() {
       for (const ms of [250, 700, 1500]) setTimeout(() => { if (!yours && el.isConnected) el.scrollIntoView({ block: "center" }); }, ms);
     }));
   }, [msgs, thread, landing]);
+  useEffect(() => {
+    if (pageTab || /^#(m|page)=/.test(location.hash) && !/^#c=/.test(location.hash)) return;  // a landing link or a page tab keeps its own address
+    const want = thread ? `#c=${thread}` : "";
+    if (location.hash !== want) history.replaceState(null, "", location.pathname + location.search + want);
+  }, [thread]);
   // leaving the spot you landed on (back to the list, another thread) clears it from the address
   useEffect(() => {
     const h = new URLSearchParams(location.hash.slice(1));
