@@ -59,6 +59,7 @@ WAYS = (LOCAL, TUNNEL, RELAY, ACCESS)
 ALLOWED = {
     "share.see": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "share.switch": {HOST: {LOCAL}},
+    "room.close": {HOST: {LOCAL}},
     "invite.see": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "guest_agents.set": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}},
     "agent.invite": {HOST: {LOCAL, TUNNEL, RELAY, ACCESS}, MEMBER: {LOCAL, TUNNEL, RELAY, ACCESS}, GUEST: {LOCAL, TUNNEL, RELAY, ACCESS}},
