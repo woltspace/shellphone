@@ -272,22 +272,22 @@ function ThreadSheet({ docked, side, startFull, chat, name, onRename, color, wal
     onClick: (e: React.MouseEvent) => { if ((e.currentTarget as HTMLElement).dataset.side !== undefined) bye(); },  // a plain tap on a side edge: back to the chat
   };
   if (docked) return <div role="region" aria-label="Chat" style={wallpaper} className="h-full flex flex-col overflow-hidden bg-paper">
-    <div className="flex-none bg-[#fffdf6] border-b border-line" style={{ boxShadow: `inset 0 3px 0 ${color}` }}>
-      <div className="flex items-center gap-2 pl-4 pr-2 pt-2.5 pb-2">
-        <div className="min-w-0 flex-1">
-          {editing ? <input autoFocus defaultValue={name} maxLength={80} aria-label="Chat name"
-            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = name || ""; e.currentTarget.blur(); } }}
-            onBlur={(e) => { setEditing(false); const v = e.currentTarget.value.trim(); if (v !== (name || "")) onRename?.(v); }}
-            className="w-full font-mono font-semibold text-[16px] rounded-md border-2 border-acc bg-white px-1.5 py-0.5 outline-none" style={{ color }} />
-            : <div className={`font-mono font-semibold text-[16px] truncate ${onRename ? "cursor-text" : ""}`} style={{ color }} title={onRename ? "Click to rename" : undefined}
-              onClick={() => { if (onRename) setEditing(true); }}>{title}{onRename && <span className="ml-1.5 text-[12px] text-dim font-normal">✎</span>}</div>}
-          <div className="font-mono text-[11px] text-dim">{`chat · ${count + 1} ${count ? "messages" : "message"}`}</div>
-        </div>
-        {who}
-        {side && <button type="button" aria-label={side.on ? "Hide the side pane" : "Show the side pane"} title="Who's in it, pages, files" onClick={side.flip}
-          className={`flex-none w-9 h-9 grid place-items-center border cursor-pointer rounded-lg ${side.on ? "bg-white border-line text-ink" : "bg-transparent border-transparent text-dim hover:bg-panel"}`}><PanelRight size={18} /></button>}
-        <button type="button" aria-label="Close the chat" onClick={close} className="flex-none w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer rounded-lg hover:bg-panel"><X size={18} /></button>
+    {/* one slim line, like Slack: the chat's colour dot and name, who's in it, the side pane switch */}
+    <div className="group flex-none h-12 flex items-center gap-2 pl-5 pr-2 border-b border-line bg-paper">
+      <i className="flex-none w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+      <div className="min-w-0 flex-1 flex items-center gap-1.5">
+        {editing ? <input autoFocus defaultValue={name} maxLength={80} aria-label="Chat name"
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = name || ""; e.currentTarget.blur(); } }}
+          onBlur={(e) => { setEditing(false); const v = e.currentTarget.value.trim(); if (v !== (name || "")) onRename?.(v); }}
+          className="w-full max-w-[520px] font-semibold text-[15px] text-ink rounded-md border border-acc bg-white px-1.5 py-0.5 outline-none" />
+          : <><button type="button" disabled={!onRename} title={onRename ? "Rename" : undefined} onClick={() => setEditing(true)}
+              className="min-w-0 truncate p-0 border-0 bg-transparent text-left font-semibold text-[15px] text-ink cursor-text disabled:cursor-default">{name}</button>
+            {onRename && <span className="flex-none text-[12px] text-dim opacity-0 group-hover:opacity-100">✎</span>}
+            <span className="flex-none text-[12px] text-dim">· {count + 1} {count ? "messages" : "message"}</span></>}
       </div>
+      {who}
+      {side && <button type="button" aria-label={side.on ? "Hide the side pane" : "Show the side pane"} title="Who's in it, pages, files" onClick={side.flip}
+        className={`flex-none w-8 h-8 grid place-items-center border-0 bg-transparent cursor-pointer rounded-md hover:bg-[#18100a0d] ${side.on ? "text-ink" : "text-dim"}`}><PanelRight size={17} /></button>}
     </div>
     {children}
   </div>;
