@@ -36,6 +36,8 @@ class _Stay(urllib.request.HTTPRedirectHandler):
 STAY = urllib.request.build_opener(_Stay)
 
 
+CHECK, MISSES = 60, 2  # a shared room looks at its own outside address this often (seconds); this many misses in a row and its tunnel is replaced
+
 class Tunnel:
     """One `cloudflared` quick tunnel to a port on this computer. start() gives its address, or None and why."""
 
@@ -110,7 +112,7 @@ class Outside:
         self.r, self.data, self.keep, self.site, self.port, self.host_email, self.say = r, data, keep, site.rstrip("/"), port, host_email, say
         self.lock, self.open, self.host, self.tunnel = threading.RLock(), False, None, None
         self.room = self.secret = self.host_token = self.invite_token = None
-        self.guests, self._stop, self._unwritten = {}, threading.Event(), []
+        self.guests, self._stop, self._unwritten, self._missed = {}, threading.Event(), [], 0
 
     # -- what is kept between runs
 
@@ -278,13 +280,64 @@ class Outside:
             return f"couldn't register the room with {urllib.parse.urlsplit(self.site).netloc}: {why}"
         return None
 
+    def _answers(self):
+        """Does the room answer at its own outside address, right now? True, False, or None when that can't be told
+        (this computer has no way out at the moment: nothing a new tunnel would mend)."""
+        host, room = self.host, self.room
+        if not host or not room:
+            return None
+        try:
+            req = urllib.request.Request(f"https://{host}/api/up?n=0", headers={"User-Agent": "shellphone-room/1"})
+            with urllib.request.urlopen(req, timeout=8) as res:
+                got = json.loads(res.read(2000))
+            if isinstance(got, dict) and got.get("shellphone") is True and got.get("room") == room:
+                return True
+        except (OSError, ValueError):
+            pass
+        try:  # not answering: is it the tunnel, or is this computer cut off from everything?
+            with urllib.request.urlopen(urllib.request.Request("https://1.1.1.1/cdn-cgi/trace", headers={"User-Agent": "shellphone-room/1"}), timeout=8):
+                return False
+        except OSError:
+            return None
+
+    def _check(self):
+        """One look at whether the tunnel still carries. Its program can stay running with nothing behind it (after
+        the computer slept, or the network changed): then the room would go on saying it is shared while nobody can
+        come in. Missed twice in a row while this computer is online: that tunnel is closed and a new one opened,
+        at the same link. Returns what it did: None, or "reopened"."""
+        with self.lock:
+            if not self.open or not (self.tunnel and self.tunnel.alive()):
+                self._missed = 0
+                return None
+            answers = self._answers()
+            if answers is not False:  # it answers, or there is no telling: nothing to mend
+                self._missed = 0 if answers else self._missed
+                return None
+            self._missed += 1
+            if self._missed < MISSES:
+                return None
+            self._missed = 0
+            self.say("The tunnel stopped carrying (the computer slept, or the network changed). Opening a new one…", flush=True)
+            tunnel, self.tunnel, self.host = self.tunnel, None, None
+            tunnel.stop()
+            why = self._up()
+            self.say("The room is reachable again, at the same link." if not why else f"Still not reachable: {why}. Trying again…", flush=True)
+            return "reopened"
+
     def _watch(self, stop):
+        looked = time.time()
         while not stop.wait(3):  # the tunnel's program died (the computer slept, the network changed): a new one, and the site is told
             with self.lock:
-                if stop.is_set() or not self.open or (self.tunnel and self.tunnel.alive()):
+                if stop.is_set() or not self.open:
+                    continue
+                if self.tunnel and self.tunnel.alive():
+                    if time.time() - looked >= CHECK:  # its program runs: does it still carry?
+                        looked = time.time()
+                        self._check()
                     continue
                 self.say("The tunnel closed. Opening a new one…", flush=True)
                 why = self._up()
+                looked = time.time()
                 self.say("The room is reachable again, at the same link." if not why else f"Still not reachable: {why}. Trying again…", flush=True)
 
     def on(self):

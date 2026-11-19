@@ -485,3 +485,90 @@ class Moved(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Carries(unittest.TestCase):
+    """A tunnel whose program still runs but which carries nothing (the computer slept, the network changed) is replaced."""
+
+    def shared(self, td, answers):
+        o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)
+        o.open, o.room, o.host = True, "room-1", "old-name.trycloudflare.com"
+
+        class Running:
+            stopped = False
+            def alive(self): return not self.stopped
+            def stop(self): self.stopped = True
+        o.tunnel, o.first, o.ups = Running(), None, []
+        o.first = o.tunnel
+
+        def up():
+            o.ups.append(1)
+            o.tunnel, o.host = Running(), "new-name.trycloudflare.com"
+        o._up, o._answers = up, lambda: answers.pop(0)
+        return o
+
+    def test_two_misses_in_a_row_while_online_and_the_tunnel_is_replaced(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [False, False, True])
+            self.assertIsNone(o._check())  # one miss could be a hiccup
+            self.assertEqual((o.ups, o.first.stopped), ([], False))
+            self.assertEqual(o._check(), "reopened")
+            self.assertEqual((o.ups, o.first.stopped, o.host), ([1], True, "new-name.trycloudflare.com"))  # the old program is ended, not left running
+            self.assertIsNone(o._check())
+            self.assertEqual(o.ups, [1])
+
+    def test_a_miss_then_an_answer_starts_the_count_again(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [False, True, False, True, False])
+            for _ in range(5):
+                self.assertIsNone(o._check())
+            self.assertEqual((o.ups, o.first.stopped), ([], False))
+
+    def test_a_computer_that_is_cut_off_keeps_its_tunnel(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [None] * 6)  # no way out at all: a new tunnel would mend nothing
+            for _ in range(6):
+                self.assertIsNone(o._check())
+            self.assertEqual((o.ups, o.first.stopped), ([], False))
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [False, None, False, False])  # cut off in between: the earlier miss still counts once it is back
+            self.assertEqual([o._check() for _ in range(3)], [None, None, "reopened"])
+
+    def test_a_room_that_isnt_shared_or_whose_tunnel_ended_is_left_to_the_other_watch(self):
+        with tempfile.TemporaryDirectory() as td:
+            o = self.shared(td, [])  # nothing is even asked
+            o.open = False
+            self.assertIsNone(o._check())
+            o.open, o.tunnel.stopped = True, True
+            self.assertIsNone(o._check())
+            self.assertEqual(o.ups, [])
+
+    def test_what_counts_as_an_answer(self):
+        from shellphone import outside as mod
+        with tempfile.TemporaryDirectory() as td:
+            o = Outside(None, Path(td), True, "https://site.example", 1, "host", say=lambda *a, **kw: None)
+            o.room, o.host = "room-1", "name.trycloudflare.com"
+
+            class Said:
+                def __init__(self, body): self.body = body
+                def read(self, n=-1): return self.body
+                def __enter__(self): return self
+                def __exit__(self, *a): return False
+
+            def net(room_answer, online):
+                def urlopen(req, timeout=None):
+                    url = req.full_url
+                    if "trycloudflare.com" in url:
+                        if isinstance(room_answer, Exception): raise room_answer
+                        return Said(room_answer)
+                    if not online: raise OSError("no network")
+                    return Said(b"ok")
+                return urlopen
+            mine = json.dumps({"shellphone": True, "room": "room-1", "proof": "x"}).encode()
+            other = json.dumps({"shellphone": True, "room": "someone-else", "proof": "x"}).encode()
+            for room_answer, online, want in ((mine, True, True), (mine, False, True), (other, True, False), (b"<html>not a room</html>", True, False),
+                                              (OSError("name not known"), True, False), (OSError("name not known"), False, None)):
+                with patch.object(mod.urllib.request, "urlopen", net(room_answer, online)):
+                    self.assertIs(o._answers(), want, (room_answer, online))
+            o.host = None
+            self.assertIsNone(o._answers())
