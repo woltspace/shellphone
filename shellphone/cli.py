@@ -569,7 +569,7 @@ def listing(a):
     from . import ui
     out = ui.console()
     if not rooms:
-        return out.print("No room is open on this computer. Open one with [bold]shellphone room[/bold].")
+        return out.print(ui.Text.assemble("No room is open on this computer. Open one with ", ui.command("shellphone room"), "."))
     out.print(f"[bold]{len(rooms)} room{'s' if len(rooms) != 1 else ''} open on this computer[/bold]\n")
     count = lambda n, word: f"{n} {word if n == 1 else {'person': 'people'}.get(word, word + 's')}"
     for r in rooms:  # a few lines each, none of them cut or folded: a path stays whole to be copied
@@ -584,7 +584,7 @@ def listing(a):
             out.print(ui.Text.assemble("      ", (how, colour if r.get("shared") else ""), f" · {count(r.get('people', 0), 'person')} · {count(r.get('agents', 0), 'agent')}"))
         out.print(ui.Text("      " + where, style=ui.DIM))
         out.print()
-    out.print("Close one with [bold]shellphone stop --port N[/bold], all of them with [bold]shellphone stop --all[/bold].", style=ui.DIM)
+    out.print(ui.Text.assemble(("Close one with ", ui.DIM), ui.command("shellphone stop --port N"), (", all of them with ", ui.DIM), ui.command("shellphone stop --all"), (".", ui.DIM)))
 
 
 def stop_rooms(a):
@@ -852,7 +852,7 @@ def hello():
     out.print()
     out.print(_indent(ui.grid(HELLO)))
     out.print()
-    out.print(_indent(ui.grid((("shellphone <command> -h", "more about a command"),), first=ui.DIM)))
+    out.print(_indent(ui.grid((("shellphone <command> -h", "more about a command"),), quiet=True)))
 
 
 def _indent(what, by=2):

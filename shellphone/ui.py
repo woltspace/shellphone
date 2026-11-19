@@ -10,6 +10,7 @@ from rich.text import Text
 # From the site's own palette: its teal (the sea a shell comes from) for what stands out, its green for what is shared
 # and well, its yellow for a warning, its muted brown for quiet words. Each reads on a dark terminal and on a light one.
 ACC, GREEN, AMBER, DIM = "#179299", "#40a02b", "#df8e1d", "#8a7a68"
+FLAG, ARG = "#df8e1d", "#7287fd"  # in a command as it is typed: an option in the site's yellow, what you fill in yourself in its lavender
 
 
 def console(err=False):
@@ -27,14 +28,26 @@ def can_draw(text, out):
         return False
 
 
-def grid(rows, first=None):
-    """Two columns with no lines: a short thing on the left, what it is on the right."""
+def command(line, quiet=False):
+    """A command as it is typed, each part in its own colour so it reads at a glance: the program's name plain, what
+    it does in teal, an option in yellow, what you fill in yourself in lavender. quiet: all of it in quiet words."""
+    out = Text()
+    for i, word in enumerate(line.split(" ")):
+        if i:
+            out.append(" ")
+        style = DIM if quiet else "bold" if i == 0 else FLAG if word.startswith("-") else ARG if word[:1] in "<'" or word.isupper() else f"bold {ACC}"
+        out.append(word, style=style)
+    return out
+
+
+def grid(rows, quiet=False):
+    """Two columns with no lines: a command on the left, what it does on the right."""
     t = Table.grid(padding=(0, 3))
-    t.add_column(style=f"bold {first or ACC}", no_wrap=True)
+    t.add_column(no_wrap=True)
     t.add_column()
     for a, b in rows:
-        t.add_row(a, b)
+        t.add_row(command(a, quiet), Text(b, style=DIM if quiet else ""))
     return t
 
 
-__all__ = ["ACC", "GREEN", "AMBER", "DIM", "console", "can_draw", "grid", "escape", "Table", "Text"]
+__all__ = ["ACC", "GREEN", "AMBER", "DIM", "FLAG", "ARG", "console", "can_draw", "command", "grid", "escape", "Table", "Text"]
