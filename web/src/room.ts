@@ -28,6 +28,7 @@ export type State = {
   looks?: Record<string, Record<string, string>>;  // each wolt's look, by name: {"hat": id} (hats.ts)
   names?: Record<string, string>;  // chats renamed after they started: {thread: name}
   faces?: Record<string, string>;  // what each person wears, by email: "hat-<id>"
+  terminals?: Record<string, string>;  // for the host only: a link to each of their wolts' terminals on their own lodge
   main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it
 };
 
