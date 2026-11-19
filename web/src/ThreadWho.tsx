@@ -56,6 +56,11 @@ export function ThreadWho({ thread, list, ctx, room, fallback, host, main, inlin
     if (real && Object.entries(sent).some(([w, m]) => room![w] === m)) setSent((s) => Object.fromEntries(Object.entries(s).filter(([w, m]) => room![w] !== m)));
   }, [room]);
 
+  useEffect(() => {  // Escape closes the switches' sheet
+    if (!open) return;
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
+    addEventListener("keydown", key, true); return () => removeEventListener("keydown", key, true);
+  }, [open]);
   const face = (w: Wolt) => woltFace(w.wolt, w.creature);
   const on = (w: Wolt) => marks[w.wolt] === "in" && !w.paused;
   const shown = ctx.wolts.filter((w) => marks[w.wolt] !== "out");

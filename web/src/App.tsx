@@ -776,6 +776,16 @@ export function App() {
   // one set of pieces for every screen: the chats list, the chat, the side pane. Side by side on a computer, one at a time on a phone
   const oneUI = !desk && chatsHome && !lobby, twoPane = roomy && oneUI;
   const [phoneSide, setPhoneSide] = useState(false);
+  // Escape closes whatever pops up on top (a page, a card, the new chat sheet, the menu…), the top one first. Not the chat itself.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || viewing) return;  // the picture viewer closes itself
+      if (paging) setPaging(""); else if (who) setWho(""); else if (starting) setStarting(false); else if (adding) setAdding(false);
+      else if (menu) setMenu(false); else if (listOpen) setListOpen(false); else if (phoneSide) setPhoneSide(false); else return;
+      e.preventDefault();
+    };
+    addEventListener("keydown", key); return () => removeEventListener("keydown", key);
+  }, [viewing, paging, who, starting, adding, menu, listOpen, phoneSide]);
   useEffect(() => setPhoneSide(false), [thread]);
   // the side pane beside the open chat (who's in it, pages, files): open by default on a wide screen, remembered here
   const [sideOn, setSideOn] = useState(() => { try { return localStorage.getItem("side") !== "0"; } catch { return true; } });
