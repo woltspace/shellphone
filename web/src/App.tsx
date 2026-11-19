@@ -554,7 +554,8 @@ export function App() {
   const inboxCount = freshCount + (chatsHome ? 0 : mainFresh.length);  // on the chats, main-chat messages are chats: counted above
   const hdr = useRef<HTMLElement>(null), [hdrH, setHdrH] = useState(0);
   useLayoutEffect(() => { const el = hdr.current; if (!el) return; const ro = new ResizeObserver(() => setHdrH(el.offsetHeight)); ro.observe(el); return () => ro.disconnect(); }, []);
-  const swipe = useSwipeBack(() => setThread(""));
+  // on a phone: from the left edge, a chat slides back to the chat list, and the side pane back to its chat
+  const swipe = useSwipeBack(() => setThread("")), sideSwipe = useSwipeBack(() => setPhoneSide(false));
 
   // Where the app opens. A tapped notification lands on its message: inside its thread if it's a reply, or the main
   // chat scrolled to it. Opening it normally, or coming back after a while, lands home: the threads list.
@@ -621,7 +622,8 @@ export function App() {
     if (h.get("m") && !target.current && (listOpen || (h.get("t") || "") !== thread)) history.replaceState(null, "", location.pathname);
   }, [thread, listOpen]);
 
-  const menuSwipe = useMenuSwipe(menu, setMenu, !listOpen);
+  // the left edge opens the menu, except over a chat open full screen on a phone, where it goes back instead
+  const menuSwipe = useMenuSwipe(menu, setMenu, !listOpen && !(thread && chatsHome && !lobby && !roomy));
 
   // New voice notes from wolts play one after another, unless you picked something to hear yourself.
   const playing = useRef<HTMLAudioElement | null>(null);
@@ -824,8 +826,8 @@ export function App() {
       </header>}
       {!(chatsHome && !lobby) && <WoltStrip el={stripEl} state={state} person={person} open={strip} onClose={() => setStrip(false)} onPick={setWho} />}
       {chatsHome && !lobby ? <div className="flex-1 min-h-0 min-w-0 flex relative">
-      {oneUI && !roomy ? (thread ? <div className="flex-1 min-w-0 relative">{chatSheet(true)}
-        {phoneSide && <div className="absolute inset-0 z-[1590] flex flex-col bg-paper animate-[fadein_.15s_ease-out]">
+      {oneUI && !roomy ? (thread ? <div ref={swipe.el} {...swipe.handlers} className="flex-1 min-w-0 relative bg-paper">{chatSheet(true)}
+        {phoneSide && <div ref={sideSwipe.el} {...sideSwipe.handlers} onTouchStart={(e) => { e.stopPropagation(); sideSwipe.handlers.onTouchStart(e); }} className="absolute inset-0 z-[1590] flex flex-col bg-paper animate-[fadein_.15s_ease-out]">
           <div className="flex-none flex items-center gap-1 pl-1 pr-3 pt-[env(safe-area-inset-top)] min-h-12 border-b border-line">
             <button type="button" aria-label="Back to the chat" onClick={() => setPhoneSide(false)} className="w-10 h-10 grid place-items-center border-0 bg-transparent text-acc cursor-pointer"><ChevronLeft size={24} /></button>
             <b className="text-[15px]">About this chat</b></div>
