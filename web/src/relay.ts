@@ -103,3 +103,7 @@ export async function call(url: string, init: RequestInit = {}): Promise<Respons
   const got = await p.request((init.method || "GET").toUpperCase(), url, init.body ? JSON.parse(init.body as string) : undefined);
   return json(got.status, got.body);
 }
+
+// Added to a home screen, a phone wants a service worker in charge of the room's address before it offers to install
+// the app. This one only shows notifications (none come through the relay yet): it sees none of the page's requests.
+if (relayRoom && "serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: `/r/${relayRoom}` }).catch(() => {});

@@ -11,7 +11,7 @@ import { wear, worn } from "./hats";
 import { WoltStrip, usePullDown, type Who } from "./WoltStrip";
 import { Sidebar } from "./Sidebar";
 import { ChatSide } from "./ChatSide";
-import { LinkModal, roomInvite } from "./InviteModal";
+import { LinkModal, RELAY_NOTE, roomInvite } from "./InviteModal";
 import { Profile } from "./Profile";
 import { UPPER } from "./Sky";
 import { AddAgentSheet } from "./AddAgent";
@@ -880,7 +880,7 @@ export function App() {
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
       {thread && !oneUI && chatSheet(false)}
       <Menu open={menu} panel={menuSwipe.panel} scrim={menuSwipe.scrim} touch={menuSwipe.menu} close={() => setMenu(false)} title={state.title || "shell"} me={state.me} host={state.host} wolts={state.members.wolts} people={state.members.people} push={push} freshCount={inboxCount} onThreads={() => { if (chatsHome) { setThread(""); setLobby(false); } else setListOpen(true); }} onAgent={() => setAdding(true)} onEveryone={() => { setThread(""); setLobby(false); setStrip(true); }} main={state.main} looks={state.looks} faces={state.faces} guestAgents={state.guest_agents} />
-      {inviting && <LinkModal title="Invite humans" sub="Anyone with this link comes in and picks a name" get={roomInvite} onClose={() => setInviting(false)} />}
+      {inviting && <LinkModal title="Invite humans" sub="Anyone with this link comes in and picks a name" get={roomInvite} note={relayRoom ? RELAY_NOTE : undefined} onClose={() => setInviting(false)} />}
       {adding && <AddAgentSheet me={state.me} onClose={() => setAdding(false)} />}
       {loading && !naming && <Opening problem={error} />}
       {naming && <NameFirst done={() => setNaming(false)} />}
