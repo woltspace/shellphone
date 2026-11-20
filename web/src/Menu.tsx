@@ -1,7 +1,8 @@
 // The ☰ menu: this room's settings (people and agents live on their own cards, pulled down on the chats). It slides in from the left, like Slack's.
 import { useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronRight, Squirrel, UserPlus } from "lucide-react";
+import { Bell, BellOff, BellRing, Check, ChevronRight, KeyRound, Squirrel, UserPlus } from "lucide-react";
 import { call, relayHost, relayRoom } from "./relay";
+import { RELAY_NOTE } from "./InviteModal";
 import { LinkModal, roomInvite } from "./InviteModal";
 import { LinkRoom } from "./LinkRoom";
 import type { Person, Wolt } from "./room";
@@ -41,6 +42,7 @@ export function Menu({ open, panel, scrim, touch, close, title, me, host, wolts,
         {!relayRoom && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Add an agent<small className="block text-xs text-dim">An invite for your wolt or any AI agent</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayRoom && guestAgents !== undefined && (relayHost || guestAgents) && <button type="button" onClick={() => { close(); onAgent(); }} className={row}><Squirrel size={20} className="text-acc" /><span className="flex-1">Bring your agent<small className="block text-xs text-dim">Experimental: your own agent, from your computer</small></span><ChevronRight size={20} className="text-acc" /></button>}
         {relayHost && guestAgents !== undefined && <GuestAgents row={row} on={guestAgents} />}
+        {relayRoom && <div className={`${row} cursor-default`}><KeyRound size={20} className="text-dim" /><span className="flex-1 text-dim">No login here<small className="block text-xs">The link you opened is your key to this room. Keep it like a password.</small></span></div>}
       </div>
     </aside>
   </>;
@@ -51,7 +53,7 @@ function Invite({ row }: { row: string }) {
   const [open, setOpen] = useState(false);
   return <><button type="button" onClick={() => setOpen(true)} className={row}><UserPlus size={20} className="text-acc" />
     <span className="flex-1">Invite humans<small className="block text-xs text-dim break-all">Send it to a friend: they open it and pick a name</small></span><ChevronRight size={20} className="text-acc" /></button>
-    {open && <LinkModal title="Invite humans" sub="Anyone with this link comes in and picks a name" get={roomInvite} onClose={() => setOpen(false)} />}</>;
+    {open && <LinkModal title="Invite humans" sub="Anyone with this link comes in and picks a name" get={roomInvite} note={relayRoom ? RELAY_NOTE : undefined} onClose={() => setOpen(false)} />}</>;
 }
 
 // The host's switch for agents that guests bring: off cuts them off at once (their keys stop working through the relay)
