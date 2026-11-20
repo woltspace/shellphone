@@ -21,7 +21,7 @@ import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWal
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
 import { ShareButton } from "./Share";
-import { ChevronDown, ChevronLeft, Inbox, Menu as MenuIcon, Monitor, PanelRight, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Inbox, Menu as MenuIcon, Monitor, PanelRight, X } from "lucide-react";
 const Desk = lazy(() => import("./Desk"));  // terminals and their library load only on a computer that opens the desk
 import { usePush } from "./push";
 
@@ -189,11 +189,41 @@ function Viewer({ urls, names, at, close }: { urls: string[]; names?: string[]; 
   </div>;
 }
 
+// Humans mode: one stretch of agents' messages. Folded, it is a thin rule across the chat (who, how many, a chevron);
+// open, the same rule sits above it and a second one closes it. The stretch slides shut under its rule.
+function AgentRun({ id, msgs, ctx, on, shown, lit, toggle, children }: { id: string; msgs: Msg[]; ctx: Ctx; on: boolean; shown: boolean; lit: boolean; toggle: (at: Element) => void; children: React.ReactNode }) {
+  const names = [...new Set(msgs.map((m) => m.wolt).filter(Boolean))] as string[], n = msgs.length;
+  const label = !names.length ? "the room" : names.length < 3 ? names.join(" and ") : `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+  const line = `flex-1 h-px transition-colors duration-700 ${lit ? "bg-acc" : "bg-line"}`;
+  return <div data-run={id} data-shown={shown ? "" : undefined}>
+    {on && <div data-rule className="px-3 md:px-5 mt-2.5">
+      <button type="button" data-tap aria-expanded={shown} aria-label={`${shown ? "Hide" : "Show"} ${n} ${n === 1 ? "message" : "messages"} from ${label}`} onClick={(e) => toggle(e.currentTarget.parentElement!)}
+        className="w-full flex items-center gap-2 border-0 bg-transparent p-0 py-0.5 cursor-pointer text-[12.5px] text-dim">
+        <i className={line} />
+        <span className="flex flex-none">{names.slice(0, 3).map((w, i) => <img key={w} src={woltFace(w, ctx.wolts.find((x) => x.wolt === w)?.creature)} alt="" className={`pixel w-5 h-5 rounded-full bg-panel ring-1 ring-line ${i ? "-ml-1.5" : ""}`} />)}</span>
+        <span className={`flex-none transition-colors duration-700 ${lit ? "text-acc" : ""}`}>{label} · <b className={`font-semibold ${lit ? "" : "text-ink"}`}>{n} {n === 1 ? "message" : "messages"}</b></span>
+        <ChevronRight size={16} className={`flex-none -ml-1 text-acc transition-transform duration-300 ${shown ? "rotate-90" : ""}`} />
+        <i className={line} />
+      </button></div>}
+    <div className="grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none" style={{ gridTemplateRows: shown ? "1fr" : "0fr", opacity: shown ? 1 : 0 }}>
+      <div className="min-h-0 overflow-hidden" inert={!shown}>
+        {children}
+        {on && <div className="px-3 md:px-5 mt-2">
+          <button type="button" data-tap aria-label={`Hide these ${n} messages`} onClick={(e) => toggle(e.currentTarget)}
+            className="w-full flex items-center gap-2 border-0 bg-transparent p-0 py-0.5 cursor-pointer text-[12px] text-dim">
+            <i className="flex-1 h-px bg-line" /><span className="flex-none">end of {n} agent {n === 1 ? "message" : "messages"}</span><ChevronUp size={16} className="flex-none -ml-1 text-acc" /><i className="flex-1 h-px bg-line" />
+          </button></div>}
+      </div>
+    </div>
+  </div>;
+}
+
 // A list of messages that stays at the bottom while you're there, and leaves you alone if you scrolled up to read.
 // Used for the main chat and for a thread alike.
-function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, place = "" }: {
+function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, place = "", humans, flip }: {
   list: Msg[]; ctx: Ctx; working: Record<string, unknown>; away?: Record<string, number>; replies?: Map<string, Msg[]>; seen?: Record<string, number>; place?: string;
   open?: (id: string) => void; divider?: number; stick: React.MutableRefObject<(on?: boolean) => void>;
+  humans?: boolean; flip?: React.MutableRefObject<() => void>;  // humans: fold each stretch of agents' messages under a rule; flip: called just before it changes, to keep your place
 }) {
   // The chat is laid out from the bottom up (column-reverse), like chat apps do: the browser itself keeps the newest
   // message in place while pictures, players and cards load, and while new messages arrive. No pinning code to fight it.
@@ -202,29 +232,105 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
   const [far, setFar] = useState(false);  // scrolled well up: show the jump-to-the-bottom button
   const toBottom = (smooth = true) => scroller.current?.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
   stick.current = (on = true) => { if (on) toBottom(false); };  // sending, or coming back after a while: the newest
-  const onScroll = () => setFar(-scroller.current!.scrollTop > 600);
+  const pad = useRef<HTMLDivElement>(null);  // quiet space under the newest message, only while it is needed to keep your place
+  const following = useRef(false);
+  const onScroll = () => {
+    const s = scroller.current!, room = pad.current?.offsetHeight || 0;
+    setFar(-s.scrollTop > 600);
+    // the quiet space goes away once you have scrolled it out of sight: nothing on screen moves when it does
+    if (room && !following.current && -s.scrollTop >= room) { pad.current!.style.height = "0px"; s.scrollTop += room; }
+  };
+  // Humans: a chat's own view folds every stretch of agents' messages (in the lobby a tap opens the chat, nothing folds there)
+  const fold = !!humans && !open;
+  const [peek, setPeek] = useState<Set<string>>(() => new Set());  // the stretches opened one by one while Humans is on
+  const [lit, setLit] = useState("");  // the rule that just closed lights up for a moment, so the eye lands on it
+  const litTimer = useRef(0);
+  useEffect(() => () => clearTimeout(litTimer.current), []);
+  useEffect(() => setPeek(new Set()), [fold]);
+  // Keeping your place. The chat is anchored at its bottom, so whatever folds or opens below what you are reading moves it.
+  // hold(): remember the first thing on screen and where it is; follow(): for as long as the slide lasts, scroll so it stays there.
+  const held = useRef<{ el: Element; run: Element | null; want: number; glued: boolean; rule: boolean; agent: boolean } | null>(null);
+  const hold = (near?: Element | null) => {
+    const s = scroller.current; if (!s) return;
+    const top = s.getBoundingClientRect().top;
+    const seen = (e: Element) => e.hasAttribute("data-rule") || !e.closest("[data-run]") || e.closest("[data-run]")!.hasAttribute("data-shown");
+    const el = near || [...s.querySelectorAll("[data-mid],[data-rule]")].find((e) => seen(e) && e.getBoundingClientRect().height > 0 && e.getBoundingClientRect().bottom > top + 8);
+    held.current = el ? { el, run: el.closest("[data-run]"), want: el.getBoundingClientRect().top,  // its stretch is noted now: a rule is gone from the page once Humans is off
+      glued: !near && s.scrollTop > -24 && !pad.current?.offsetHeight, rule: el.hasAttribute("data-rule"), agent: !!el.closest("[data-run]") && !el.hasAttribute("data-rule") } : null;
+  };
+  const follow = (swap: boolean) => {
+    const s = scroller.current, h = held.current; held.current = null;
+    if (!s || !h) return;
+    const top = s.getBoundingClientRect().top, run = h.run;
+    // the switch itself: an agent's message gives its place to its rule, and a rule (gone when Humans is off) to its first message
+    let el: Element | null = h.el, want = h.want;
+    if (swap && run && (h.agent || h.rule)) { el = run.querySelector(fold ? "[data-rule]" : "[data-mid]"); want = Math.max(want, top + 6); }
+    following.current = true; s.style.overflowAnchor = "none";  // the browser's own scroll anchoring would pull against this
+    if (pad.current) pad.current.style.height = "0px";
+    const until = performance.now() + 380;
+    const step = () => {
+      if (h.glued) s.scrollTop = 0;
+      else if (el?.isConnected) {
+        const d = el.getBoundingClientRect().top - want;
+        if (d > 0 && s.scrollTop + d > 0 && pad.current) pad.current.style.height = pad.current.offsetHeight + s.scrollTop + d + "px";  // not enough chat left below: make room
+        s.scrollTop += el.getBoundingClientRect().top - want;
+      }
+      if (performance.now() < until) requestAnimationFrame(step); else { following.current = false; s.style.overflowAnchor = ""; }
+    };
+    step();
+  };
+  if (flip) flip.current = () => hold();
+  useLayoutEffect(() => follow(true), [fold]);
+  const toggleRun = (key: string, at?: Element | null) => {
+    const s = scroller.current, rule = s?.querySelector(`[data-run="${key}"] [data-rule]`) || null;
+    // tapped on the rule: it stays where it is. Tapped lower down (a bubble, the end line) with the rule off screen: bring the rule to the top
+    const above = !!rule && !!s && rule.getBoundingClientRect().top < s.getBoundingClientRect().top;
+    hold(rule);
+    if (held.current && above && at !== rule) held.current.want = s!.getBoundingClientRect().top + 48;
+    const closing = peek.has(key);
+    setPeek((was) => { const now = new Set(was); if (!now.delete(key)) now.add(key); return now; });
+    if (closing) { setLit(key); clearTimeout(litTimer.current); litTimer.current = window.setTimeout(() => setLit(""), 80); }
+    requestAnimationFrame(() => follow(false));
+  };
+  // which stretch each agent message belongs to: a stretch is named after its first message, so it keeps its name as it grows
+  const runOf = new Map<string, string>(), runs = new Map<string, Msg[]>();
+  if (!open) { let key = ""; for (const m of list) { if (m.kind === "human") { key = ""; continue; } if (!key) key = m.cid || m.id; runOf.set(m.cid || m.id, key); runs.set(key, [...(runs.get(key) || []), m]); } }
   let lastDay = "", lastWho = "";
   return <div className="flex-1 min-h-0 relative flex flex-col"><div ref={scroller} data-feed onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain flex flex-col-reverse"><div className="pt-1">
     {list.length === 0 && <p className="text-center text-dim font-mono text-xs mt-10 px-6">Nobody has said anything yet. Tag a wolt with @ to bring it in.</p>}
-    {list.map((m, i) => {
+    {(() => { const rows = list.map((m, i) => {
       const d = new Date(m.at * 1000), day = d.toLocaleDateString([], { day: "numeric", month: "long" });
       const who = m.kind === "human" ? m.email! : "wolt:" + m.wolt, newDay = day !== lastDay;
       const thread = replies?.get(m.id) || [];
       const run = newDay || who !== lastWho;
       lastDay = day; lastWho = thread.length ? "" : who;  // a thread breaks the run, so the next bubble shows its name
-      return <div key={m.cid || m.id} data-mid={m.id}>
+      return { m, node: <div key={m.cid || m.id} data-mid={m.id}>
         {newDay && <div className="text-center my-3"><span className="font-mono text-[11px] uppercase text-dim bg-panel border border-line rounded-lg px-2.5 py-1">{day}</span></div>}
         {/* like Slack: tap a message to open its thread (links, players, pictures and a voice note's words keep their own tap) */}
-        <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : ""}
-          onClick={(e) => { if (open && !m.pending && !m.failed && !(e.target as HTMLElement).closest("button,a,audio,video,img,[data-tap]")) open(m.id); }}>
+        <div className={open && !m.pending && !m.failed ? "cursor-pointer active:opacity-60 transition-opacity" : fold && runOf.has(m.cid || m.id) ? "cursor-pointer" : ""}
+          onClick={(e) => { if ((e.target as HTMLElement).closest("button,a,audio,video,img,[data-tap]") || String(window.getSelection() || "")) return;
+            if (open && !m.pending && !m.failed) open(m.id);
+            else if (fold && runOf.has(m.cid || m.id)) toggleRun(runOf.get(m.cid || m.id)!, e.currentTarget); }}>
           <Message m={m} ctx={ctx} firstOfRun={run} wallpaper={thread.length > 0 && open ? { ...threadWallpaper(m.id), borderColor: threadColor(m.id) + "80" } : undefined} footer={thread.length > 0 && open ?
             <ThreadFooter id={m.id} list={thread} fresh={unread(thread, seen?.[m.id], ctx.me)} ctx={ctx} onOpen={() => open(m.id)} busy={ctx.busy?.(m.id)} /> : undefined} />
         </div>
         {divider !== undefined && i === 0 && <div className="flex items-center gap-2.5 px-3.5 my-3 font-mono text-[11px] text-dim">
           <span>{divider} {divider === 1 ? "reply" : "replies"}</span><span className="flex-1 h-px bg-line" /></div>}
-      </div>;
-    })}
+      </div> };
+    });
+      // a chat's own view: each stretch of agents' messages sits in one box that can slide shut under its rule
+      const out: React.ReactNode[] = [];
+      for (let i = 0; i < rows.length; i++) {
+        const key = runOf.get(rows[i].m.cid || rows[i].m.id);
+        if (!key) { out.push(rows[i].node); continue; }
+        const nodes: React.ReactNode[] = [];
+        while (i < rows.length && runOf.get(rows[i].m.cid || rows[i].m.id) === key) nodes.push(rows[i++].node);
+        i--;
+        out.push(<AgentRun key={"run:" + key} id={key} msgs={runs.get(key)!} ctx={ctx} on={fold} shown={!fold || peek.has(key)} lit={lit === key} toggle={(at) => toggleRun(key, at)}>{nodes}</AgentRun>);
+      }
+      return out; })()}
     <Gnaw ctx={ctx} working={working} away={away} place={place} />
+    <div ref={pad} aria-hidden style={{ height: 0 }} />
   </div></div>
     {far && <button type="button" aria-label="Jump to the newest" onClick={() => toBottom()}
       className="absolute right-3 bottom-3 z-10 w-11 h-11 rounded-full bg-panel border border-line text-acc grid place-items-center shadow-[0_2px_10px_#18100a2e] cursor-pointer animate-[fadein_.15s_ease-out]">
@@ -249,7 +355,7 @@ const glide = (el: HTMLElement | null, transform: string, shadow = "") => {
 // Leave a screen like going back on iPhone: drag from the left edge to the right. back() does the same slide for the ‹ button.
 // A thread pops up over the main chat, like the voice-note sheet: you're still in the room, just looking closer.
 // Drag the handle down, tap above it, or tap ✕ to drop back.
-function ThreadSheet({ docked, side, back, startFull, chat, name, onRename, color, wallpaper, title, count, close, who, children }: { docked?: boolean; back?: boolean; side?: { on: boolean; flip: () => void }; startFull?: boolean; chat?: boolean; name?: string; onRename?: (name: string) => void; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; children: React.ReactNode }) {
+function ThreadSheet({ docked, side, back, startFull, chat, name, onRename, color, wallpaper, title, count, close, who, extra, children }: { docked?: boolean; back?: boolean; side?: { on: boolean; flip: () => void }; startFull?: boolean; chat?: boolean; name?: string; onRename?: (name: string) => void; color: string; wallpaper?: React.CSSProperties; title: React.ReactNode; count: number; close: () => void; who?: React.ReactNode; extra?: React.ReactNode; children: React.ReactNode }) {
   const [drag, setDrag] = useState<{ y: number; dy: number; t: number } | null>(null), [full, setFull] = useState(!!startFull);
   const [editing, setEditing] = useState(false);  // renaming the chat: its title becomes a box
   const [leaving, setLeaving] = useState(false);  // closing: the scrim fades and the sheet slides away, then it's gone
@@ -286,10 +392,13 @@ function ThreadSheet({ docked, side, back, startFull, chat, name, onRename, colo
               className="min-w-0 truncate -ml-1.5 px-1.5 py-0.5 rounded-md border border-transparent bg-transparent text-left font-semibold text-[15px] text-ink cursor-text enabled:hover:bg-white enabled:hover:border-line disabled:cursor-default transition-colors">{name}</button>
             <span className="flex-none text-[12px] text-dim max-sm:hidden">· {count + 1} {count ? "messages" : "message"}</span></>}
       </div>
+      {extra && <span className="flex-none max-sm:hidden">{extra}</span>}
       {who}
       {side && <button type="button" aria-label={side.on ? "Hide the side pane" : "Show the side pane"} title="Who's in it, pages, files" onClick={side.flip}
         className={`flex-none w-8 h-8 grid place-items-center border-0 bg-transparent cursor-pointer rounded-md hover:bg-[#18100a0d] ${side.on ? "text-ink" : "text-dim"}`}><PanelRight size={17} /></button>}
     </div>
+    {/* on a phone the top line is full (back, name, faces, side pane): the switch gets a slim line of its own under it */}
+    {extra && <div className="sm:hidden flex-none flex items-center justify-end px-2.5 py-1.5 border-b border-line bg-paper">{extra}</div>}
     {children}
   </div>;
   return <div className="absolute inset-0 z-[1580]">
@@ -316,7 +425,7 @@ function ThreadSheet({ docked, side, back, startFull, chat, name, onRename, colo
                 onClick={(e) => { if (onRename) { e.stopPropagation(); setEditing(true); } }}>{title}{onRename && <span className="ml-1.5 text-[12px] text-dim font-normal">✎</span>}</div>}
             <div className="font-mono text-[11px] text-dim">{chat ? `chat · ${count + 1} ${count ? "messages" : "message"}` : `thread · ${count} ${count === 1 ? "reply" : "replies"}`}</div>
           </div>
-          {who}
+          {extra}{who}
           {!chat && <button type="button" aria-label="Close the thread" onClick={bye} className="flex-none w-10 h-10 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={20} /></button>}
         </div>
       </div>
@@ -808,11 +917,18 @@ export function App() {
   // the side pane beside the open chat (who's in it, pages, files): open by default on a wide screen, remembered here
   const [sideOn, setSideOn] = useState(() => { try { return localStorage.getItem("side") !== "0"; } catch { return true; } });
   const setSide = (on: boolean) => { setSideOn(on); try { localStorage.setItem("side", on ? "1" : "0"); } catch { /* fine */ } };
+  // Humans: only people's messages, each stretch of agents' messages folded under a rule. Remembered on this device.
+  const [humansOn, setHumansOn] = useState(() => { try { return localStorage.getItem("humans") === "1"; } catch { return false; } });
+  const flipFeed = useRef<() => void>(() => {});
+  const humansSwitch = <button type="button" role="switch" aria-checked={humansOn} title="Humans: fold the agents' messages" data-humans
+    onClick={(e) => { e.stopPropagation(); flipFeed.current(); const on = !humansOn; setHumansOn(on); try { localStorage.setItem("humans", on ? "1" : "0"); } catch { /* private mode */ } }}
+    className={`flex-none flex items-center gap-1.5 rounded-full border bg-paper pl-2.5 pr-1 py-[3px] font-mono text-[11.5px] font-semibold cursor-pointer transition-colors ${humansOn ? "border-go text-ink" : "border-line text-dim"}`}>
+    Humans<i className={`relative block w-[30px] h-[18px] rounded-full transition-colors ${humansOn ? "bg-go" : "bg-line"}`}><i className={`absolute top-[2px] block w-[14px] h-[14px] rounded-full bg-white shadow-[0_1px_2px_#18100a40] transition-[left] ${humansOn ? "left-[14px]" : "left-[2px]"}`} /></i></button>;
   const chatSheet = (docked: boolean) => (
 <ThreadSheet key={thread} docked={docked} side={docked ? (roomy ? { on: sideOn, flip: () => setSide(!sideOn) } : { on: phoneSide, flip: () => setPhoneSide(!phoneSide) }) : undefined} back={docked && !roomy} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={docked ? undefined : threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
-        who={<ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
-          room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}>
-        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={docked ? { ...ctx, rows: true, tint: threadColor(thread) } : ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} />
+        extra={humansSwitch} who={<><ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
+          room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} /></>}>
+        <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={docked ? { ...ctx, rows: true, tint: threadColor(thread) } : ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} humans={humansOn} flip={flipFeed} />
         {/* a chat just started: who will pick it up, and how to bring someone else in */}
         {chatsHome && root && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
           New chat started{state.main && state.who?.[thread]?.[state.main] !== "paused" ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
