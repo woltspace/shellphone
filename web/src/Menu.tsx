@@ -2,8 +2,7 @@
 import { useState } from "react";
 import { Bell, BellOff, BellRing, Check, ChevronRight, KeyRound, Squirrel, UserPlus } from "lucide-react";
 import { call, relayHost, relayRoom } from "./relay";
-import { RELAY_NOTE } from "./InviteModal";
-import { LinkModal, roomInvite } from "./InviteModal";
+import { LinkModal, RELAY_NOTE, roomInvite } from "./InviteModal";
 import { LinkRoom } from "./LinkRoom";
 import type { Person, Wolt } from "./room";
 

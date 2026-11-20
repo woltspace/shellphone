@@ -26,7 +26,7 @@ const PING = '{"ping":1}', PONG = '{"pong":1}';
 const CLAIM = /^[A-Za-z0-9_-]{43}$/;   // what a host shows to prove a room is its own: a hash only the host's link can make (see Room.fetch)
 const INSTANCE = /^[A-Za-z0-9_-]{22}$/;  // names the host's process: its own reconnect is let in at once
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
-const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up|manifest\.webmanifest))?$/;
+const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up|manifest\.webmanifest)?)?$/;  // "/r/<id>/" is the room page too
 // A signpost: a lasting address (/t/ID) for a room that is reached through a tunnel of its own, whose address changes
 // at every start. The room says where it is now; a visitor is sent on. Nothing of the chat passes through here.
 const SIGN = /^\/t\/([A-Za-z0-9_-]{16,64})(\/where)?$/;

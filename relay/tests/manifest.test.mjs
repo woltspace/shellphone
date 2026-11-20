@@ -37,3 +37,11 @@ test("a missing file stays missing", async () => {
   assert.equal((await roomManifest(new Response("", { status: 404 }), ROOM)).status, 404);
   assert.equal((await roomPage(new Response("", { status: 404 }), ROOM)).status, 404);
 });
+
+test("the room's address with a slash at the end is the room page too", () => {
+  const ROOM_RE = new RegExp(source.match(/^const ROOM = \/(.*)\/;/m)[1]);
+  assert.equal(ROOM_RE.exec(`/r/${ROOM}/`)[3], undefined);
+  assert.equal(ROOM_RE.exec(`/r/${ROOM}`)[3], undefined);
+  assert.equal(ROOM_RE.exec(`/r/${ROOM}/ws`)[3], "ws");
+  assert.equal(ROOM_RE.exec(`/r/${ROOM}/other`), null);
+});
