@@ -81,7 +81,8 @@ review changed files, and revoke credentials that may have been exposed before r
 
 ## A room shared through a tunnel of its own (experimental)
 
-`shellphone share --via tunnel` does not use the sealed relay. The room is reached through a Cloudflare quick
+`shellphone share --via tunnel` does not use the sealed relay. It is also what a plain `share` uses when `cloudflared`
+is installed on the room's computer (`shellphone room` says which way it picked; `--via relay` keeps the relay). The room is reached through a Cloudflare quick
 tunnel that it starts itself, so Cloudflare is able to read the traffic, and there is no login in front of the room
 but the room's own links: whoever holds a person's link is that person. The site keeps only the room's lasting address
 and two hashes of a secret; it asks the room to prove itself before it sends anyone to it. Stopping closes the tunnel

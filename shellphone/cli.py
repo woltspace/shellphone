@@ -481,13 +481,14 @@ def room(a):
     from .outside import Outside
     r, data, url, token, code, server = start(a)
     relay = (getattr(a, "relay", None) or os.environ.get("SHELLPHONE_RELAY") or default_relay()).rstrip("/")
-    first = a.via or os.environ.get("SHELLPHONE_VIA") or "relay"  # the way the menu's button and a plain `shellphone share` take
+    first = a.via or os.environ.get("SHELLPHONE_VIA") or ("tunnel" if shutil.which("cloudflared") else "relay")  # the way the menu's button and a plain `shellphone share` take: a tunnel of its own when cloudflared is here (voice, files), else the sealed relay
     if first not in WAYS:
         sys.exit(f"SHELLPHONE_VIA is {first!r}: the ways to share a room are " + " and ".join(WAYS))
     r.OUTSIDE = Outside(r, data, bool(a.keep), relay, server.server_address[1], HOST_EMAIL)  # the tunnel is experimental, and only started when asked for
     r.LINKER = share = Share({"relay": Linker(r, data, bool(a.keep), relay), "tunnel": r.OUTSIDE}, first)
     announce(data, server.server_address[1], token)
     later = f"The room is open on this computer; share it later with: {me()} share"
+    way = f"Sharing goes through {WAYS[first]}" + (" (cloudflared is here: voice and files work; Cloudflare could read the traffic, the relay is sealed). Use the relay instead with: --via relay" if first == "tunnel" and not a.via and not os.environ.get("SHELLPHONE_VIA") else ".")
     more = ""
     if (a.share or share.saved()) and (a.via or share.saved() or first) == "tunnel":  # through a tunnel: the site asks the room before it takes its address, so the room must be answering first
         def after():
@@ -506,6 +507,7 @@ def room(a):
   Bring an agent:   uvx shellphone join '{url}/#{code}' --name NAME
 
 Both links are keys to this room: share them only with your own agents.
+{way}
 {more}Press Ctrl-C to close the room. """ + (f"It's kept in {data}." if a.keep else "Everything in it is deleted."), share.close)
 
 

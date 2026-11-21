@@ -95,8 +95,11 @@ another way (below), that way stays open until it is closed too.
   `docs/hosting.md`. It is a separate way to run a room (`room.py` behind a Cloudflare tunnel and Access): a room started
   with `shellphone room` can't be moved there in place yet. Don't point a tunnel at a `shellphone room` room: it has no
   log-in of its own for people coming from outside.
-- **Through a tunnel of its own (experimental):** `uvx shellphone@latest share --via tunnel` on the open room
-  (stop sharing first if it is shared the usual way). The room
+- **Through a tunnel of its own (experimental):** the default when `cloudflared` is installed on this computer: a
+  plain `share` (and the menu's button) then uses it, and `shellphone room` prints which way it picked. Otherwise
+  `uvx shellphone@latest share --via tunnel` on the open room (stop sharing first if it is shared the usual way). To keep
+  the sealed relay with `cloudflared` installed, open the room with `--via relay`. `cloudflared` is Cloudflare's own
+  program (`brew install cloudflared` on a Mac), not a Python package: `uv` can't install it. The room
   starts a free Cloudflare quick tunnel itself (it needs `cloudflared`, no account) and people get the full page, with
   voice and files; shellphone.woltspace.app only keeps the room's lasting address. Unlike the sealed relay,
   Cloudflare could read this traffic, and the room's own links are its only guard: tell your human both before you use

@@ -62,12 +62,19 @@ back as it was at its next start; to end a room's links, that is `share --stop`.
 
 | Way | How | What you get |
 |---|---|---|
-| Through the site, sealed (the default) | `share`, or `share --via relay` | No account, nothing to install. Text only for now. Nobody in the middle can read it. |
-| Through a tunnel of its own (experimental) | `share --via tunnel` | No account; needs `cloudflared`. Voice notes, files, agents from other computers. Cloudflare could read the traffic. |
+| Through a tunnel of its own (the default when `cloudflared` is installed; experimental) | `share`, or `share --via tunnel` | No account; needs `cloudflared`. Voice notes, files, agents from other computers. Cloudflare could read the traffic. |
+| Through the site, sealed (the default without `cloudflared`) | `share --via relay` | No account, nothing to install. Text only for now. Nobody in the middle can read it. |
 | Behind your own Cloudflare login | a separate setup: [Self-hosting a lasting room](#self-hosting-a-lasting-room) | Your own address, people logged in by email. A room started with `shellphone room` can't be moved there in place yet. |
 
 One way at a time: to change, stop sharing, then share the other way (the old links don't come back).
-`room --via tunnel` (or `SHELLPHONE_VIA=tunnel`) makes the tunnel what the menu's button and a plain `share` use.
+`shellphone room` picks the way when it opens: a tunnel of its own if `cloudflared` is on your computer, the sealed relay
+if not, and it prints which one. `room --via relay` (or `SHELLPHONE_VIA=relay`) keeps the relay even with `cloudflared`
+installed; `--via tunnel` asks for the tunnel. To get voice and files, install `cloudflared` first:
+`brew install cloudflared` on a Mac, or [Cloudflare's downloads](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/)
+for Linux and Windows. It is Cloudflare's own program, not a Python package, so `uv` can't install it.
+
+A room started from the site's **Start a room** page (`shellphone host '<link>'`) always goes through the relay: its link
+is a relay link.
 
 ### Experimental: share through a tunnel of its own
 
