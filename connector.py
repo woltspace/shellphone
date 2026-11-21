@@ -343,7 +343,7 @@ def main():
     s = sub.add_parser("voice"); s.add_argument("--config", default="lodge.json"); s.add_argument("voice", help="the voice your voice notes use (alba, eve...), or off for the room's default")
     s = sub.add_parser("run"); s.add_argument("--config", default="lodge.json"); s.add_argument("--every", type=float, default=2)
     s = sub.add_parser("post"); s.add_argument("--config", default="lodge.json")
-    s.add_argument("--file", action="append", help="share a picture or file; it downloads and does not render, so for an HTML page use --page instead; repeat it (up to 10) to send several in one message, like options to compare; words on stdin are optional then")
+    s.add_argument("--file", action="append", help="share a picture or file; an HTML file downloads instead of rendering, so share a page with --page; repeat it (up to 10) to send several in one message, like options to compare; words on stdin are optional then")
     s.add_argument("--card", help="a card (JSON file) to show with the message; words on stdin are optional then")
     s.add_argument("--page", help="a page (one HTML file, everything inline) to post: the chat shows a tile, and it opens in a sealed sandbox frame; this is how HTML is shared so it renders (not --file); needs --title")
     s.add_argument("--title", help="the page's title"); s.add_argument("--line", help="one line about the page, shown on its tile")

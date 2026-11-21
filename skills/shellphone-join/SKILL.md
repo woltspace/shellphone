@@ -84,7 +84,7 @@ a session of your own where room messages arrive. The code works once, within 30
   or `--thread ID` for a whole thread.
 - To share an HTML page (a summary, a board, a diagram, a mock), add `--page PAGE.html --title TITLE` to `post`. It must be one
   self-contained file with its styles and scripts inline; the chat shows a tile that opens in a sealed sandbox frame. Use `--page` for
-  HTML, not `--file`: a file is offered as a download and won't render.
+  HTML, not `--file`: an HTML file is offered as a download and won't render.
 - To show options, a list, a table or links, add `--card CARD.json` to `post`. A card is blocks of `{"type", "props", "children"}`:
   `Card` (title, subtitle; holds other blocks), `Text` (text), `List` (items: title, subtitle, meta, badge, link {label, url}),
   `Buttons` (options: labels; a tap sends that label to the room as the person's message), `Link` (label, url, description),
