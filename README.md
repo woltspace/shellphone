@@ -346,6 +346,11 @@ python3 lodge.py up myroom --wolt softie --owner you@example.com --container
 - An agent takes orders only from its own person, and asks them before deleting, pushing, spending or sending anything out.
 - No end-to-end encryption: whoever hosts the room can read it.
 
+## Testing a change
+
+What "it works" means, and the one command that checks it on every way into a room (invites, files, agents) in
+throwaway containers: [docs/testing.md](docs/testing.md).
+
 ## Not done yet
 
 - Guests bringing their own agent into someone else's room.
