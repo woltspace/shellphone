@@ -57,14 +57,19 @@ def save_rooms(listed):
         _write(SETTINGS, settings_text(conf, listed))
 
 
+HOSTNAME = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
+
+
 def full_name(name):
-    """demo -> demo.<your domain>; a whole name stays as it is."""
+    """demo -> demo.<your domain>; a whole name stays as it is. Nothing but a host name: it goes into the tunnel's settings."""
     name = name.strip().lower().removeprefix("https://").rstrip("/")
     conf = config()
     if "." not in name:
         if not conf:
             sys.exit(f"--hostname {name}: a short name needs your domain first: shellphone tunnel setup --domain example.com")
-        return f"{name}.{conf['domain']}"
+        name = f"{name}.{conf['domain']}"
+    if not HOSTNAME.fullmatch(name):
+        sys.exit(f"--hostname wants a name like shell.example.com, not {name!r}")
     return name
 
 
@@ -169,6 +174,20 @@ def listing(a):
         print(f"  https://{host}   port {r['port']}   {state}   {r['keep'] or '(tunnel add: not opened from here)'}")
 
 
+def answers_as_room(host, port):
+    """Whether what's on that port is a shared room at this name: only its own door says this."""
+    import http.client
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        conn.request("GET", "/enter", headers={"Host": host})
+        res = conn.getresponse()
+        return res.status == 200 and f'const SIGN = "https://{host}/enter"'.encode() in res.read(200_000)
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
+
+
 def add(a):
     """A name for a room this computer doesn't open itself (one in a container, publishing its port on 127.0.0.1): the
     tunnel sends the name to that port. Nothing else is listed there, and nothing here reopens it."""
@@ -177,6 +196,8 @@ def add(a):
         sys.exit(f"{host} isn't under the domain set up here (shellphone tunnel list)")
     if not 1024 <= a.port <= 65535:
         sys.exit("--port is a port from 1024 to 65535")
+    if not answers_as_room(host, a.port):  # a name makes the port public: never some other service's
+        sys.exit(f"no shared room for {host} answers on port {a.port}: open it there first (--hostname {host} --share), then add it")
     with registry():
         listed = rooms()
         if host in listed and listed[host]["keep"]:
@@ -185,8 +206,8 @@ def add(a):
             sys.exit(f"port {a.port} is already another listed room's (shellphone tunnel list)")
         listed[host] = {"port": a.port, "keep": None}
         save_rooms(listed)
-    print(f"https://{host} now leads to http://127.0.0.1:{a.port} (the tunnel picks that up in a moment). Open the room there "
-          f"with --hostname {host} so its links use that address.")
+    print(f"https://{host} now leads to http://127.0.0.1:{a.port} (the tunnel picks that up in a moment). It was a room "
+          f"when it was added: if it closes for good, take the name off with shellphone tunnel remove {host}.")
 
 
 def remove(a):

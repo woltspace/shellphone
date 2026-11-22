@@ -926,8 +926,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return (found, people()[found]) if found else (None, None)
 
     def local_host(self):
-        """Only this computer's own address counts, so another site can't point a name of its own at the room."""
-        return (self.headers.get("Host") or "").rsplit(":", 1)[0] in ("127.0.0.1", "localhost")
+        """Only this computer's own address counts, so another site can't point a name of its own at the room. And only
+        from this computer: listening on every address (in a container), anyone who reaches the port can write any Host."""
+        named = (self.headers.get("Host") or "").rsplit(":", 1)[0] in ("127.0.0.1", "localhost")
+        return named and self.client_address[0] in ("127.0.0.1", "::1")
 
     def outside_host(self):
         """The room's own address through its tunnel, while it has one: the only other name it answers people on."""

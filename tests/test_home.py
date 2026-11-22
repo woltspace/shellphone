@@ -106,6 +106,12 @@ class Home(unittest.TestCase):
         self.set_up()
         a = home.claim("a.example.com", self.dir / "a", lambda p: True)
         add = lambda name, port: home.add(argparse.Namespace(hostname=name, port=port))
+        with self.assertRaises(SystemExit) as got:  # nothing that isn't that room gets a public name
+            add("box", 4501)
+        self.assertIn("no shared room", str(got.exception))
+        p = patch.object(home, "answers_as_room", lambda host, port: True)
+        p.start()
+        self.addCleanup(p.stop)
         add("box", 4501)
         self.assertEqual(home.rooms()["box.example.com"], {"port": 4501, "keep": None})
         self.assertIn("  - hostname: box.example.com\n    service: http://127.0.0.1:4501\n", (home.home() / home.SETTINGS).read_text())
@@ -128,6 +134,16 @@ class Home(unittest.TestCase):
                 pass
         self.assertEqual(len(opened), 1)
         self.assertIn(str((self.dir / "a").resolve()), opened[0])  # only the room kept here
+
+    def test_a_name_cant_write_lines_of_its_own_into_the_tunnels_settings(self):
+        self.set_up()
+        bad = "x.example.com\n    service: http://127.0.0.1:80\n  - hostname: y.example.com"
+        with patch.object(home, "answers_as_room", lambda host, port: True):
+            for name in (bad, "x y.example.com", "x\ny", "*.example.com", "x: y"):
+                with self.assertRaises(SystemExit, msg=repr(name)):
+                    home.add(argparse.Namespace(hostname=name, port=4501))
+        self.assertEqual(home.rooms(), {})
+        self.assertFalse((home.home() / home.SETTINGS).exists())
 
     def test_what_is_kept_is_private(self):
         self.set_up()

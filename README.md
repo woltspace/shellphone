@@ -140,7 +140,8 @@ SHELLPHONE_BIND=0.0.0.0 shellphone room --keep DIR --port 4501 --hostname box.ex
 uvx shellphone tunnel add box --port 4501                         # here: box.example.com goes to that port
 ```
 
-`tunnel add` lists the name without opening anything here (`tunnel run` leaves it to the container). Give each container
+`tunnel add` only takes a port where that shared room is answering, so open the room first. Whatever later uses the port
+would be public at that name: `tunnel remove` it when the room is gone. It lists the name without opening anything here (`tunnel run` leaves it to the container). Give each container
 a Docker network of its own if other containers shouldn't reach the room's port; they'd still need a key.
 
 Already running a tunnel of your own? Give `--hostname` the whole name (`shell.example.com`) and send that name to the

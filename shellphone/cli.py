@@ -486,7 +486,7 @@ def invite(a):
     print(f"An invite {who}{left or ', with no end'}:\n\n  {out['link']}\n\nIt is shown here once: the room doesn't keep it. End the open invites with: {me()} invite --end")
 
 
-HOSTNAME = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
+from .home import HOSTNAME  # the names a room may have at an address of its own
 
 
 def room(a):

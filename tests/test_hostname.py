@@ -89,6 +89,20 @@ class Fixed(unittest.TestCase):
         self.assertEqual((m["start_url"], m["scope"]), (f"/enter#k.{key}", "/"))
         self.assertEqual(self.ask(port, "GET", "/manifest.webmanifest")[0], 403)  # nobody's key to anybody without one
 
+    def test_the_rooms_door_is_known_to_tunnel_add_and_nothing_else_is(self):
+        from shellphone import home
+        _, out, port = self.open_room()
+        out.on()
+        self.assertTrue(home.answers_as_room(NAME, port))
+        self.assertFalse(home.answers_as_room("other.example.com", port))
+
+    def test_this_computers_host_header_from_another_computer_is_not_this_computer(self):
+        r, _, _ = self.open_room()
+        for peer, local in (("127.0.0.1", True), ("172.17.0.1", False), ("192.168.1.9", False)):
+            h = r.Handler.__new__(r.Handler)
+            h.headers, h.client_address = {"Host": "127.0.0.1:4501"}, (peer, 5555)
+            self.assertIs(h.local_host(), local, peer)
+
     def test_stopping_throws_the_keys_away_and_tells_nobody(self):
         _, out, port = self.open_room()
         key = out.on()[1]["link"].split("#k.")[1]
