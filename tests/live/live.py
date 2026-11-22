@@ -49,15 +49,34 @@ def docker(*args, input=None, timeout=300):
         return subprocess.CompletedProcess(args, 124, "", "timed out")
 
 
-def tunnel(*args):
-    return subprocess.run([sys.executable, "-c", "from shellphone.cli import main; main()", "tunnel", *args],
-                          cwd=REPO, capture_output=True, text=True, timeout=120, env={**os.environ, "PYTHONPATH": str(REPO)})
+def list_if_unused(name, port):
+    """Put a run's name on the tunnel, or say why not. Never over a name that's there: looked at and written in one
+    go, under the list's own lock (`tunnel add` would move a name it finds)."""
+    try:
+        if not home.ours(name):
+            return f"{name} isn't under the domain of this computer's tunnel"
+        home.one_level(name)
+    except SystemExit as no:
+        return str(no)
+    if not home.answers_as_room(name, port):
+        return f"the test's room doesn't answer on port {port}"
+    with home.registry():
+        listed = home.rooms()
+        if name in listed or any(r["port"] == port for r in listed.values()):
+            return f"{name} or its port is already on the tunnel"
+        listed[name] = {"port": port, "keep": None}
+        home.save_rooms(listed)
+    return None
 
 
 def unlist(name, port):
-    """Take off the tunnel only what a run put there: that name, still at that run's port, for a room elsewhere."""
-    if home.rooms().get(name) == {"port": port, "keep": None}:
-        tunnel("remove", name)
+    """Take off the tunnel only what a run put there (that name, still at that run's port, for a room elsewhere): looked
+    at and removed in one go, under the list's own lock."""
+    with home.registry():
+        listed = home.rooms()
+        if listed.get(name) == {"port": port, "keep": None}:
+            del listed[name]
+            home.save_rooms(listed)
 
 
 def clean(run=None):
@@ -197,11 +216,9 @@ class Way:
         if self.name == "own-domain":
             docker("exec", "-d", self.room, "python", "/live/front.py", NAME, str(self.port))
         if self.name == "domain":
-            if not self.ok("setup", "the name is still nobody's", self.live.domain not in home.rooms()):
-                return
-            added = tunnel("add", self.live.domain, "--port", str(self.port))
-            self.added = added.returncode == 0
-            if not self.ok("setup", "the name is on your tunnel", self.added, added.stderr.strip()):
+            no = list_if_unused(self.live.domain, self.port)
+            self.added = not no
+            if not self.ok("setup", "an unused name is put on your tunnel", self.added, no):
                 return
         if self.name == "site-tunnel":
             time.sleep(10)  # a new tunnel's name takes a moment: asked too early, "no such name" is remembered
