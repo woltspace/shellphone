@@ -94,6 +94,7 @@ create table if not exists working_in(wolt text not null, thread text not null, 
 create table if not exists looks(wolt text primary key, look text not null);
 create table if not exists faces(email text primary key, face text not null);
 create table if not exists chat_names(thread text primary key, name text not null, by text not null, at real not null);
+create table if not exists reactions(msg text not null, who text not null, emoji text not null, at real not null, primary key(msg, who));
 """
 CON = None
 
@@ -461,6 +462,14 @@ def hears(tid, wolt):
     return (where_in(tid, wolt) or WHO_DEFAULT) == "in"
 
 
+def heard(m, wolt):
+    """Whether this agent hears a message: in a thread, if it's in that thread; in the main chat, as hears_main says,
+    or if it's in the thread the message started."""
+    if m.get("thread"):
+        return hears(m["thread"], wolt)
+    return hears_main(m, wolt) or (len(thread(m["id"])) > 1 and hears(m["id"], wolt))
+
+
 def set_who(tid, wolt, state):
     with tx() as c:
         seed(c, tid)
@@ -756,6 +765,43 @@ def tell_activity(pid):
                **({"thread": root["thread"]} if root and root.get("thread") else {}))  # where the page was posted
 
 
+REACTIONS = ("👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "👀", "✅", "🔥")  # the bar shows the first six; any of these is taken
+
+
+def reactions_now(ids=None):
+    """Who reacted to which message, and with what: {message id: [{"who": "p:email" | "w:agent", "emoji"}]}, oldest first."""
+    rows = q("select * from reactions order by at")
+    out = {}
+    for r in rows:
+        if ids is None or r["msg"] in ids:
+            out.setdefault(r["msg"], []).append({"who": r["who"], "emoji": r["emoji"]})
+    return out
+
+
+def react(msg_id, who, name, emoji, owner=None):
+    """One reaction per person or agent on a message, like WhatsApp: a new one takes the old one's place, an empty one
+    takes it back. A reaction to an agent's message wakes that agent (see the connector); nobody gets a notification."""
+    m = message(msg_id)
+    if not m or m["kind"] not in ("human", "wolt"):
+        return reply(404, {"error": "there's no such message"})
+    if emoji and emoji not in REACTIONS:
+        return reply(400, {"error": "react with one of " + " ".join(REACTIONS)})
+    with tx() as c:
+        before = c.execute("select emoji from reactions where msg = ? and who = ?", (msg_id, who)).fetchone()
+        if emoji:
+            c.execute("insert or replace into reactions values (?, ?, ?, ?)", (msg_id, who, emoji, time.time()))
+        else:
+            c.execute("delete from reactions where msg = ? and who = ?", (msg_id, who))
+    # only a person's reaction wakes the agent (agents nodding at each other would wake each other forever): a new one,
+    # or a change (👀 seen, then ✅ go), up to 3 times per person per message. Taking it back wakes nobody.
+    woke = q("select count(*) as n from messages where kind = 'reaction' and json_extract(data, '$.reaction.of') = ? and json_extract(data, '$.reaction.who') = ?", msg_id, who)[0]["n"]
+    if emoji and (not before or before["emoji"] != emoji) and woke < 3 and m["kind"] == "wolt" and who.startswith("p:"):
+        append(kind="reaction", text=f"{name} reacted {emoji}", reaction={"of": msg_id, "emoji": emoji, **({"was": before["emoji"]} if before else {}), "who": who, "wolt": m["wolt"], "said": " ".join((m.get("text") or "").split())[:300], "said_at": m["at"]},
+               **({"email": who[2:]} if who.startswith("p:") else {"by_wolt": who[2:], "owner": owner}),
+               **({"thread": m["thread"]} if m.get("thread") else {}))
+    return reply(200, {"of": msg_id, "reactions": reactions_now({msg_id}).get(msg_id, [])})
+
+
 def connector_version():
     """The connector version this room ships, so a wolt's own copy can tell it's behind. Only the number travels."""
     found = re.search(r'^VERSION = "(\d{4}\.\d{2}\.\d{2}(?:\.\d{1,3})?)"', (HERE / "connector.py").read_text(), re.M)
@@ -847,6 +893,33 @@ def rules():
         from shellphone.core import Core
         CORE = Core(sys.modules[__name__])
     return CORE
+
+
+# The host's own terminals, as links. A room run on its host's lodge (SHELLPHONE_LODGE_URL, e.g. https://you.woltspace.com)
+# asks that lodge which session each of the host's wolts is in, and hands the host, and only the host, a link to it. The
+# link opens behind the lodge's own login, so even a link that got out shows nothing to anyone else.
+LODGE_URL = os.environ.get("SHELLPHONE_LODGE_URL", "").rstrip("/")
+LODGE_API = os.environ.get("SHELLPHONE_LODGE_API", "http://127.0.0.1:7777")
+_terminals = {"at": 0.0, "links": {}}
+
+
+def terminals():
+    if not LODGE_URL:
+        return {}
+    if time.time() - _terminals["at"] > 15:
+        _terminals["at"] = time.time()
+        try:
+            with urllib.request.urlopen(LODGE_API + "/sessions?view=lodge", timeout=2) as r:
+                d = json.load(r)
+            newest = {}
+            for x in (d if isinstance(d, list) else d.get("sessions", [])):
+                if x.get("status") == "running" and x.get("alive") is not False and x.get("wolt") and (x.get("last_activity") or 0) >= newest.get(x["wolt"], {}).get("last_activity", -1):
+                    newest[x["wolt"]] = {"name": x["name"], "last_activity": x.get("last_activity") or 0}
+            _terminals["links"] = {w: f"{LODGE_URL}/tui?session={urllib.parse.quote(v['name'])}" for w, v in newest.items()}
+        except Exception:
+            pass  # the lodge isn't answering: keep the last links
+    mine = {l["wolt"] for l in wolts() if canon(l["owner"]) == canon(host() or "")}
+    return {w: u for w, u in _terminals["links"].items() if w in mine}
 
 
 def set_paused(wolt, paused):
@@ -1308,26 +1381,38 @@ def for_wolt(req, l):
             found = thread(q.get("id", [""])[0])
             if len(found) > 1 and not hears(found[0]["id"], l["wolt"]):  # a thread is read by the agents in it
                 return reply(403, {"error": "you're paused in this thread" if where_in(found[0]["id"], l["wolt"]) else "you're not in this thread: a person brings you in, or someone tags you there"})
-            return reply(200, {"owner": l["owner"], "members": members(), "messages": found}) if found else reply(404, {"error": "there's no such thread"})
+            return reply(200, {"owner": l["owner"], "members": members(), "messages": found, "reactions": reactions_now({m["id"] for m in found})}) if found else reply(404, {"error": "there's no such thread"})
         if path == "/lodge/history":  # a wolt reads further back in the main chat (no read receipts, no working sign)
             last = int(q.get("last", ["30"])[0]) if q.get("last", ["30"])[0].isdigit() else 30
             main = [m for m in messages() if m["kind"] in ("human", "wolt") and not m.get("thread")]
-            return reply(200, {"owner": l["owner"], "members": members(), "messages": main[-max(1, min(last, 500)):]})
+            main = main[-max(1, min(last, 500)):]
+            return reply(200, {"owner": l["owner"], "members": members(), "messages": main, "reactions": reactions_now({m["id"] for m in main})})
         if path == "/lodge/messages":
             new = messages(after)
             if l.get("paused"):  # paused: nothing said in the room is handed over, a tag included. Each message keeps its
                 # number, so the wolt's place in the room moves on and nothing piles up for the day it is brought back
-                new = [m if m["kind"] not in ("human", "wolt", "activity") else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
+                new = [m if m["kind"] not in ("human", "wolt", "activity", "reaction") else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
             else:  # a thread it isn't in, or is paused in: the same, for that thread only
                 deaf = {t: not hears(t, l["wolt"]) for t in {m["thread"] for m in new if m.get("thread")}}
                 gone = lambda m: deaf.get(m["thread"]) if m.get("thread") else not hears_main(m, l["wolt"])  # the main chat: see hears_main
                 new = [m if m["kind"] not in ("human", "wolt", "activity") or not gone(m) else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
+            def felt(m):  # a reaction reaches only the agent whose message it is, and only while it hears that message
+                r = m.get("reaction") or {}
+                of = message(r.get("of") or "") if r.get("wolt") == l["wolt"] else None
+                return bool(of) and heard(of, l["wolt"])
+            new = [m if m["kind"] != "reaction" or felt(m) else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
+            def go(m):  # its own human's 👍 or ✅: a go, so it shows working like a message picked up (a ❤️ or 👀 lights nothing)
+                r = m.get("reaction") or {}
+                return r.get("emoji") in ("👍", "✅") and canon(r.get("who", "")[2:]) == canon(l["owner"])
             fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
-                m["kind"] == "human" or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]
+                m["kind"] == "human" or (m["kind"] == "reaction" and go(m)) or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]
+            def lit(m):  # how long it shows working: its own human's go is like being asked
+                return ASKED_FOR if m["kind"] == "reaction" or asks(m, l["wolt"], l["owner"]) else HEARD_FOR
+            where = lambda m: m.get("thread") or ((m.get("reaction") or {}).get("of") if m["kind"] == "reaction" else m["id"])  # a reaction: where the message it's on is
             read = [m["id"] for m in new if m["kind"] == "human"]
             with tx() as c:  # the wolt is reading these now: a read receipt each, and it's working on them
                 for m in fresh:
-                    set_working(c, l["wolt"], ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR, m.get("thread") or m["id"])  # a main-chat message starts its own chat: working there
+                    set_working(c, l["wolt"], lit(m), where(m))  # a main-chat message starts its own chat: working there
                 c.executemany("insert or ignore into seen values (?, ?, ?)", [(i, l["wolt"], time.time()) for i in read])
             return reply(200, {"you": l["wolt"], "owner": l["owner"], "voice": l["voice"], "members": members(), "messages": new,
                                "connector": connector_version()})
@@ -1345,6 +1430,11 @@ def for_wolt(req, l):
             stop_working(c, l["wolt"], where.get("thread") or "")  # done here; still lit wherever else it is working
         return reply(200, m)
     data = json.loads(req.read(200_000) or b"{}")
+    if path == "/lodge/react":  # an agent reacts to a message it hears ({"id", "emoji"}; an empty emoji takes it back)
+        m = message(str(data.get("id") or ""))
+        if not m or m["kind"] not in ("human", "wolt") or not heard(m, l["wolt"]):
+            return reply(404, {"error": "there's no such message, or it's in a thread you don't hear"})
+        return react(m["id"], "w:" + l["wolt"], l["wolt"], str(data.get("emoji") or ""), l["owner"])
     if path == "/lodge/working":
         with tx() as c:
             (keep_working(c, l["wolt"]) if data.get("working") else stop_working(c, l["wolt"]))
@@ -1439,7 +1529,7 @@ def for_person(req, email):
         if path == "/api/state":
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), **desk_for(email), "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": reactions_now(), **desk_for(email), "terminals": terminals() if email and email == host() else {}, "messages": messages(after)})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
@@ -1541,6 +1631,9 @@ def for_person(req, email):
             return reply(400, {"error": "a change needs an op"})
         n, problem = change_page(data.get("id"), {"kind": "human", "name": people().get(email, {}).get("name") or email}, data["op"])
         return reply(404 if problem == "there's no such page" else 400, {"error": problem}) if problem else reply(200, {"n": n})
+    if path == "/api/react":  # a reaction to a message ({"id", "emoji"}; an empty emoji takes yours back)
+        data = json.loads(req.read(20_000) or b"{}")
+        return react(str(data.get("id") or ""), "p:" + email, people().get(email, {}).get("name") or email, str(data.get("emoji") or ""))
     if path == "/api/messages":
         data = json.loads(req.read(200_000) or b"{}")
         text = str(data.get("text", "")).strip()[:8000]

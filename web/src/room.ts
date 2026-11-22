@@ -27,7 +27,9 @@ export type State = {
   working_in?: Record<string, string[]>;
   looks?: Record<string, Record<string, string>>;  // each wolt's look, by name: {"hat": id} (hats.ts)
   names?: Record<string, string>;  // chats renamed after they started: {thread: name}
+  reactions?: Record<string, { who: string; emoji: string }[]>;  // per message: who reacted ("p:email" or "w:agent") and with what
   faces?: Record<string, string>;  // what each person wears, by email: "hat-<id>"
+  terminals?: Record<string, string>;  // for the host only: a link to each of their wolts' terminals on their own lodge
   main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it
 };
 
@@ -71,8 +73,7 @@ export function useRoom() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [error, setError] = useState("");
   const [link, setLink] = useState<"live" | "retry" | "down">("retry");  // the page's line to the room, for the dot in the top bar
-  const [fresh, setFresh] = useState<Msg[]>([]);  // wolt voice notes that arrived while open, to play in turn
-  const after = useRef(0), first = useRef(true), version = useRef<string | undefined>(undefined);
+  const after = useRef(0), version = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     // Through a host that says when something changed (its state answer carries news: true), the page asks only then (and when it reconnects or comes back on
@@ -121,12 +122,7 @@ export function useRoom() {
             for (const p of patches) { const t = all.find((m) => m.id === p.of); if (t) t.audio = p.audio; }
             return patches.length ? all.map((m) => ({ ...m })) : all;
           });
-          if (!first.current) {
-            const voiced = patches.filter((p) => p.audio).map((p) => p.of);
-            if (voiced.length) setFresh((f) => [...f, ...voiced.map((id) => ({ id } as Msg))]);
-          }
         }
-        first.current = false;
         setError(""); failed = false; misses = 0; setLink(navigator.onLine === false ? "down" : "live");
       } catch { setError("Can't reach the room, trying again…"); failed = true; setLink(++misses >= 3 || navigator.onLine === false ? "down" : "retry"); }
       busy = false;
@@ -140,5 +136,5 @@ export function useRoom() {
   }, []);
 
   const person = (email?: string): Person => state.members.people.find((p) => p.email === email) || { email: email || "", name: email || "?", color: "#8a6a52" };
-  return { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after, link };
+  return { state, msgs, setMsgs, error, setError, person, after, link };
 }

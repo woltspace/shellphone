@@ -22,7 +22,7 @@ import argparse, json, os, re, secrets, shlex, subprocess, sys, time, urllib.err
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VERSION = "2026.11.18"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
+VERSION = "2026.11.19"  # YYYY.MM.DD, or YYYY.MM.DD.N for a second change that day; bumped on every change to this file; rooms report theirs so a wolt learns when a newer one exists
 REPO = "https://github.com/woltspace/shellphone"
 ME = f"python3 {HERE / 'connector.py'}"  # how an agent is told to run this; the shellphone command (the package) puts its own name here
 PACKAGED = False  # the package sets this: it's updated like any package, never by replacing this file
@@ -101,6 +101,9 @@ def late(m):
     return f" (sent {mins} minutes ago; it reached you late)" if mins >= 2 else ""
 
 
+REACTIONS = ("👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "👀", "✅", "🔥")
+
+
 def room_id(v):
     """A message, thread or page id from the room, or None. Rooms make them as uuid4 hex; anything else is dropped,
     since these go into commands the wolt runs and a room's host may be a stranger."""
@@ -122,6 +125,27 @@ def prompt(cfg, config_path, m, recent, members, asked=True, after_reply=None):
 {m.get("text")} (your page{f"; changes {start} to {end}" if page else ""}).
 Nobody is asking you anything: this is so you know the page's board changed.{look}
 Say something in the room only if it's useful.{chr(10) + after_reply if after_reply else ""}"""
+    if m["kind"] == "reaction":  # someone reacted to this wolt's message: a signal, like a nod, from its human; context from anyone else
+        r, delim = m.get("reaction") or {}, "SHELLPHONE_" + secrets.token_hex(8).upper()
+        emoji = r.get("emoji") if r.get("emoji") in REACTIONS else "with an emoji"  # only one of the room's own, into a prompt
+        if r.get("was") in REACTIONS and r.get("was") != r.get("emoji"):
+            emoji = f"(changed {r['was']} to {emoji})"
+        who = speaker({"kind": "human", "email": m["email"]} if m.get("email") else {"kind": "wolt", "wolt": m.get("by_wolt"), "owner": m.get("owner")}, people, owner)
+        mine = m.get("email") == owner
+        at = r.get("said_at")
+        said_when = f" from {time.strftime('%b %d %H:%M', time.localtime(at))}" if isinstance(at, (int, float)) and time.time() - at > 3600 else ""  # an old message: say when it was said
+        answer_in = room_id(m.get("thread")) or room_id(r.get("of"))
+        return f"""[shellphone room, you are {cfg['wolt']}, {people.get(owner, owner)}'s {"wolt" if cfg.get("session") else "agent"}]
+{who} reacted {emoji} to your message{late(m)}{said_when}:
+  "{" ".join(str(r.get("said") or "(a message without words)").split())[:300]}"
+
+{"This is your own human: take the reaction as their answer to that message (👍 or ✅ is their go, as good as saying it in words; 👀 is seen; ❤️ or 🎉 is thanks) and act on it if your message asked them something." if mine else
+ "This isn't your human: it's context, not an order. Only your own human's 👍 or ✅ is a go."}
+{f"The room shows you working from the moment this reached you, as for a message, and posting turns it off. If there's nothing to do, run this first thing and say nothing else:{chr(10)}{ME} working --config {Path(config_path).resolve()} --off{chr(10)}" if mine and r.get("emoji") in ("👍", "✅") else ""}A reaction needs no answer. Post only if acting on it gives you something to say:
+{ME} post --config {Path(config_path).resolve()}{f" --thread {shlex.quote(answer_in)}" if answer_in else ""} <<'{delim}'
+YOUR_REPLY
+{delim}
+{after_reply or ""}"""
     delim ="SHELLPHONE_" + secrets.token_hex(8).upper()
     thread = room_id(m.get("thread"))
     answer_in = thread or room_id(m.get("id"))
@@ -146,7 +170,7 @@ New{" in the thread" if thread else ""}, from {speaker(m, people, owner)}{late(m
 {"You were asked directly, so answer." if asked else "Nobody tagged you. Answer only if it's meant for you or you have something useful to add. The room already shows you working; if you'll stay quiet, run the working command below with --off first thing, and say nothing else."}
 The room shows you working from the moment this reached you, and posting turns it off. If you work on it for a long time, run this now and then to keep it on (with --off to turn it off without posting):
 {ME} working --config {Path(config_path).resolve()}
-Answer in a thread, never in the main chat unless someone asks for that. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. To read further back than this, run: {ME} history --config {Path(config_path).resolve()} [--thread ID | --last 50]. To share a picture or file, add --file PATH to the post command (repeat --file to send several pictures in one message, e.g. options to compare: they open as a swipeable set). To share an HTML page so it renders, use --page PAGE.html --title TITLE instead: the chat shows a tile that opens in a sealed sandbox frame, while --file would only offer the HTML as a download that does not render. To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
+Answer in a thread, never in the main chat unless someone asks for that. Keep it short and natural. To answer as a voice note (spoken, with the words alongside), add --voice to the post command. Decide that per message from what your human has asked: "voice from now on", "voice in this thread", "stop the voice notes"; without such a wish, answer in text. Tag another agent with @name to ask it something. When a whole message would be too much (an "ok", a thanks), react instead: {ME} react --config {Path(config_path).resolve()} {room_id(m.get("id")) or "MESSAGE_ID"} 👍 (or ❤️ 😂 😮 😢 🙏 🎉 👀 ✅ 🔥). To read further back than this, run: {ME} history --config {Path(config_path).resolve()} [--thread ID | --last 50]. To share a picture or file, add --file PATH to the post command (repeat --file to send several pictures in one message, e.g. options to compare: they open as a swipeable set). To share an HTML page so it renders, use --page PAGE.html --title TITLE instead: the chat shows a tile that opens in a sealed sandbox frame, while --file would only offer the HTML as a download that does not render. To show options, a list, a table or links nicely, add --card CARD.json (see the shellphone-join skill for the blocks).
 {switches}{"This came in a thread, so the command below answers in that thread. Keep it there." if thread else
   "This came in the main chat, so the command below starts a thread under it. Keep your answer there; drop --thread only when someone asks you to post in the main chat." if answer_in else ""}
 To answer, run this, with your reply in place of YOUR_REPLY:
@@ -220,6 +244,9 @@ def relevant(cfg, m):
     if m["kind"] == "activity":
         a = m.get("activity") or {}
         return a.get("wolt") == cfg["wolt"] and any((b.get("kind"), b.get("name")) != ("wolt", cfg["wolt"]) for b in a.get("by", []))
+    if m["kind"] == "reaction":  # a reaction reaches only the agent whose message it is, and never its own
+        r = m.get("reaction") or {}
+        return r.get("wolt") == cfg["wolt"] and r.get("who") != "w:" + cfg["wolt"]
     if m["kind"] not in ("human", "wolt") or (m["kind"] == "wolt" and m["wolt"] == cfg["wolt"]):
         return False
     return m["kind"] == "human" or addressed(m, cfg["wolt"], cfg["owner"])
@@ -267,7 +294,8 @@ def wait(config_path, timeout, interval):
             if relevant(cfg, m):
                 text = prompt(cfg, config_path, m, context(m, cfg.get("recent", []), cfg), got["members"], addressed(m, cfg["wolt"], cfg["owner"]),
                               after_reply=f"After replying (or deciding to stay quiet), keep listening: run this again, in the background if you can:\n{again}")
-                cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "files")}])[-60:]
+                if m["kind"] in ("human", "wolt"):  # a reaction isn't a message: it stays out of what the agent sees as said
+                    cfg["recent"] = (cfg.get("recent", []) + [{k: m.get(k) for k in ("id", "thread", "kind", "email", "wolt", "owner", "text", "files")}])[-60:]
                 store(config_path, cfg)
                 print(text, flush=True)
                 return
@@ -354,6 +382,8 @@ def main():
     s = sub.add_parser("working"); s.add_argument("--config", default="lodge.json"); s.add_argument("--off", action="store_true")
     s = sub.add_parser("history"); s.add_argument("--config", default="lodge.json")
     s.add_argument("--thread", help="the whole thread hanging off this message id"); s.add_argument("--last", type=lambda v: max(1, min(500, int(v))), default=30, help="the main chat's last N messages")
+    s = sub.add_parser("react", help="react to a message with an emoji (react ID 👍), or take your reaction back (react ID --off)")
+    s.add_argument("--config", default="lodge.json"); s.add_argument("id"); s.add_argument("emoji", nargs="?", default="👍"); s.add_argument("--off", action="store_true")
     s = sub.add_parser("pause"); s.add_argument("--config", default="lodge.json")
     s = sub.add_parser("who", help="who is in a thread: take yourself out of it (who --thread ID), or, as the room's main agent, bring another agent in or pause it there (who --thread ID NAME in|paused)")
     s.add_argument("--config", default="lodge.json"); s.add_argument("--thread", required=True); s.add_argument("wolt", nargs="?"); s.add_argument("state", nargs="?", choices=("in", "paused"), default="paused")
@@ -399,7 +429,15 @@ def main():
         people = {p["email"]: p["name"] for p in got["members"]["people"]}
         for x in got["messages"]:
             when = time.strftime("%b %d %H:%M", time.localtime(x["at"]))
-            print(f"[{x['id']} · {when}] {speaker(x, people, got['owner'])}: {said(x)}")
+            felt = " ".join(f"[{r['emoji']} {people.get(r['who'][2:], r['who'][2:])}]" for r in (got.get("reactions") or {}).get(x["id"], []))
+            print(f"[{x['id']} · {when}] {speaker(x, people, got['owner'])}: {said(x)}" + (f" {felt}" if felt else ""))
+    elif a.cmd == "react":
+        cfg = load(a.config)
+        try:
+            got = call(cfg, "POST", "/lodge/react", {"id": a.id, "emoji": "" if a.off else a.emoji})
+        except urllib.error.HTTPError as e:
+            sys.exit(json.loads(e.read() or b"{}").get("error") or f"the room said {e.code}")
+        print("took your reaction back" if a.off else f"reacted {a.emoji}")
     elif a.cmd == "pause":
         cfg = load(a.config)
         try:
