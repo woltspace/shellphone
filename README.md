@@ -124,8 +124,10 @@ Then, whenever you want a room:
 uvx shellphone room --keep ~/rooms/demo --hostname demo --share     # at https://demo.example.com
 ```
 
-The room gets a port of its own, which it keeps, and the tunnel starts sending `demo.example.com` to it. Other rooms
-drop for a few seconds while the tunnel restarts with the new name, then reconnect by themselves. The room prints your
+The room gets a port of its own, which it keeps, and `demo.example.com` starts leading to it without restarting the
+tunnel. Every request is checked: a name is served only while that shared room is what answers on its port, so a
+closed or unshared room's name shows nothing else. `tunnel run` opens the listed rooms when it starts; one you close
+later stays closed. Names are one level under your domain. The room prints your
 own link (`https://demo.example.com/enter#k.…`) and an invite. Open your link on your phone and add it to the home
 screen from there; on this address that's safe. `shellphone tunnel list` shows your rooms, and
 `shellphone tunnel remove demo` takes one off the tunnel. Everything is kept in `~/.shellphone`, apart from any other
@@ -140,8 +142,8 @@ SHELLPHONE_BIND=0.0.0.0 shellphone room --keep DIR --port 4501 --hostname box.ex
 uvx shellphone tunnel add box --port 4501                         # here: box.example.com goes to that port
 ```
 
-`tunnel add` only takes a port where that shared room is answering, so open the room first. Whatever later uses the port
-would be public at that name: `tunnel remove` it when the room is gone. It lists the name without opening anything here (`tunnel run` leaves it to the container). Give each container
+`tunnel add` only takes a port where that shared room is answering, so open the room first. The same check is made on
+every request, so if the room goes and something else takes the port, that isn't served. It lists the name without opening anything here (`tunnel run` leaves it to the container). Give each container
 a Docker network of its own if other containers shouldn't reach the room's port; they'd still need a key.
 
 Already running a tunnel of your own? Give `--hostname` the whole name (`shell.example.com`) and send that name to the

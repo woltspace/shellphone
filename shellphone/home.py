@@ -2,13 +2,13 @@
 
 `shellphone tunnel setup --domain example.com` makes the tunnel once and points *.example.com at it. Each
 `shellphone room --hostname demo` then gets demo.example.com, a port of its own that it keeps, and a line in the
-tunnel's settings. `shellphone tunnel run` keeps the tunnel up, restarts it when a room is added or removed, and opens
-the listed rooms when it starts. Everything lives in ~/.shellphone (or
+list of rooms. `shellphone tunnel run` keeps the tunnel and its one door (door.py) up, and opens the listed rooms when
+it starts; it doesn't reopen one that is closed later. Everything lives in ~/.shellphone (or
 $SHELLPHONE_HOME): nothing here is anyone's in particular."""
 import contextlib, fcntl, json, os, re, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
-CONFIG, ROOMS, SETTINGS = "home.json", "rooms.json", "tunnel.yml"
+CONFIG, ROOMS, SETTINGS, DOOR = "home.json", "rooms.json", "tunnel.yml", "door.sock"
 FIRST_PORT = 4400  # rooms at an address of their own get ports from here up, each one kept for good
 
 
@@ -42,19 +42,29 @@ def rooms():
     return {h: r for h, r in got.items() if isinstance(r, dict) and isinstance(r.get("port"), int) and (r.get("keep") is None or isinstance(r.get("keep"), str))} if isinstance(got, dict) else {}
 
 
-def settings_text(conf, listed):
-    """The tunnel's own settings: each listed name to its room's port, nothing else anywhere."""
-    lines = [f"tunnel: {conf['tunnel']}", f"credentials-file: {conf['credentials']}", "ingress:"]
-    for host, r in sorted(listed.items()):
-        lines += [f"  - hostname: {host}", f"    service: http://127.0.0.1:{r['port']}"]
-    return "\n".join(lines + ["  - service: http_status:404", ""])
+def settings_text(conf):
+    """The tunnel's own settings: the domain's names to the one door, which checks each request; never a port, which
+    another program could take. The same whatever rooms are listed, so listing one restarts nothing."""
+    return "\n".join([f"tunnel: {conf['tunnel']}", f"credentials-file: {conf['credentials']}", "ingress:",
+                      '  - hostname: "*.' + conf["domain"] + '"', f"    service: {json.dumps('unix:' + str(home() / DOOR))}",
+                      "  - service: http_status:404", ""])
 
 
 def save_rooms(listed):
     _write(ROOMS, json.dumps(listed, indent=2))
     conf = config()
-    if conf:
-        _write(SETTINGS, settings_text(conf, listed))
+    if not conf:
+        return
+    text, path = settings_text(conf), home() / SETTINGS
+    if not path.exists() or path.read_text() != text:
+        _write(SETTINGS, text)
+
+
+def one_level(host):
+    """*.domain, in DNS and in the certificate, covers one name under the domain: not the domain, and not deeper."""
+    domain = config()["domain"]
+    if host == domain or "." in host.removesuffix("." + domain):
+        sys.exit(f"{host}: rooms here get one name under {domain}, like demo.{domain} (that's what *.{domain} covers)")
 
 
 HOSTNAME = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
@@ -94,6 +104,7 @@ def registry():
 def claim(host, keep, port_free, wanted=None):
     """The port the room at this name always uses: the one it had, the one asked for (wanted), or the next one nobody
     has. Listed from here on."""
+    one_level(host)
     with registry():
         return _claim(host, keep, port_free, wanted)
 
@@ -194,6 +205,7 @@ def add(a):
     host = full_name(a.hostname)
     if not ours(host):
         sys.exit(f"{host} isn't under the domain set up here (shellphone tunnel list)")
+    one_level(host)
     if not 1024 <= a.port <= 65535:
         sys.exit("--port is a port from 1024 to 65535")
     if not answers_as_room(host, a.port):  # a name makes the port public: never some other service's
@@ -206,8 +218,8 @@ def add(a):
             sys.exit(f"port {a.port} is already another listed room's (shellphone tunnel list)")
         listed[host] = {"port": a.port, "keep": None}
         save_rooms(listed)
-    print(f"https://{host} now leads to http://127.0.0.1:{a.port} (the tunnel picks that up in a moment). It was a room "
-          f"when it was added: if it closes for good, take the name off with shellphone tunnel remove {host}.")
+    print(f"https://{host} now leads to http://127.0.0.1:{a.port} . It's served only while that "
+          f"shared room is what answers there. Take the name off with shellphone tunnel remove {host}.")
 
 
 def remove(a):
@@ -218,7 +230,7 @@ def remove(a):
             sys.exit(f"{host} isn't listed here (shellphone tunnel list)")
         del listed[host]
         save_rooms(listed)
-    print(f"{host} no longer leads here (the tunnel picks that up in a moment). The room itself is untouched: close it with "
+    print(f"{host} no longer leads here. The room itself is untouched: close it with "
           f"shellphone stop --port <its port>, and stop sharing it for good with shellphone share --stop.")
 
 
@@ -228,7 +240,8 @@ def _room_cmd(host, r):
 
 
 def run(a):
-    """Keep the tunnel up; restart it when the list of rooms changes; open the listed rooms that aren't open."""
+    """Keep the tunnel and its door up; open the listed rooms that aren't open when this starts."""
+    from .door import Door
     from .cli import open_rooms
     exe, conf = _cloudflared(), config()
     if not conf:
@@ -237,6 +250,9 @@ def run(a):
     logs.mkdir(exist_ok=True)
     stopping = []
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
+    door = Door(home() / DOOR, rooms, answers_as_room)  # before the tunnel, and for as long as it
+    with registry():
+        save_rooms(rooms())  # settings from before there was a door point at ports
     open_ports = {r["port"] for r in open_rooms()}
     for host, r in rooms().items():  # every listed room comes back, at its own address
         if r["keep"] and r["port"] not in open_ports and Path(r["keep"]).is_dir():  # not the ones added for rooms elsewhere
@@ -252,8 +268,8 @@ def run(a):
             except OSError:
                 save_rooms(rooms())
                 continue
-            if proc and now != seen:  # a room was added or removed: the tunnel takes its new settings on a restart
-                print("rooms changed: restarting the tunnel", flush=True)
+            if proc and now != seen:  # set up again (another domain or tunnel): taken on a restart
+                print("settings changed: restarting the tunnel", flush=True)
                 _end(proc)
                 proc = None
             if proc is None or proc.poll() is not None:
@@ -273,6 +289,7 @@ def run(a):
     finally:
         if proc:
             _end(proc)
+        door.close()
 
 
 def _end(proc, grace=10):

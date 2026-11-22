@@ -42,5 +42,5 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) back
 const offline = () => new Response(OFFLINE, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 self.addEventListener("fetch", (e) => {
   if (e.request.mode !== "navigate" || /\.trycloudflare\.com$/.test(self.location.hostname) || ["127.0.0.1", "localhost"].includes(self.location.hostname)) return;
-  e.respondWith(fetch(e.request).then((res) => ([502, 503, 504, 530].includes(res.status) ? offline() : res), () => offline()));
+  e.respondWith(fetch(e.request).then((res) => ([502, 503, 504, 521, 522, 523, 524, 530].includes(res.status) ? offline() : res), () => offline()));
 });

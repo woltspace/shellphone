@@ -39,8 +39,8 @@ class Home(unittest.TestCase):
         self.assertEqual((a, b), (home.FIRST_PORT, home.FIRST_PORT + 2))
         self.assertEqual(home.claim("a.example.com", self.dir / "a", lambda p: False), a)  # it had one: the same, whatever is free now
         settings = (home.home() / home.SETTINGS).read_text()
-        self.assertIn(f"  - hostname: a.example.com\n    service: http://127.0.0.1:{a}\n", settings)
-        self.assertIn(f"  - hostname: b.example.com\n    service: http://127.0.0.1:{b}\n", settings)
+        self.assertIn('  - hostname: "*.example.com"\n', settings)
+        self.assertNotIn("127.0.0.1", settings)  # only the door, never a port another program could take
         self.assertTrue(settings.rstrip().endswith("- service: http_status:404"))  # any other name: nothing
 
     def test_a_room_that_asks_for_its_port_keeps_it(self):
@@ -97,10 +97,22 @@ class Home(unittest.TestCase):
         home.claim("a.example.com", self.dir / "a", lambda p: True)
         home.claim("b.example.com", self.dir / "b", lambda p: True)
         home.remove(argparse.Namespace(hostname="a"))
-        settings = (home.home() / home.SETTINGS).read_text()
-        self.assertNotIn("a.example.com", settings)
-        self.assertIn("b.example.com", settings)
         self.assertEqual(list(home.rooms()), ["b.example.com"])
+
+    def test_listing_a_room_never_restarts_the_tunnel_for_the_others(self):
+        self.set_up()
+        home.claim("a.example.com", self.dir / "a", lambda p: True)
+        before = (home.home() / home.SETTINGS).stat().st_mtime_ns
+        time.sleep(0.02)
+        home.claim("b.example.com", self.dir / "b", lambda p: True)
+        home.remove(argparse.Namespace(hostname="a"))
+        self.assertEqual((home.home() / home.SETTINGS).stat().st_mtime_ns, before)
+
+    def test_only_names_the_wildcard_covers(self):
+        self.set_up()
+        for name in ("example.com", "x.y.example.com"):
+            with self.assertRaises(SystemExit):
+                home.claim(name, self.dir / "r", lambda p: True)
 
     def test_a_room_elsewhere_gets_a_name_and_is_never_opened_from_here(self):
         self.set_up()
@@ -114,7 +126,6 @@ class Home(unittest.TestCase):
         self.addCleanup(p.stop)
         add("box", 4501)
         self.assertEqual(home.rooms()["box.example.com"], {"port": 4501, "keep": None})
-        self.assertIn("  - hostname: box.example.com\n    service: http://127.0.0.1:4501\n", (home.home() / home.SETTINGS).read_text())
         for name, port in (("other", 4501), ("a", 4502), ("box.elsewhere.org", 4503), ("low", 80)):  # its port, a room here, not our domain, not a port for this
             with self.assertRaises(SystemExit):
                 add(name, port)
@@ -126,7 +137,7 @@ class Home(unittest.TestCase):
         opened = []
         with patch.object(home, "_cloudflared", lambda: "cloudflared"), patch("shellphone.cli.open_rooms", lambda: []), \
              patch.object(home.subprocess, "Popen", lambda cmd, **kw: opened.append(cmd) or (_ for _ in ()).throw(KeyboardInterrupt)), \
-             patch.object(home.signal, "signal", lambda *a: None):
+             patch.object(home.signal, "signal", lambda *a: None), patch("shellphone.door.Door"):
             (self.dir / "a").mkdir()
             try:
                 home.run(argparse.Namespace())
