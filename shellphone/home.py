@@ -277,6 +277,7 @@ def run(a):
                     time.sleep(wait)
                     wait = min(wait * 2, 60)
                 seen = now
+                conf = config() or conf  # as set up now: `tunnel setup` may have made another tunnel since this started
                 log = open(logs / "tunnel.log", "a")
                 proc = subprocess.Popen([exe, "tunnel", "--no-autoupdate", "--config", str(settings), "run", conf["tunnel"]], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
                 log.close()

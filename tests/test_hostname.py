@@ -1,7 +1,7 @@
 """A room shared at a fixed address of its host's own (`shellphone room --hostname`): its links are its own address, they
 outlive a restart, and nothing goes to the site or starts a quick tunnel. No tunnel and no network: the room is asked
 over HTTP on this computer, under that name, as the host's named tunnel would pass requests on."""
-import argparse, http.client, json, sys, tempfile, threading, unittest
+import argparse, http.client, json, socket, sys, tempfile, threading, unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -78,6 +78,22 @@ class Fixed(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(f'const SIGN = "https://{NAME}/enter", OFFLINE = true;', page)
         self.assertEqual(self.ask(port, "GET", "/api/state", cookie=None)[0], 403)
+
+    def test_its_port_taken_at_the_last_moment_is_a_refusal_never_another_port(self):
+        with socket.socket() as other:
+            other.bind(("127.0.0.1", 0))
+            other.listen()
+            port = other.getsockname()[1]
+            with patch.object(cli, "free_port", lambda wanted: wanted), self.assertRaises(SystemExit) as got:  # it looked free a moment ago
+                cli.start(argparse.Namespace(keep=self.dir.name, port=port, name="Hostess", hostname=NAME))
+            self.assertIn(f"port {port} is taken", str(got.exception))
+
+    def test_a_failed_start_leaves_the_rooms_agent_link_as_it_was(self):
+        r, _, port = self.open_room()
+        before = [tuple(x.values()) for x in map(dict, r.q("select code_hash from invites where expires is null"))]
+        with self.assertRaises(SystemExit):
+            cli.start(argparse.Namespace(keep=self.dir.name, port=port, name="Hostess", hostname=NAME))
+        self.assertEqual([tuple(x.values()) for x in map(dict, r.q("select code_hash from invites where expires is null"))], before)
 
     def test_the_home_screen_icon_starts_from_the_persons_own_link(self):
         _, out, port = self.open_room()

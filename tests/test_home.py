@@ -156,6 +156,35 @@ class Home(unittest.TestCase):
         self.assertEqual(home.rooms(), {})
         self.assertFalse((home.home() / home.SETTINGS).exists())
 
+    def test_setting_up_again_restarts_on_the_new_tunnel(self):
+        self.set_up()
+        (home.home() / home.SETTINGS).write_text("as it was\n")
+        started = []
+
+        class Proc:
+            def poll(self):
+                return None
+
+        def popen(cmd, **kw):
+            started.append(cmd[-1])
+            if len(started) > 1:
+                raise KeyboardInterrupt
+            conf = json.loads((home.home() / home.CONFIG).read_text())
+            conf["tunnel"] = "1" * 8 + "-1111-1111-1111-" + "1" * 12
+            (home.home() / home.CONFIG).write_text(json.dumps(conf))
+            time.sleep(0.02)
+            home.save_rooms(home.rooms())
+            return Proc()
+
+        with patch.object(home, "_cloudflared", lambda: "cloudflared"), patch("shellphone.cli.open_rooms", lambda: []), \
+             patch("shellphone.door.Door"), patch.object(home, "_end", lambda *a, **kw: None), \
+             patch.object(home.subprocess, "Popen", popen), patch.object(home.signal, "signal", lambda *a: None), patch.object(home.time, "sleep"):
+            try:
+                home.run(argparse.Namespace())
+            except KeyboardInterrupt:
+                pass
+        self.assertEqual([x[:8] for x in started], ["00000000", "11111111"])
+
     def test_what_is_kept_is_private(self):
         self.set_up()
         home.claim("a.example.com", self.dir / "a", lambda p: True)

@@ -167,12 +167,20 @@ def start(a, token=None):
     else:
         data = Path(tempfile.mkdtemp(prefix=PREFIX))  # mode 700
         (data / THROWAWAY).write_text(str(os.getpid()))
-    port = free_port(a.port)
+    exact = bool(getattr(a, "hostname", None))  # at an address of its own the port is the address's: that one or none
+    port = a.port if exact else free_port(a.port)
     url = f"http://127.0.0.1:{port}"
     os.environ.update(SHELLPHONE_DATA=str(data), SHELLPHONE_URL=url)  # read by room.py when it loads
     if (HERE / "room.py").is_file():  # installed as a package: there's no checkout to ask git about (and maybe no git)
         os.environ.setdefault("SHELLPHONE_REF", "main")
     r = part("room")
+    try:  # before anything in the room changes: a start that can't have its port leaves the room as it was
+        server = r.http.server.ThreadingHTTPServer((bind_address(), port), r.Handler)
+    except OSError as e:
+        if not exact:
+            raise
+        sys.exit(f"port {port} is taken ({e.strerror or e}): with --hostname the room always uses the port your tunnel sends {a.hostname} to")
+    server.daemon_threads = True
     with contextlib.redirect_stdout(io.StringIO()):
         r.add_person(HOST_EMAIL, a.name)
     token, code = token or secrets.token_urlsafe(24), secrets.token_urlsafe(32)
@@ -182,8 +190,6 @@ def start(a, token=None):
     with r.tx() as c:  # one agent link per run; a kept room's old link stops working
         c.execute("delete from invites where owner = ? and expires is null", (HOST_EMAIL,))
         c.execute("insert into invites (code_hash, owner, expires, once) values (?, ?, null, 0)", (r.key_hash(code), HOST_EMAIL))
-    server = r.http.server.ThreadingHTTPServer((bind_address(), port), r.Handler)
-    server.daemon_threads = True
     return r, data, url, token, code, server
 
 
