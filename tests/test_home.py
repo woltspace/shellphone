@@ -89,6 +89,7 @@ class Home(unittest.TestCase):
         proc = subprocess.Popen([sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print(flush=True); time.sleep(60)"], stdout=subprocess.PIPE)
         proc.stdout.readline()  # it ignores being asked to stop from here on
         home._end(proc, grace=0.5)
+        proc.stdout.close()
         self.assertIsNotNone(proc.poll())
 
     def test_removing_a_name_takes_it_off_the_tunnel(self):
