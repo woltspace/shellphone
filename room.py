@@ -15,7 +15,7 @@ A wolt's message becomes a voice note from this computer's speech server when th
         # Their wolts sign themselves up with the code (POST /lodge/join), picking their own name, creature and, if wanted, a voice.
         # (SHELLPHONE_CF_ID/SECRET add a Cloudflare service token; SHELLPHONE_PASS picks the password)
 """
-import argparse, base64, contextlib, shutil, getpass, hashlib, http.server, json, mimetypes, os, re, secrets, sqlite3, subprocess, sys, threading, time, urllib.parse, urllib.request, uuid
+import argparse, base64, contextlib, getpass, hashlib, http.server, json, mimetypes, os, re, secrets, shutil, socket, sqlite3, subprocess, sys, threading, time, urllib.parse, urllib.request, uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -867,6 +867,17 @@ def remove_wolt(wolt):
     return {"wolt": wolt, "removed": True}
 
 
+HAND_IN_LIMIT, HAND_IN_SECONDS = 4096, 5  # what someone with no key yet may send: a key, or a join code and a name
+
+
+class NotTaken(Exception):
+    """A hand-in the room won't take: too much, or too slow."""
+
+    def __init__(self, status, error):
+        super().__init__(error)
+        self.status, self.error = status, error
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -904,10 +915,56 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def body(self, limit=200_000):
-        n = int(self.headers.get("Content-Length") or 0)
+        n = self.size()
         if n > limit:
             raise ValueError("too big")
         return self.rfile.read(n)
+
+    def size(self):
+        """What the request says its body is. Never less than nothing: rfile.read(-1) reads for as long as it's sent."""
+        n = int(self.headers.get("Content-Length") or 0)
+        if n < 0:
+            raise ValueError("bad Content-Length")
+        return n
+
+    def hand_in(self):
+        """The body of someone who isn't in yet (a key, or a join code): a little of it, all of it within a few seconds,
+        however slowly it comes. So nobody outside can hold the room open. Whoever is in is never timed."""
+        n = self.size()
+        if n > HAND_IN_LIMIT:
+            raise NotTaken(413, "that's more than a key or a join code takes")
+        until, got = time.monotonic() + HAND_IN_SECONDS, b""
+        before = self.connection.gettimeout()
+        try:
+            while len(got) < n:
+                spare = until - time.monotonic()
+                if spare <= 0:
+                    raise NotTaken(408, "that took too long: try again")
+                self.connection.settimeout(spare)
+                some = self.rfile.read1(n - len(got))
+                if not some:
+                    raise NotTaken(400, "that ended early")
+                got += some
+        except TimeoutError:
+            raise NotTaken(408, "that took too long: try again") from None
+        finally:
+            self.connection.settimeout(before)
+        return got
+
+    def not_taken(self, no):
+        self.close_connection = True
+        try:
+            self.send(no.status, {"error": no.error})
+            self.connection.shutdown(socket.SHUT_WR)  # closing on bytes still on their way would lose that answer
+            until, dropped = time.monotonic() + 0.5, 0
+            while dropped < 262144 and (spare := until - time.monotonic()) > 0:
+                self.connection.settimeout(spare)
+                some = self.connection.recv(65536)
+                if not some:
+                    break
+                dropped += len(some)
+        except OSError:  # they're gone, or still trickling
+            pass
 
     def person(self):
         """Behind Cloudflare Access the email comes from Access. In --dev, ?as= or a cookie picks who you are."""
@@ -942,7 +999,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def enter(self):
         """Someone with a link from outside: their own token, or the invite and a name. A cookie from here on."""
-        status, out, token = OUTSIDE.enter(json.loads(self.body() or b"{}"))
+        status, out, token = OUTSIDE.enter(json.loads(self.hand_in() or b"{}"))
         data = json.dumps(out).encode()
         self.send_response(status)
         if token:
@@ -1139,7 +1196,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     door = OUTSIDE.via() if OUTSIDE else None
                     if not door:
                         return self.send(401, {"error": "unknown lodge key"})
-                return self.send(*join_wolt(self.bearer(), json.loads(self.body() or b"{}"), door))
+                return self.send(*join_wolt(self.bearer(), json.loads(self.hand_in() or b"{}"), door))
             if path.startswith("/lodge/"):
                 l = self.lodge()
                 if not l:
@@ -1176,6 +1233,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self.send(403, {"error": "people are added by this room's owner here"})
                 return self.send(*rules().set_guests_invite(email, self.via(), body.get("on") if isinstance(body, dict) else None))
             self.send(*for_person(self.call("POST"), email))
+        except NotTaken as no:
+            self.not_taken(no)
         except (ValueError, json.JSONDecodeError) as exc:
             self.send(400, {"error": str(exc)})
 
