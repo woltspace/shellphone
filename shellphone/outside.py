@@ -116,7 +116,11 @@ class Tunnel:
 class Outside:
     """The room's switch between "only on this computer" and "linked", as cli.Linker is, by way of a tunnel."""
 
-    def __init__(self, r, data, keep, site, port, host_email, say=print):
+    def __init__(self, r, data, keep, site, port, host_email, say=print, hostname=None):
+        # hostname: the room's own fixed address, through a named tunnel its host runs (cloudflared with a hostname of
+        # their own). Then the room is its own lasting address: no quick tunnel, no site, nothing that moves
+        self.hostname = hostname.lower() if hostname else None
+        site = f"https://{self.hostname}" if self.hostname else site
         self.r, self.data, self.keep, self.site, self.port, self.host_email, self.say = r, data, keep, site.rstrip("/"), port, host_email, say
         self.lock, self.open, self.host, self.tunnel = threading.RLock(), False, None, None
         self.room = self.secret = self.host_token = self.invite_token = None
@@ -172,8 +176,12 @@ class Outside:
                 self.core().adopt(mark, self.invite_token, self.host_email)
             return mark
 
+    def lasting(self):
+        """The address that never changes: the room's page on the site, or the room's own door at a fixed hostname."""
+        return f"{self.site}/enter" if self.hostname else f"{self.site}/t/{self.room}"
+
     def invite_link(self, token):
-        return f"{self.site}/t/{self.room}#i.{token}"
+        return f"{self.lasting()}#i.{token}"
 
     # -- who is at the door
 
@@ -221,7 +229,7 @@ class Outside:
         return f"t:{self.room}" if self.open else None
 
     def enter_page(self):
-        return ENTER_PAGE.replace("{{SIGN}}", json.dumps(f"{self.site}/t/{self.room}"))
+        return ENTER_PAGE.replace("{{SIGN}}", json.dumps(self.lasting())).replace("{{OFFLINE}}", json.dumps(bool(self.hostname)))
 
     def agent_steps(self, email, token):
         """The message for one of this person's agents, or None. token: the key the person asked with; it is looked at
@@ -231,7 +239,7 @@ class Outside:
             mark = self.via()
             if not mark or not token or self.who(token) != email:
                 return None
-            return AGENT_STEPS.format(name=name, link=f"{self.site}/t/{self.room}#a.{self.r.agent_code(email, mark)}", minutes=self.r.JOIN_MINUTES)
+            return AGENT_STEPS.format(name=name, link=(f"{self.site}/#" if self.hostname else f"{self.site}/t/{self.room}#a.") + self.r.agent_code(email, mark), minutes=self.r.JOIN_MINUTES)
 
     # -- what the host sees
 
@@ -249,7 +257,7 @@ class Outside:
                 f", but that couldn't be written down in {self.data}: keep this room open until it is told, or it never will be." if self._unwritten else ".")}
         first = self.r is None or self.core().invite_open(self.door_mark(), self.invite_token)  # the invite this address came with, while the host hasn't ended it
         down = {"state": "down", "note": f"Nobody outside can reach this room right now: its tunnel couldn't be reopened ({self._gave_up}). Share it again to try anew."} if self._gave_up else {"state": "up"}
-        return {"linked": True, **down, "relay": where, "link": f"{self.site}/t/{self.room}#k.{self.host_token}",
+        return {"linked": True, **down, "relay": where, "link": f"{self.lasting()}#k.{self.host_token}",
                 **({"invite": self.invite_link(self.invite_token)} if first else {}),
                 "guests": len(self.guests) + (self.core().guest_count(self.via()) if self.r is not None else 0), "guest_agents": True, "tunnel": True}
 
@@ -257,6 +265,8 @@ class Outside:
 
     def _tell(self, url, gone=False, room=None, secret=None):
         """Tell the site where the room is now ("" = closed for now; gone = unlinked, for good). Returns None, or why not."""
+        if self.hostname:  # no site: the room's own address is the lasting one, and there is nobody to tell
+            return None
         req = urllib.request.Request(f"{self.site}/t/{room or self.room}", data=json.dumps({"url": url, "seq": time.time_ns() // 1000, **({"gone": True} if gone else {})}).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "Authorization": f"Bearer {secret or self.secret}", "User-Agent": "shellphone-room/1"})
         try:
@@ -273,6 +283,9 @@ class Outside:
 
     def _up(self):
         """Open a tunnel and point the site at it. Returns None, or why not."""
+        if self.hostname:  # the host's own named tunnel carries this name to this port: it runs on its own, not from here
+            self.host = self.hostname
+            return None
         tunnel = Tunnel(self.port)
         url = tunnel.start()
         if not url:
@@ -420,7 +433,8 @@ class Outside:
             self.save()
             self.door_mark()  # the invite this address comes with goes on record
             self._stop = threading.Event()
-            threading.Thread(target=self._watch, args=(self._stop,), daemon=True).start()
+            if not self.hostname:  # a quick tunnel is watched and replaced; a named one is its host's own, and comes back by itself
+                threading.Thread(target=self._watch, args=(self._stop,), daemon=True).start()
             return 200, self.info()
 
     def _down(self):
@@ -542,7 +556,7 @@ button{font:600 16px -apple-system,system-ui,sans-serif;padding:12px 18px;border
 <script>
 // The link's part after # says who is at the door: k.TOKEN (a person's own key, maybe followed by .i.INVITE to fall
 // back on), i.INVITE (the room's invite: pick a name, become a guest) or a.CODE (for an agent, not for this page).
-const SIGN = {{SIGN}};
+const SIGN = {{SIGN}}, OFFLINE = {{OFFLINE}};  // OFFLINE: at a fixed address, the app shows its own page while the host's computer is off
 const say = (t) => { document.getElementById("say").textContent = t; };
 const parts = location.hash.slice(1).split("."), kind = parts[0], token = parts[1] || "";
 const invite = kind === "i" ? token : (kind === "k" && parts[2] === "i" ? parts[3] || "" : "");
@@ -552,6 +566,7 @@ async function enter(body) {
     const got = await r.json().catch(() => ({}));
     if (!r.ok) return body.k && invite ? ask() : say(got.error || "That link doesn't open this room.");
     history.replaceState(null, "", "/");
+    if (OFFLINE && navigator.serviceWorker) await navigator.serviceWorker.register("/sw.js").catch(() => {});  // in now: the room hands its worker only to someone who is in
     if (!got.mine) return location.replace("/");
     // a new guest: shown their own link once, to keep (an invite ends; their own key doesn't), then on by way of the
     // room's lasting address, so this browser finds its way back as the same person

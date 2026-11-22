@@ -103,6 +103,59 @@ on your computer, and no account. What to know before you use it:
 - **Phones.** Add the room to a home screen from the lasting address with `?install` added before the `#`: that icon
   finds the room again after a restart. An icon added from inside the room does not. The icon holds a copy of your key.
 
+### A fixed address of your own (experimental)
+
+With a domain on Cloudflare, a room can be served at an address that never changes, like `shell.example.com`. It
+doesn't redirect and doesn't depend on shellphone.woltspace.app. The room keeps the same links, people and history,
+and its home-screen icon keeps working across restarts. It's reachable while your computer is awake and online. While
+it's asleep, the app shows "This room is offline" and comes back by itself.
+
+Once, on the room's computer (`brew install cloudflared` on a Mac):
+
+```bash
+cloudflared tunnel login                            # pick your domain
+uvx shellphone tunnel setup --domain example.com    # a tunnel named shellphone, and *.example.com pointed at it
+uvx shellphone tunnel run                           # keep this running: the tunnel, and the rooms you list
+```
+
+Then, whenever you want a room:
+
+```bash
+uvx shellphone room --keep ~/rooms/demo --hostname demo --share     # at https://demo.example.com
+```
+
+The room gets a port of its own, which it keeps, and `demo.example.com` starts leading to it without restarting the
+tunnel. Every request is checked: a name is served only while that shared room is what answers on its port, so a
+closed or unshared room's name shows nothing else. And it needs a key that room accepts: without one there is only
+the join page and handing a key or join code in (4 KB, 5 seconds), so only someone who is in can upload. `tunnel run` opens the listed rooms when it starts; one you close
+later stays closed. Names are one level under your domain. The room prints your
+own link (`https://demo.example.com/enter#k.…`) and an invite. Open your link on your phone and add it to the home
+screen from there; on this address that's safe. `shellphone tunnel list` shows your rooms, and
+`shellphone tunnel remove demo` takes one off the tunnel. Everything is kept in `~/.shellphone`, apart from any other
+tunnel on the computer.
+
+**A room in a container.** Keep the tunnel on this computer, so the container holds no Cloudflare credentials. Inside
+the container, the room listens on all of the container's addresses and is published only on this computer:
+
+```bash
+docker run ... -p 127.0.0.1:4501:4501 ...                         # the container publishes the room's port here only
+SHELLPHONE_BIND=0.0.0.0 shellphone room --keep DIR --port 4501 --hostname box.example.com --share   # inside it
+uvx shellphone tunnel add box --port 4501                         # here: box.example.com goes to that port
+```
+
+`tunnel add` only takes a port where that shared room is answering, so open the room first. The same check is made on
+every request, so if the room goes and something else takes the port, that isn't served. It lists the name without opening anything here (`tunnel run` leaves it to the container). Give each container
+a Docker network of its own if other containers shouldn't reach the room's port; they'd still need a key.
+
+Already running a tunnel of your own? Give `--hostname` the whole name (`shell.example.com`) and send that name to the
+room's `--port` yourself.
+
+- **Same trust as a quick tunnel.** There is no login in front: the room's links are the only keys, and Cloudflare could
+  read the traffic. Unlike a quick tunnel's, this address is fixed and public, so treat each link as a password.
+- **`--hostname` needs `--keep` and a fixed `--port`**: the room refuses to start on another port than the one your
+  tunnel sends the name to.
+- **Names two levels deep** (`shell.you.example.com`) need Cloudflare's Advanced Certificate. One level is covered for free.
+
 ### Starting from the site
 
 Go to **https://shellphone.woltspace.app**, tap **Start a shellphone**, and give the message it shows to your coding agent
@@ -176,7 +229,7 @@ Chat history is not a complete tool-execution audit log.
 
 The rooms above live while their command runs. For a room that lasts, behind your own Cloudflare login, run `room.py`
 yourself, as below. This is a separate way to run a room: one started with `shellphone room` can't be moved behind
-Cloudflare in place yet. Sharing over Tailscale isn't built yet.
+Cloudflare Access in place yet (for a fixed address without a login, see `--hostname` above). Sharing over Tailscale isn't built yet.
 
 ### Try it on one computer
 

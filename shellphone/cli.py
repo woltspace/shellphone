@@ -131,6 +131,15 @@ def sweep():
             continue
 
 
+def bind_address():
+    """Where the room listens: this computer only. SHELLPHONE_BIND=0.0.0.0 is for a room inside a container, so the
+    container's published port (docker run -p 127.0.0.1:P:P) reaches it; the keys still guard every door."""
+    addr = os.environ.get("SHELLPHONE_BIND", "127.0.0.1")
+    if addr not in ("127.0.0.1", "0.0.0.0"):
+        sys.exit(f"SHELLPHONE_BIND is 127.0.0.1 (the default) or 0.0.0.0 (inside a container), not {addr!r}")
+    return addr
+
+
 def free_port(wanted):
     for port in (wanted, 0):
         with socket.socket() as s:
@@ -158,12 +167,20 @@ def start(a, token=None):
     else:
         data = Path(tempfile.mkdtemp(prefix=PREFIX))  # mode 700
         (data / THROWAWAY).write_text(str(os.getpid()))
-    port = free_port(a.port)
+    exact = bool(getattr(a, "hostname", None))  # at an address of its own the port is the address's: that one or none
+    port = a.port if exact else free_port(a.port)
     url = f"http://127.0.0.1:{port}"
     os.environ.update(SHELLPHONE_DATA=str(data), SHELLPHONE_URL=url)  # read by room.py when it loads
     if (HERE / "room.py").is_file():  # installed as a package: there's no checkout to ask git about (and maybe no git)
         os.environ.setdefault("SHELLPHONE_REF", "main")
     r = part("room")
+    try:  # before anything in the room changes: a start that can't have its port leaves the room as it was
+        server = r.http.server.ThreadingHTTPServer((bind_address(), port), r.Handler)
+    except OSError as e:
+        if not exact:
+            raise
+        sys.exit(f"port {port} is taken ({e.strerror or e}): with --hostname the room always uses the port your tunnel sends {a.hostname} to")
+    server.daemon_threads = True
     with contextlib.redirect_stdout(io.StringIO()):
         r.add_person(HOST_EMAIL, a.name)
     token, code = token or secrets.token_urlsafe(24), secrets.token_urlsafe(32)
@@ -173,8 +190,6 @@ def start(a, token=None):
     with r.tx() as c:  # one agent link per run; a kept room's old link stops working
         c.execute("delete from invites where owner = ? and expires is null", (HOST_EMAIL,))
         c.execute("insert into invites (code_hash, owner, expires, once) values (?, ?, null, 0)", (r.key_hash(code), HOST_EMAIL))
-    server = r.http.server.ThreadingHTTPServer(("127.0.0.1", port), r.Handler)
-    server.daemon_threads = True
     return r, data, url, token, code, server
 
 
@@ -477,18 +492,39 @@ def invite(a):
     print(f"An invite {who}{left or ', with no end'}:\n\n  {out['link']}\n\nIt is shown here once: the room doesn't keep it. End the open invites with: {me()} invite --end")
 
 
+from .home import HOSTNAME  # the names a room may have at an address of its own
+
+
 def room(a):
     from .outside import Outside
+    a.hostname = getattr(a, "hostname", None)
+    a.port_given = a.port is not None  # a port asked for: kept (a room moving to an address of its own keeps its agents' address on this computer)
+    a.port = 4090 if a.port is None else a.port
+    if a.hostname:  # a fixed address of the host's own: the same port every time, and keys that outlive a restart
+        from . import home
+        a.hostname = home.full_name(a.hostname)  # demo -> demo.<the domain set up here>
+        if not HOSTNAME.fullmatch(a.hostname):
+            sys.exit(f"--hostname wants a name like shell.example.com, not {a.hostname!r}")
+        if not a.keep:
+            sys.exit("--hostname needs --keep DIR: the room's links must still open it after a restart")
+        if a.via == "relay":
+            sys.exit("--hostname shares the room through your own tunnel: it doesn't go with --via relay")
+        if home.ours(a.hostname):  # under the domain set up here: a port of its own, kept, and a line in the tunnel's settings
+            a.port = home.claim(a.hostname, a.keep, lambda p: free_port(p) == p, a.port if a.port_given else None)
+        if free_port(a.port) != a.port:
+            sys.exit(f"port {a.port} is taken: with --hostname the room always uses the port your tunnel sends {a.hostname} to")
     r, data, url, token, code, server = start(a)
     relay = (getattr(a, "relay", None) or os.environ.get("SHELLPHONE_RELAY") or default_relay()).rstrip("/")
-    first = a.via or os.environ.get("SHELLPHONE_VIA") or ("tunnel" if shutil.which("cloudflared") else "relay")  # the way the menu's button and a plain `shellphone share` take: a tunnel of its own when cloudflared is here (voice, files), else the sealed relay
+    first = "tunnel" if a.hostname else a.via or os.environ.get("SHELLPHONE_VIA") or ("tunnel" if shutil.which("cloudflared") else "relay")  # the way the menu's button and a plain `shellphone share` take: a tunnel of its own when cloudflared is here (voice, files), else the sealed relay
     if first not in WAYS:
         sys.exit(f"SHELLPHONE_VIA is {first!r}: the ways to share a room are " + " and ".join(WAYS))
-    r.OUTSIDE = Outside(r, data, bool(a.keep), relay, server.server_address[1], HOST_EMAIL)  # the tunnel is experimental, and only started when asked for
+    r.OUTSIDE = Outside(r, data, bool(a.keep), relay, server.server_address[1], HOST_EMAIL, hostname=a.hostname)  # the tunnel is experimental, and only started when asked for
     r.LINKER = share = Share({"relay": Linker(r, data, bool(a.keep), relay), "tunnel": r.OUTSIDE}, first)
     announce(data, server.server_address[1], token)
     later = f"The room is open on this computer; share it later with: {me()} share"
     way = f"Sharing goes through {WAYS[first]}" + (" (cloudflared is here: voice and files work; Cloudflare could read the traffic, the relay is sealed). Use the relay instead with: --via relay" if first == "tunnel" and not a.via and not os.environ.get("SHELLPHONE_VIA") else ".")
+    if a.hostname:
+        way = f"Sharing goes through your own tunnel, at https://{a.hostname} (cloudflared must send that name to http://127.0.0.1:{server.server_address[1]}). There is no login in front: the room's links are the only keys."
     more = ""
     if (a.share or share.saved()) and (a.via or share.saved() or first) == "tunnel":  # through a tunnel: the site asks the room before it takes its address, so the room must be answering first
         def after():
@@ -923,12 +959,25 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("room", help="open a room on this computer")
     s.add_argument("--name", default=os.environ.get("USER") or "you", help="your name in the room")
-    s.add_argument("--port", type=int, default=4090, help="default 4090; if it's taken, a free one is picked and printed")
+    s.add_argument("--port", type=int, help="default 4090; if it's taken, a free one is picked and printed")
     s.add_argument("--keep", metavar="DIR", help="keep the room in DIR instead of deleting it on close")
     s.add_argument("--share", action="store_true", help="share the room right away: it can be opened from anywhere, and people invited")
     s.add_argument("--link", dest="share", action="store_true", help=argparse.SUPPRESS)  # the old name of --share
     s.add_argument("--via", choices=list(WAYS), help="how the room is shared: relay (the default: sealed messages through the site, text only) or tunnel (experimental: a Cloudflare quick tunnel, with voice and files; needs cloudflared)")
     s.add_argument("--relay", help=argparse.SUPPRESS)  # share through another site than the usual one (testing)
+    s.add_argument("--hostname", metavar="NAME", help="share at a fixed address of your own (e.g. shell.example.com), through a named Cloudflare tunnel you run; needs --keep and a fixed --port")
+    s = sub.add_parser("tunnel", help="rooms at addresses of your own: one named Cloudflare tunnel for a domain of yours (setup | run | list | add | remove)")
+    t = s.add_subparsers(dest="tcmd", required=True)
+    x = t.add_parser("setup", help="once: make the tunnel and point *.DOMAIN at it (after: cloudflared tunnel login)")
+    x.add_argument("--domain", required=True, help="e.g. example.com: rooms get demo.example.com")
+    x.add_argument("--name", default="shellphone", help="the tunnel's name in your Cloudflare account (default shellphone)")
+    t.add_parser("run", help="keep the tunnel up, and open the listed rooms")
+    t.add_parser("list", help="the rooms at addresses of your own, and whether each is open")
+    x = t.add_parser("add", help="list a name for a room that runs elsewhere on this computer (e.g. in a container publishing PORT on 127.0.0.1)")
+    x.add_argument("hostname")
+    x.add_argument("--port", type=int, required=True, help="the port on this computer the tunnel sends the name to")
+    x = t.add_parser("remove", help="take a room's address off the tunnel")
+    x.add_argument("hostname")
     s = sub.add_parser("invite", help="a new invite for people to the shared room on this computer: a link that ends, or is for one person. --end ends the open ones")
     s.add_argument("--for", dest="name", metavar="NAME", help="for one person: it works once, and they come in under this name")
     s.add_argument("--minutes", type=float, help="how long it works (default 30)")
@@ -964,7 +1013,12 @@ def main():
     s.add_argument("--dir", default="shellphone", help="where your room key is kept (default: ./shellphone)")
     s.add_argument("--creature", default="raccoon"); s.add_argument("--voice")
     a = ap.parse_args()
-    {"room": room, "host": host, "join": join, "share": switch, "invite": invite, "link": switch, "unlink": switch, "list": listing, "stop": stop_rooms}[a.cmd](a)
+    {"room": room, "host": host, "join": join, "share": switch, "invite": invite, "link": switch, "unlink": switch, "list": listing, "stop": stop_rooms, "tunnel": tunnel}[a.cmd](a)
+
+
+def tunnel(a):
+    from . import home
+    {"setup": home.setup, "run": home.run, "list": home.listing, "add": home.add, "remove": home.remove}[a.tcmd](a)
 
 
 if __name__ == "__main__":

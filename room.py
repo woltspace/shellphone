@@ -619,9 +619,13 @@ def page_html():
     return (HERE / "dist" / "index.html").read_text().replace('href="/icon-180.png?v=conch"', f'href="{data_uri("icon-180.png")}"').encode()
 
 
-def app_manifest():
-    """Same for the manifest's icons (the page asks for the manifest with its login)."""
+def app_manifest(key=None):
+    """Same for the manifest's icons (the page asks for the manifest with its login). key: at a fixed address of the
+    host's own, the person's own key, for the icon to start from: a phone's home-screen app keeps cookies of its own,
+    apart from the browser's, so on its first start it comes in by the person's link, as they did in the browser."""
     m = json.loads((HERE / "manifest.webmanifest").read_text())
+    if key:
+        m["start_url"], m["scope"] = f"/enter#k.{key}", "/"
     for icon in m.get("icons", []):
         icon["src"] = data_uri(icon["src"].split("?")[0])
     return json.dumps(m).encode()
@@ -922,8 +926,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return (found, people()[found]) if found else (None, None)
 
     def local_host(self):
-        """Only this computer's own address counts, so another site can't point a name of its own at the room."""
-        return (self.headers.get("Host") or "").rsplit(":", 1)[0] in ("127.0.0.1", "localhost")
+        """Only this computer's own address counts, so another site can't point a name of its own at the room. And only
+        from this computer: listening on every address (in a container), anyone who reaches the port can write any Host."""
+        named = (self.headers.get("Host") or "").rsplit(":", 1)[0] in ("127.0.0.1", "localhost")
+        return named and self.client_address[0] in ("127.0.0.1", "::1")
 
     def outside_host(self):
         """The room's own address through its tunnel, while it has one: the only other name it answers people on."""
@@ -1093,7 +1099,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         app_files = {"/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript; charset=utf-8",
                      "/icon-180.png": "image/png", "/icon-512.png": "image/png", "/room-icon.png": "image/png"}
         if path == "/manifest.webmanifest" and p:
-            return self.send(200, app_manifest(), "application/manifest+json")
+            fixed = OUTSIDE is not None and getattr(OUTSIDE, "hostname", None) and self.outside_host()
+            return self.send(200, app_manifest(self.outside_token() if fixed else None), "application/manifest+json")
         if path in app_files and p:  # what makes the room a home-screen app
             return self.send(200, (HERE / path[1:]).read_bytes(), app_files[path])
         if path in ("/", "/index.html"):
