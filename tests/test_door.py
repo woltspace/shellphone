@@ -1,5 +1,5 @@
 """The tunnel's one door (shellphone/door.py): a real room behind it, then everything that must not get through."""
-import argparse, http.server, socket, tempfile, threading, unittest, sys
+import argparse, http.server, socket, tempfile, threading, time, unittest, sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -95,6 +95,49 @@ class Doorway(unittest.TestCase):
     def test_one_connection_never_carries_a_second_rooms_request(self):
         one = f"GET /enter HTTP/1.1\r\nHost: {NAME}\r\n\r\n"
         self.assertEqual(self.send((one + one.replace(NAME, "other.example.com")).encode()).count(b"HTTP/1."), 1)
+
+    def test_stalled_uploads_to_one_room_dont_stall_another_and_dont_last(self):
+        path = self.path.with_name("f.sock")
+        other = "other.example.com"
+        both = {**self.listed, other: self.listed[NAME]}
+        door = Door(path, lambda: both, lambda host, port: True, each=4, total=32, idle=3)
+        self.addCleanup(door.close)
+        held = []
+        self.addCleanup(lambda: [s.close() for s in held])
+        stall = f"POST /lodge/join HTTP/1.1\r\nHost: {NAME}\r\nContent-Length: 1000\r\n\r\n".encode()
+        for _ in range(12):
+            s = socket.socket(socket.AF_UNIX)
+            s.connect(str(path))
+            s.sendall(stall)
+            held.append(s)
+        time.sleep(1)
+        self.assertEqual(door.busy[NAME], 4)  # its own share, and no more
+        self.path, kept = path, self.path
+        self.assertNotIn(self.status(self.get(host=other)), (0, 503))
+        time.sleep(4)
+        self.assertEqual(door.busy[NAME], 0)  # a body that doesn't come is let go
+        self.assertEqual(self.status(self.get()), 200)
+        self.path = kept
+
+    def test_a_head_has_a_deadline_however_slowly_it_comes(self):
+        path = self.path.with_name("h.sock")
+        door = Door(path, lambda: self.listed, lambda host, port: True, head_seconds=1)
+        self.addCleanup(door.close)
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(5)
+            s.connect(str(path))
+            began = time.monotonic()
+            try:
+                for c in b"GET /enter HTTP/1.1":
+                    s.sendall(bytes([c]))
+                    time.sleep(0.25)
+            except OSError:
+                pass
+            self.assertLess(time.monotonic() - began, 3.5)
+
+    def test_a_body_of_unknown_length_is_refused(self):
+        got = self.send(f"POST /api/enter HTTP/1.1\r\nHost: {NAME}\r\nTransfer-Encoding: chunked\r\n\r\n".encode())
+        self.assertEqual(self.status(got), 411)
 
     def test_only_one_door_at_a_time(self):
         with self.assertRaises(SystemExit):
