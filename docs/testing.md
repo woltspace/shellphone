@@ -20,7 +20,7 @@ Passing unit tests is the start of that, not the whole of it.
 | `own-relay` | a relay of your own | this commit's relay, run by Wrangler in a container |
 | `site-relay` | the shellphone site's sealed relay (`/r/` links) | the real site |
 | `site-tunnel` | the site's lasting link to a tunnel of the room's (`/t/` links) | the real site and a real quick tunnel |
-| `domain` | your own named tunnel, for real | only with `--domain check.example.com`, while `shellphone tunnel run` is up |
+| `domain` | your own named tunnel, for real | only with `--domain check.example.com` (a name nothing uses), while `shellphone tunnel run` is up |
 
 `--paths local,own-domain,own-relay` opens nothing public. The relay of `own-relay` is this commit's; the site's is
 whatever is deployed. To test a relay you deployed, give it as the site: `--relay https://relay.example.com`.
@@ -66,7 +66,7 @@ send them privately, never in a pull request or a log). Then, for each link:
 - [ ] a voice note sends and comes back as words (needs a speech service where the room runs)
 - [ ] added to the home screen, it opens in the room; at an address of your own, closing the room shows the offline page
 
-Afterwards: `uv run python tests/live/live.py --clean` (with the same `--domain`, if you gave one).
+Afterwards: `uv run python tests/live/live.py --clean`. It takes off your tunnel only the names the test put there.
 
 ## What this doesn't show
 

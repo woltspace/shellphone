@@ -4,7 +4,7 @@
     uv run python tests/live/live.py --ref BRANCH_OR_SHA  # some other commit
     uv run python tests/live/live.py --paths local,own-domain,own-relay    # nothing public
     uv run python tests/live/live.py --relay https://relay.example.com     # a relay you deployed, as the site
-    uv run python tests/live/live.py --domain check.example.com            # also through your own named tunnel
+    uv run python tests/live/live.py --domain check.example.com            # also through your own named tunnel (an unused name)
     uv run python tests/live/live.py --phone              # leave the rooms up for a phone; --clean removes them
 
 Needs Docker, and internet to build (and for the paths through the site). docs/testing.md says what each path and each
@@ -14,8 +14,12 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
+sys.path.insert(0, str(REPO))
+from shellphone import home  # noqa: E402  (which names are on this computer's tunnel)
+
 SITE, NAME, PORT = "https://shellphone.woltspace.app", "room.example.test", 4620
 LABEL = "shellphone.live-test"
+OWNS = LABEL + ".domain"  # on a run's room: NAME:PORT, the only tunnel name that run may take off again
 PATHS = ("local", "own-domain", "own-relay", "site-relay", "site-tunnel")
 DOCKERFILE = f"""FROM cloudflare/cloudflared:2026.10.0 AS tunnel
 FROM python:3.12-slim
@@ -45,7 +49,23 @@ def docker(*args, input=None, timeout=300):
         return subprocess.CompletedProcess(args, 124, "", "timed out")
 
 
+def tunnel(*args):
+    return subprocess.run([sys.executable, "-c", "from shellphone.cli import main; main()", "tunnel", *args],
+                          cwd=REPO, capture_output=True, text=True, timeout=120, env={**os.environ, "PYTHONPATH": str(REPO)})
+
+
+def unlist(name, port):
+    """Take off the tunnel only what a run put there: that name, still at that run's port, for a room elsewhere."""
+    if home.rooms().get(name) == {"port": port, "keep": None}:
+        tunnel("remove", name)
+
+
 def clean(run=None):
+    if not run:  # what --phone left up says itself which name was its own
+        for box in docker("ps", "-aq", "--filter", f"label={OWNS}").stdout.split():
+            name, _, port = docker("inspect", "-f", f'{{{{index .Config.Labels "{OWNS}"}}}}', box).stdout.strip().rpartition(":")
+            if name and port.isdigit():
+                unlist(name, int(port))
     which = f"label={LABEL}={run}" if run else f"label={LABEL}"
     for kind, listed, removed in (("containers", ["ps", "-aq"], ["rm", "-f"]), ("networks", ["network", "ls", "-q"], ["network", "rm"])):
         ids = docker(*listed, "--filter", which).stdout.split()
@@ -72,7 +92,7 @@ class Way:
     def __init__(self, name, live):
         self.name, self.live, self.port = name, live, PORT
         self.room, self.agent = f"{live.run}-{name}-room", f"{live.run}-{name}-agent"
-        self.results, self.relay = [], name.endswith("-relay")
+        self.results, self.relay, self.added = [], name.endswith("-relay"), False
 
     def ok(self, area, what, passed, why=""):
         self.results.append((area, what, bool(passed)))
@@ -99,7 +119,7 @@ class Way:
             room += ["--network-alias", NAME, "--sysctl", "net.ipv4.ip_unprivileged_port_start=0"]
         if self.name == "domain":
             self.port = free_port()
-            room += ["-p", f"127.0.0.1:{self.port}:{self.port}", "-e", "SHELLPHONE_BIND=0.0.0.0"]
+            room += ["-p", f"127.0.0.1:{self.port}:{self.port}", "-e", "SHELLPHONE_BIND=0.0.0.0", "--label", f"{OWNS}={self.live.domain}:{self.port}"]
         a = docker("run", *common, "--name", self.room, *room, self.live.image)
         net = f"container:{self.room}" if self.name == "local" else self.live.net  # local: "this computer" is the room's
         b = docker("run", *common, "--name", self.agent, "--network", net, self.live.image)
@@ -126,9 +146,15 @@ class Way:
         self.why = log[-300:]
         return False
 
-    def tunnel(self, *args):
-        return subprocess.run([sys.executable, "-c", "from shellphone.cli import main; main()", "tunnel", *args],
-                              cwd=REPO, capture_output=True, text=True, timeout=120, env={**os.environ, "PYTHONPATH": str(REPO)})
+    def pid(self):
+        """The room's process, as it says itself in run.json."""
+        try:
+            return int(json.loads(docker("exec", self.room, "cat", "/tmp/room/run.json").stdout)["pid"])
+        except (ValueError, KeyError):
+            return None
+
+    def alive(self, pid):
+        return docker("exec", self.room, "sh", "-c", f"kill -0 {pid} 2>/dev/null").returncode == 0
 
     def reachable(self):
         for _ in range(30):
@@ -171,8 +197,11 @@ class Way:
         if self.name == "own-domain":
             docker("exec", "-d", self.room, "python", "/live/front.py", NAME, str(self.port))
         if self.name == "domain":
-            added = self.tunnel("add", self.live.domain, "--port", str(self.port))
-            if not self.ok("setup", "the name is on your tunnel", added.returncode == 0, added.stderr.strip()):
+            if not self.ok("setup", "the name is still nobody's", self.live.domain not in home.rooms()):
+                return
+            added = tunnel("add", self.live.domain, "--port", str(self.port))
+            self.added = added.returncode == 0
+            if not self.ok("setup", "the name is on your tunnel", self.added, added.stderr.strip()):
                 return
         if self.name == "site-tunnel":
             time.sleep(10)  # a new tunnel's name takes a moment: asked too early, "no such name" is remembered
@@ -225,7 +254,8 @@ class Way:
     def files(self):
         if self.relay:
             got = self.ask("POST", "/api/files?name=a.bin&text=", key=self.key, json={})
-            self.ok("files", "refused cleanly (a relay carries no files yet)", 400 <= got["status"] < 500, got["status"])
+            said = str((got.get("json") or {}).get("error", ""))
+            self.ok("files", "refused as not carried (a relay takes no files yet)", got["status"] == 404 and said == "not found", (got["status"], said))
             return
         senders = [("host", self.key, 5_000_000)] + ([("guest", self.guest, 1_000_000)] if self.guest else [])
         for who, key, size in senders:
@@ -269,16 +299,27 @@ class Way:
         sha = docker("exec", self.agent, "sh", "-c", "head -c 1000000 /dev/urandom > /tmp/agent.bin && sha256sum /tmp/agent.bin").stdout.split()
         sent = self.agent_cli("post", "--file", "/tmp/agent.bin", input="a file from the agent")
         if self.relay:
-            self.ok("files", "the agent's file is refused, not lost silently", sent.returncode != 0)
+            said = sent.stdout + sent.stderr
+            self.ok("files", "the agent's file is refused as not carried", sent.returncode != 0 and "relay" in said.lower() and "couldn't reach" not in said, said.strip()[-160:])
         elif self.ok("files", "the agent sends 1 MB", sent.returncode == 0, sent.stderr.strip()):
             urls = [f["url"] for m in (self.state().get("json") or {}).get("messages", []) if m.get("kind") == "wolt" for f in m.get("files") or ([m["file"]] if m.get("file") else [])]
             self.ok("files", "the agent's file comes back the same", sha and urls and self.same_file_back(urls[-1], sha[0]))
 
     def restart(self):
-        before = self.link
-        docker("exec", self.room, "shellphone", "stop", "--port", str(self.port))
-        time.sleep(3)
-        if not self.ok("restart", "the room opens again", self.open_room()):
+        before, old = self.link, self.pid()
+        stopped = docker("exec", self.room, "shellphone", "stop", "--port", str(self.port))
+        gone = False
+        for _ in range(20):
+            gone = bool(old) and not self.alive(old)
+            if gone:
+                break
+            time.sleep(1)
+        if not self.ok("restart", "the room really closes", stopped.returncode == 0 and gone, stopped.stderr.strip()):
+            return  # whatever is still running would answer every check below
+        docker("exec", self.room, "rm", "-f", "/tmp/room.log")
+        opened = self.open_room()
+        new = self.pid()
+        if not self.ok("restart", "a new one opens", opened and new and new != old and self.alive(new), getattr(self, "why", "")):
             return
         if self.name == "site-tunnel":
             time.sleep(10)
@@ -310,8 +351,8 @@ class Way:
     def close(self):
         if self.live.phone:
             return
-        if self.name == "domain":
-            self.tunnel("remove", self.live.domain)
+        if self.added:
+            unlist(self.live.domain, self.port)
         docker("rm", "-f", self.agent, self.room)
 
 
@@ -365,9 +406,13 @@ def main():
     a = ap.parse_args()
     if a.clean:
         clean()
-        if a.domain:
-            Way("domain", Live(a)).tunnel("remove", a.domain)
         return print("removed")
+    if a.domain:
+        a.domain = a.domain.strip().lower()
+        if not home.HOSTNAME.fullmatch(a.domain):
+            ap.error("--domain is a whole name, like check.example.com")
+        if a.domain in home.rooms():
+            ap.error(f"{a.domain} is already on your tunnel: give a name nothing uses, the test takes its name off afterwards")
     names = [x for x in a.paths.split(",") if x]
     if unknown := set(names) - set(PATHS):
         ap.error(f"no such path: {', '.join(sorted(unknown))}")
@@ -411,7 +456,7 @@ def main():
         fd, where = tempfile.mkstemp(prefix="shellphone-live-", suffix=".txt")  # 600: the links are keys
         with os.fdopen(fd, "w") as f:
             f.writelines(f"{way.name}: {way.link}\n" for way in ran if getattr(way, "link", None) and way.name not in ("local", "own-domain", "own-relay"))
-        print(f"rooms left up for a phone: links (keys!) in {where}. Afterwards: live.py --clean" + (f" --domain {a.domain}" if a.domain else ""))
+        print(f"rooms left up for a phone: links (keys!) in {where}. Afterwards: live.py --clean")
     sys.exit(0 if total and all(total) else 1)
 
 
