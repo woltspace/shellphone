@@ -89,6 +89,11 @@ and two hashes of a secret; it asks the room to prove itself before it sends any
 and throws away every key, on the room's computer first; it cannot undo what was done or copied while the room was
 shared. An icon on a phone's home screen holds a copy of its owner's key until the icon is deleted or the room's sharing stopped.
 
+With `--hostname` the room is reached through a named tunnel its host runs, at an address of the host's own, and the
+site is not involved at all. The same holds as above: Cloudflare could read the traffic, and nobody stands in front of
+the room but its links. The address is fixed and public, so a link that leaks keeps working until sharing is stopped.
+The room's manifest gives a signed-in person's icon their own key to start from, as the lasting address's icon does.
+
 ## What is recorded today
 
 | Evidence | Coverage and limits |

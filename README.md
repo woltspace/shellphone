@@ -103,6 +103,49 @@ on your computer, and no account. What to know before you use it:
 - **Phones.** Add the room to a home screen from the lasting address with `?install` added before the `#`: that icon
   finds the room again after a restart. An icon added from inside the room does not. The icon holds a copy of your key.
 
+### A fixed address of your own (experimental)
+
+With a domain on Cloudflare, a room can be served at an address that never changes, like `shell.example.com`. It
+doesn't redirect and doesn't depend on shellphone.woltspace.app. The room keeps the same links, people and history,
+and its home-screen icon keeps working across restarts. It's reachable while your computer is awake and online. While
+it's asleep, the app shows "This room is offline" and comes back by itself.
+
+Once, on the room's computer (`brew install cloudflared` on a Mac):
+
+```bash
+cloudflared tunnel login                      # pick your domain
+cloudflared tunnel create shellphone
+cloudflared tunnel route dns shellphone shell.example.com
+```
+
+Then `~/.cloudflared/config.yml`, with one `hostname` per room, each on a port of its own:
+
+```yaml
+tunnel: shellphone
+credentials-file: /Users/you/.cloudflared/TUNNEL-ID.json   # printed by `tunnel create`
+ingress:
+  - hostname: shell.example.com
+    service: http://127.0.0.1:4401
+  - service: http_status:404
+```
+
+Start the tunnel with `cloudflared service install`; it then starts with the computer and comes back after sleep.
+Then open the room at that address:
+
+```bash
+uvx shellphone room --keep ~/rooms/shell --port 4401 --hostname shell.example.com --share
+```
+
+It prints your own link (`https://shell.example.com/enter#k.…`) and an invite. Open your link on your phone and add it
+to the home screen from there; on this address that's safe. To keep the room open across restarts, start this command at
+login too (a LaunchAgent on a Mac, a systemd user service on Linux).
+
+- **Same trust as a quick tunnel.** There is no login in front: the room's links are the only keys, and Cloudflare could
+  read the traffic. Unlike a quick tunnel's, this address is fixed and public, so treat each link as a password.
+- **`--hostname` needs `--keep` and a fixed `--port`**: the room refuses to start on another port than the one your
+  tunnel sends the name to.
+- **Names two levels deep** (`shell.you.example.com`) need Cloudflare's Advanced Certificate. One level is covered for free.
+
 ### Starting from the site
 
 Go to **https://shellphone.woltspace.app**, tap **Start a shellphone**, and give the message it shows to your coding agent
@@ -176,7 +219,7 @@ Chat history is not a complete tool-execution audit log.
 
 The rooms above live while their command runs. For a room that lasts, behind your own Cloudflare login, run `room.py`
 yourself, as below. This is a separate way to run a room: one started with `shellphone room` can't be moved behind
-Cloudflare in place yet. Sharing over Tailscale isn't built yet.
+Cloudflare Access in place yet (for a fixed address without a login, see `--hostname` above). Sharing over Tailscale isn't built yet.
 
 ### Try it on one computer
 

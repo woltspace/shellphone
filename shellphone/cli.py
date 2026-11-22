@@ -477,18 +477,34 @@ def invite(a):
     print(f"An invite {who}{left or ', with no end'}:\n\n  {out['link']}\n\nIt is shown here once: the room doesn't keep it. End the open invites with: {me()} invite --end")
 
 
+HOSTNAME = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
+
+
 def room(a):
     from .outside import Outside
+    a.hostname = getattr(a, "hostname", None)
+    if a.hostname:  # a fixed address of the host's own: the same port every time, and keys that outlive a restart
+        a.hostname = a.hostname.strip().lower().removeprefix("https://").rstrip("/")
+        if not HOSTNAME.fullmatch(a.hostname):
+            sys.exit(f"--hostname wants a name like shell.example.com, not {a.hostname!r}")
+        if not a.keep:
+            sys.exit("--hostname needs --keep DIR: the room's links must still open it after a restart")
+        if a.via == "relay":
+            sys.exit("--hostname shares the room through your own tunnel: it doesn't go with --via relay")
+        if free_port(a.port) != a.port:
+            sys.exit(f"port {a.port} is taken: with --hostname the room always uses the port your tunnel sends {a.hostname} to")
     r, data, url, token, code, server = start(a)
     relay = (getattr(a, "relay", None) or os.environ.get("SHELLPHONE_RELAY") or default_relay()).rstrip("/")
-    first = a.via or os.environ.get("SHELLPHONE_VIA") or ("tunnel" if shutil.which("cloudflared") else "relay")  # the way the menu's button and a plain `shellphone share` take: a tunnel of its own when cloudflared is here (voice, files), else the sealed relay
+    first = "tunnel" if a.hostname else a.via or os.environ.get("SHELLPHONE_VIA") or ("tunnel" if shutil.which("cloudflared") else "relay")  # the way the menu's button and a plain `shellphone share` take: a tunnel of its own when cloudflared is here (voice, files), else the sealed relay
     if first not in WAYS:
         sys.exit(f"SHELLPHONE_VIA is {first!r}: the ways to share a room are " + " and ".join(WAYS))
-    r.OUTSIDE = Outside(r, data, bool(a.keep), relay, server.server_address[1], HOST_EMAIL)  # the tunnel is experimental, and only started when asked for
+    r.OUTSIDE = Outside(r, data, bool(a.keep), relay, server.server_address[1], HOST_EMAIL, hostname=a.hostname)  # the tunnel is experimental, and only started when asked for
     r.LINKER = share = Share({"relay": Linker(r, data, bool(a.keep), relay), "tunnel": r.OUTSIDE}, first)
     announce(data, server.server_address[1], token)
     later = f"The room is open on this computer; share it later with: {me()} share"
     way = f"Sharing goes through {WAYS[first]}" + (" (cloudflared is here: voice and files work; Cloudflare could read the traffic, the relay is sealed). Use the relay instead with: --via relay" if first == "tunnel" and not a.via and not os.environ.get("SHELLPHONE_VIA") else ".")
+    if a.hostname:
+        way = f"Sharing goes through your own tunnel, at https://{a.hostname} (cloudflared must send that name to http://127.0.0.1:{server.server_address[1]}). There is no login in front: the room's links are the only keys."
     more = ""
     if (a.share or share.saved()) and (a.via or share.saved() or first) == "tunnel":  # through a tunnel: the site asks the room before it takes its address, so the room must be answering first
         def after():
@@ -929,6 +945,7 @@ def main():
     s.add_argument("--link", dest="share", action="store_true", help=argparse.SUPPRESS)  # the old name of --share
     s.add_argument("--via", choices=list(WAYS), help="how the room is shared: relay (the default: sealed messages through the site, text only) or tunnel (experimental: a Cloudflare quick tunnel, with voice and files; needs cloudflared)")
     s.add_argument("--relay", help=argparse.SUPPRESS)  # share through another site than the usual one (testing)
+    s.add_argument("--hostname", metavar="NAME", help="share at a fixed address of your own (e.g. shell.example.com), through a named Cloudflare tunnel you run; needs --keep and a fixed --port")
     s = sub.add_parser("invite", help="a new invite for people to the shared room on this computer: a link that ends, or is for one person. --end ends the open ones")
     s.add_argument("--for", dest="name", metavar="NAME", help="for one person: it works once, and they come in under this name")
     s.add_argument("--minutes", type=float, help="how long it works (default 30)")
