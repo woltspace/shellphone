@@ -113,32 +113,26 @@ it's asleep, the app shows "This room is offline" and comes back by itself.
 Once, on the room's computer (`brew install cloudflared` on a Mac):
 
 ```bash
-cloudflared tunnel login                      # pick your domain
-cloudflared tunnel create shellphone
-cloudflared tunnel route dns shellphone shell.example.com
+cloudflared tunnel login                            # pick your domain
+uvx shellphone tunnel setup --domain example.com    # a tunnel named shellphone, and *.example.com pointed at it
+uvx shellphone tunnel startup                       # the tunnel and your rooms start at login (Mac; prints a systemd unit elsewhere)
 ```
 
-Then `~/.cloudflared/config.yml`, with one `hostname` per room, each on a port of its own:
-
-```yaml
-tunnel: shellphone
-credentials-file: /Users/you/.cloudflared/TUNNEL-ID.json   # printed by `tunnel create`
-ingress:
-  - hostname: shell.example.com
-    service: http://127.0.0.1:4401
-  - service: http_status:404
-```
-
-Start the tunnel with `cloudflared service install`; it then starts with the computer and comes back after sleep.
-Then open the room at that address:
+Then, whenever you want a room:
 
 ```bash
-uvx shellphone room --keep ~/rooms/shell --port 4401 --hostname shell.example.com --share
+uvx shellphone room --keep ~/rooms/demo --hostname demo --share     # at https://demo.example.com
 ```
 
-It prints your own link (`https://shell.example.com/enter#k.…`) and an invite. Open your link on your phone and add it
-to the home screen from there; on this address that's safe. To keep the room open across restarts, start this command at
-login too (a LaunchAgent on a Mac, a systemd user service on Linux).
+The room gets a port of its own, which it keeps, and the tunnel starts sending `demo.example.com` to it. Other rooms
+drop for a few seconds while the tunnel restarts with the new name, then reconnect by themselves. The room prints your
+own link (`https://demo.example.com/enter#k.…`) and an invite. Open your link on your phone and add it to the home
+screen from there; on this address that's safe. `shellphone tunnel list` shows your rooms, and
+`shellphone tunnel remove demo` takes one off the tunnel. Everything is kept in `~/.shellphone`, apart from any other
+tunnel on the computer.
+
+Already running a tunnel of your own? Give `--hostname` the whole name (`shell.example.com`) and send that name to the
+room's `--port` yourself.
 
 - **Same trust as a quick tunnel.** There is no login in front: the room's links are the only keys, and Cloudflare could
   read the traffic. Unlike a quick tunnel's, this address is fixed and public, so treat each link as a password.

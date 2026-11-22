@@ -19,6 +19,11 @@ def nowhere(*a, **kw):
 
 class Fixed(unittest.TestCase):
     def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        p = patch.dict("os.environ", {"SHELLPHONE_HOME": home.name})
+        p.start()
+        self.addCleanup(p.stop)
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         for target in ("urllib.request.urlopen", "shellphone.outside.STAY.open", "shellphone.outside.Tunnel.start"):
@@ -99,6 +104,13 @@ class Fixed(unittest.TestCase):
 
 
 class Asked(unittest.TestCase):
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        p = patch.dict("os.environ", {"SHELLPHONE_HOME": home.name})
+        p.start()
+        self.addCleanup(p.stop)
+
     def room(self, **kw):
         a = argparse.Namespace(**{"keep": None, "port": 4090, "name": "x", "share": False, "via": None, "relay": None, "hostname": NAME, **kw})
         with self.assertRaises(SystemExit) as got:
@@ -107,7 +119,7 @@ class Asked(unittest.TestCase):
 
     def test_it_needs_a_kept_room_a_real_name_and_its_own_port(self):
         self.assertIn("--keep", self.room())
-        self.assertIn("a name like", self.room(hostname="not a name", keep="/tmp/x"))
+        self.assertIn("a name like", self.room(hostname="not_a.name", keep="/tmp/x"))
         self.assertIn("--via relay", self.room(keep="/tmp/x", via="relay"))
         with patch.object(cli, "free_port", lambda wanted: wanted + 1):
             self.assertIn("is taken", self.room(keep="/tmp/x"))
