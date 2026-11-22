@@ -951,7 +951,7 @@ def main():
     s.add_argument("--via", choices=list(WAYS), help="how the room is shared: relay (the default: sealed messages through the site, text only) or tunnel (experimental: a Cloudflare quick tunnel, with voice and files; needs cloudflared)")
     s.add_argument("--relay", help=argparse.SUPPRESS)  # share through another site than the usual one (testing)
     s.add_argument("--hostname", metavar="NAME", help="share at a fixed address of your own (e.g. shell.example.com), through a named Cloudflare tunnel you run; needs --keep and a fixed --port")
-    s = sub.add_parser("tunnel", help="rooms at addresses of your own: one named Cloudflare tunnel for a domain of yours (setup | run | list | remove | startup)")
+    s = sub.add_parser("tunnel", help="rooms at addresses of your own: one named Cloudflare tunnel for a domain of yours (setup | run | list | remove)")
     t = s.add_subparsers(dest="tcmd", required=True)
     x = t.add_parser("setup", help="once: make the tunnel and point *.DOMAIN at it (after: cloudflared tunnel login)")
     x.add_argument("--domain", required=True, help="e.g. example.com: rooms get demo.example.com")
@@ -960,8 +960,6 @@ def main():
     t.add_parser("list", help="the rooms at addresses of your own, and whether each is open")
     x = t.add_parser("remove", help="take a room's address off the tunnel")
     x.add_argument("hostname")
-    x = t.add_parser("startup", help="start the tunnel and the listed rooms at login")
-    x.add_argument("--off", action="store_true", help="no longer at login")
     s = sub.add_parser("invite", help="a new invite for people to the shared room on this computer: a link that ends, or is for one person. --end ends the open ones")
     s.add_argument("--for", dest="name", metavar="NAME", help="for one person: it works once, and they come in under this name")
     s.add_argument("--minutes", type=float, help="how long it works (default 30)")
@@ -1002,7 +1000,7 @@ def main():
 
 def tunnel(a):
     from . import home
-    {"setup": home.setup, "run": home.run, "list": home.listing, "remove": home.remove, "startup": home.startup}[a.tcmd](a)
+    {"setup": home.setup, "run": home.run, "list": home.listing, "remove": home.remove}[a.tcmd](a)
 
 
 if __name__ == "__main__":

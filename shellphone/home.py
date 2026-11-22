@@ -3,14 +3,13 @@
 `shellphone tunnel setup --domain example.com` makes the tunnel once and points *.example.com at it. Each
 `shellphone room --hostname demo` then gets demo.example.com, a port of its own that it keeps, and a line in the
 tunnel's settings. `shellphone tunnel run` keeps the tunnel up, restarts it when a room is added or removed, and opens
-the listed rooms when it starts (at login, with `shellphone tunnel startup`). Everything lives in ~/.shellphone (or
+the listed rooms when it starts. Everything lives in ~/.shellphone (or
 $SHELLPHONE_HOME): nothing here is anyone's in particular."""
-import contextlib, fcntl, json, os, plistlib, re, shutil, signal, subprocess, sys, time
+import contextlib, fcntl, json, os, re, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
 CONFIG, ROOMS, SETTINGS = "home.json", "rooms.json", "tunnel.yml"
 FIRST_PORT = 4400  # rooms at an address of their own get ports from here up, each one kept for good
-LABEL = "dev.shellphone.tunnel"  # the login item's name on a Mac
 
 
 def home():
@@ -152,7 +151,7 @@ def setup(a):
     print(f"""Set up: every name under {domain} now leads to this computer's tunnel {conf['name']!r}.
 
   A room at demo.{domain}:   shellphone room --keep ~/rooms/demo --hostname demo --share
-  Keep the tunnel up:        shellphone tunnel run       (or at login: shellphone tunnel startup)
+  Keep the tunnel up:        shellphone tunnel run
 
 Nothing is served until a room is listed: other names under {domain} answer 404.""")
 
@@ -196,7 +195,7 @@ def run(a):
     stopping = []
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
     open_ports = {r["port"] for r in open_rooms()}
-    for host, r in rooms().items():  # at login: every listed room comes back, at its own address
+    for host, r in rooms().items():  # every listed room comes back, at its own address
         if r["port"] not in open_ports and Path(r["keep"]).is_dir():
             with open(logs / f"{host}.log", "a") as log:
                 subprocess.Popen(_room_cmd(host, r), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -242,35 +241,3 @@ def _end(proc, grace=10):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-
-
-def startup(a):
-    """Start `shellphone tunnel run` at login: a LaunchAgent on a Mac; the lines for a systemd user service elsewhere."""
-    exe = shutil.which("shellphone") or sys.argv[0]
-    if sys.platform != "darwin":
-        return print(f"""Not a Mac: as a systemd user service, put this in ~/.config/systemd/user/shellphone-tunnel.service
-
-[Unit]
-Description=shellphone tunnel
-[Service]
-ExecStart={exe} tunnel run
-Restart=always
-[Install]
-WantedBy=default.target
-
-then: systemctl --user enable --now shellphone-tunnel""")
-    plist = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
-    domain = f"gui/{os.getuid()}"
-    subprocess.run(["launchctl", "bootout", f"{domain}/{LABEL}"], capture_output=True)
-    if a.off:
-        plist.unlink(missing_ok=True)
-        return print("The tunnel no longer starts at login (and is stopped).")
-    plist.parent.mkdir(parents=True, exist_ok=True)
-    plist.write_bytes(plistlib.dumps({"Label": LABEL, "ProgramArguments": [exe, "tunnel", "run"], "RunAtLoad": True, "KeepAlive": True,
-                                      "StandardOutPath": str(home() / "logs" / "run.log"), "StandardErrorPath": str(home() / "logs" / "run.log"),
-                                      "EnvironmentVariables": {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}}))
-    (home() / "logs").mkdir(exist_ok=True)
-    out = subprocess.run(["launchctl", "bootstrap", domain, str(plist)], capture_output=True, text=True)
-    if out.returncode:
-        sys.exit(f"launchctl couldn't load it: {out.stderr.strip()}")
-    print(f"The tunnel and the listed rooms now start at login (and are starting now). Undo with: shellphone tunnel startup --off")

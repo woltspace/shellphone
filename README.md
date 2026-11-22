@@ -115,7 +115,7 @@ Once, on the room's computer (`brew install cloudflared` on a Mac):
 ```bash
 cloudflared tunnel login                            # pick your domain
 uvx shellphone tunnel setup --domain example.com    # a tunnel named shellphone, and *.example.com pointed at it
-uvx shellphone tunnel startup                       # the tunnel and your rooms start at login (Mac; prints a systemd unit elsewhere)
+uvx shellphone tunnel run                           # keep this running: the tunnel, and the rooms you list
 ```
 
 Then, whenever you want a room:
