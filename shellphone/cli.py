@@ -483,6 +483,8 @@ HOSTNAME = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z
 def room(a):
     from .outside import Outside
     a.hostname = getattr(a, "hostname", None)
+    a.port_given = a.port is not None  # a port asked for: kept (a room moving to an address of its own keeps its agents' address on this computer)
+    a.port = 4090 if a.port is None else a.port
     if a.hostname:  # a fixed address of the host's own: the same port every time, and keys that outlive a restart
         from . import home
         a.hostname = home.full_name(a.hostname)  # demo -> demo.<the domain set up here>
@@ -493,7 +495,7 @@ def room(a):
         if a.via == "relay":
             sys.exit("--hostname shares the room through your own tunnel: it doesn't go with --via relay")
         if home.ours(a.hostname):  # under the domain set up here: a port of its own, kept, and a line in the tunnel's settings
-            a.port = home.claim(a.hostname, a.keep, lambda p: free_port(p) == p)
+            a.port = home.claim(a.hostname, a.keep, lambda p: free_port(p) == p, a.port if a.port_given else None)
         if free_port(a.port) != a.port:
             sys.exit(f"port {a.port} is taken: with --hostname the room always uses the port your tunnel sends {a.hostname} to")
     r, data, url, token, code, server = start(a)
@@ -942,7 +944,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("room", help="open a room on this computer")
     s.add_argument("--name", default=os.environ.get("USER") or "you", help="your name in the room")
-    s.add_argument("--port", type=int, default=4090, help="default 4090; if it's taken, a free one is picked and printed")
+    s.add_argument("--port", type=int, help="default 4090; if it's taken, a free one is picked and printed")
     s.add_argument("--keep", metavar="DIR", help="keep the room in DIR instead of deleting it on close")
     s.add_argument("--share", action="store_true", help="share the room right away: it can be opened from anywhere, and people invited")
     s.add_argument("--link", dest="share", action="store_true", help=argparse.SUPPRESS)  # the old name of --share

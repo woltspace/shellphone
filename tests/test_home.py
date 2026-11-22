@@ -43,6 +43,13 @@ class Home(unittest.TestCase):
         self.assertIn(f"  - hostname: b.example.com\n    service: http://127.0.0.1:{b}\n", settings)
         self.assertTrue(settings.rstrip().endswith("- service: http_status:404"))  # any other name: nothing
 
+    def test_a_room_that_asks_for_its_port_keeps_it(self):
+        self.set_up()
+        self.assertEqual(home.claim("lodge.example.com", self.dir / "l", lambda p: True, 4398), 4398)
+        self.assertEqual(home.claim("lodge.example.com", self.dir / "l", lambda p: True), 4398)
+        with self.assertRaises(SystemExit):
+            home.claim("other.example.com", self.dir / "o", lambda p: True, 4398)
+
     def test_one_address_per_room_and_one_room_per_address(self):
         self.set_up()
         home.claim("a.example.com", self.dir / "a", lambda p: True)

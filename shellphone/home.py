@@ -75,8 +75,9 @@ def ours(host):
     return bool(conf) and (host == conf["domain"] or host.endswith("." + conf["domain"]))
 
 
-def claim(host, keep, port_free):
-    """The port the room at this name always uses: the one it had, or the next one nobody has. Listed from here on."""
+def claim(host, keep, port_free, wanted=None):
+    """The port the room at this name always uses: the one it had, the one asked for (wanted), or the next one nobody
+    has. Listed from here on."""
     listed = rooms()
     keep = str(Path(keep).expanduser().resolve())
     for other, r in listed.items():
@@ -85,9 +86,14 @@ def claim(host, keep, port_free):
     if host in listed:
         if listed[host]["keep"] != keep:
             sys.exit(f"{host} is the room in {listed[host]['keep']}: pick another name, or shellphone tunnel remove {host} first")
+        if wanted is not None and wanted != listed[host]["port"]:
+            listed[host]["port"] = wanted
+            save_rooms(listed)
         return listed[host]["port"]
     used = {r["port"] for r in listed.values()}
-    port = next(p for p in range(FIRST_PORT, 65000) if p not in used and port_free(p))
+    if wanted is not None and wanted in used:
+        sys.exit(f"port {wanted} is already another listed room's (shellphone tunnel list)")
+    port = wanted if wanted is not None else next(p for p in range(FIRST_PORT, 65000) if p not in used and port_free(p))
     listed[host] = {"port": port, "keep": keep}
     save_rooms(listed)
     return port
