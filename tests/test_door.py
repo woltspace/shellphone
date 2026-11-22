@@ -42,7 +42,7 @@ class Doorway(unittest.TestCase):
         return got
 
     def get(self, path="/enter", host=NAME, extra=""):
-        return self.send(f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: keep-alive\r\n{extra}\r\n".encode())
+        return self.send(f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: keep-alive\r\n{extra}\r\n".encode("latin-1"))
 
     def cookie(self):
         return f"Cookie: spo={self.out.host_token}\r\n"
@@ -228,6 +228,87 @@ class Doorway(unittest.TestCase):
         for raw in (f"GET /api/state HTTP/1.1\r\nHost: {NAME}\r\nCookie: spo=a\r\nCookie: spo=b\r\n\r\n",
                     f"GET //api/state HTTP/1.1\r\nHost: {NAME}\r\n\r\n", f"GET http://127.0.0.1/api/state HTTP/1.1\r\nHost: {NAME}\r\n\r\n"):
             self.assertEqual(self.status(self.send(raw.encode())), 400)
+
+    def other_door(self, name, is_room=lambda host, port: True, **kw):
+        path = self.path.with_name(name)
+        door = Door(path, lambda: self.listed, is_room, **kw)
+        self.addCleanup(door.close)
+        self.path = path
+        return door
+
+    def hold(self, raw, times):
+        held = []
+        self.addCleanup(lambda: [s.close() for s in held])
+        for _ in range(times):
+            s = socket.socket(socket.AF_UNIX)
+            s.settimeout(10)
+            s.connect(str(self.path))
+            s.sendall(raw.encode())
+            held.append(s)
+        return held
+
+    def test_strangers_dont_shut_members_out_of_the_page(self):
+        self.other_door("p.sock", strangers=2)
+        self.hold(f"POST /api/enter HTTP/1.1\r\nHost: {NAME}\r\nContent-Length: 100\r\n\r\n", 4)
+        time.sleep(0.5)
+        self.assertEqual(self.status(self.get("/")), 503)  # the strangers' places are full
+        for where in ("/", "/index.html", "/enter"):
+            self.assertEqual(self.status(self.get(where, extra=self.cookie())), 200, where)
+
+    def test_an_old_cookie_still_gets_the_join_page(self):
+        self.assertEqual(self.status(self.get("/", extra="Cookie: spo=from-before\r\n")), 200)
+
+    def test_a_hung_room_fills_only_its_own_share_of_the_door(self):
+        hung = threading.Event()
+        self.addCleanup(hung.set)
+        other = "other.example.com"
+        self.listed = {**self.listed, other: self.listed[NAME]}
+        self.other_door("h2.sock", lambda host, port: host == other or not hung.wait(4), each_name=6, checks=2, total=20)
+        self.hold(f"GET /api/state HTTP/1.1\r\nHost: {NAME}\r\nCookie: spo=junk\r\n\r\n", 60)
+        time.sleep(0.5)
+        self.assertNotEqual(self.status(self.get(host=other)), 503)
+
+    def test_a_room_that_couldnt_be_asked_is_never_a_no(self):
+        self.other_door("a.sock", takes=lambda *a: None)
+        for where, extra in (("/lodge/messages", "Authorization: Bearer k\r\n"), ("/api/state", "Cookie: spo=k\r\n"), ("/", "Cookie: spo=k\r\n")):
+            self.assertEqual(self.status(self.get(where, extra=extra)), 503, where)
+
+    def test_the_rooms_own_trouble_is_not_a_no(self):
+        from shellphone.door import room_takes
+        class Broken(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+            def do_GET(self):
+                self.send_response(500)
+                self.end_headers()
+        broken = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Broken)
+        threading.Thread(target=broken.serve_forever, daemon=True).start()
+        self.addCleanup(broken.server_close)
+        self.addCleanup(broken.shutdown)
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            closed = s.getsockname()[1]
+        for port in (broken.server_address[1], closed):
+            for agent in (True, False):
+                self.assertIsNone(room_takes(NAME, port, b"k", agent))
+        for agent in (True, False):
+            self.assertIs(room_takes(NAME, self.server.server_address[1], b"k", agent), False)
+
+    def test_too_slow_is_said(self):
+        self.other_door("l.sock", hand_in_seconds=1)
+        s = self.hold(f"POST /api/enter HTTP/1.1\r\nHost: {NAME}\r\nContent-Length: 100\r\n\r\n", 1)[0]
+        self.assertEqual(self.status(s.recv(65536)), 408)
+
+    def test_one_key_cant_fill_its_room(self):
+        self.other_door("k.sock", each_key=3, inside=6)
+        key, _ = self.agent()
+        self.hold(f"POST /lodge/files?name=x HTTP/1.1\r\nHost: {NAME}\r\nAuthorization: Bearer {key}\r\nContent-Length: 1000\r\n\r\n", 8)
+        time.sleep(1)
+        self.assertEqual(self.status(self.get("/lodge/history", extra=f"Authorization: Bearer {key}\r\n")), 503)
+        self.assertEqual(self.status(self.get("/api/state?after=0", extra=self.cookie())), 200)
+
+    def test_the_key_is_read_as_the_room_reads_it(self):
+        self.assertEqual(self.status(self.get("/api/state?after=0", extra=f"Cookie: a=b;\xa0spo={self.out.host_token}\r\n")), 200)
 
     def test_only_one_door_at_a_time(self):
         with self.assertRaises(SystemExit):

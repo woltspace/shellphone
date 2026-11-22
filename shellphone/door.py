@@ -7,13 +7,16 @@ Without a key there is only what it takes to get in: the join page, which reads 
 handing a key or a join code in, a few KB in a few seconds. So only someone who is in can upload, and they can take
 their time. Listing a room restarts nothing. A socket in ~/.shellphone rather than a port: no other program can come
 to own it."""
-import contextlib, http.client, os, socket, threading, time
+import contextlib, hashlib, http.client, os, socket, threading, time
 
 HEAD_LIMIT, HEAD_SECONDS = 65536, 10
 HAND_IN_LIMIT, HAND_IN_SECONDS = 4096, 5  # a key or a join code
 BODY_IDLE = 120  # someone who is in, sending nothing at all: gone
 LINGER_SECONDS, LINGER_LIMIT = 0.5, 262144  # after the door's own answer, what is let run out unread
-ALL_CONNECTIONS = 1024
+ALL_CONNECTIONS = 1600
+# everything in flight for one name that carries a key, those waiting included: one hung room can't fill the door.
+EACH_NAME, EACH_KEY = 200, 64  # and one person or agent can't fill their room
+LINGERING = 32
 # each room's own places, so a crowd at one name takes nothing from another; strangers take none from the people inside.
 # strangers are sent off at once when theirs are full, people who are in wait a moment for one
 STRANGERS, CHECKS, INSIDE = 24, 32, 128
@@ -35,21 +38,21 @@ def _answer(conn, status, kind, body, linger=True):
             dropped += len(data)
 
 
-def _refuse(conn, status, text, linger=True):
+def _refuse(conn, status, text, linger=False):
     _answer(conn, status, "text/plain; charset=utf-8", f"{text}\n".encode(), linger)
 
 
-def _no_key(conn, path):
+def _no_key(conn, path, linger=False):
     """What the room itself says to nobody's key: the app and an agent's connector know these answers."""
     agent = path.startswith(b"/lodge/")
     body = b'{"error": "unknown lodge key"}' if agent else b'{"error": "not on this room\'s list"}'
-    _answer(conn, "401 Unauthorized" if agent else "403 Forbidden", "application/json", body)
+    _answer(conn, "401 Unauthorized" if agent else "403 Forbidden", "application/json", body, linger)
 
 
 def _request(head):
     """(the name asked for, the head to pass on) or None for anything two readers could read two ways."""
     lines = head.split(b"\r\n")
-    if any(b"\r" in x or b"\n" in x for x in lines) or len(lines[0].split(b" ")) != 3:
+    if any((c < 32 and c != 9) or c == 127 for x in lines for c in x) or len(lines[0].split(b" ")) != 3:
         return None
     kept, hosts, once = [lines[0]], [], set()
     for line in lines[1:]:
@@ -94,8 +97,8 @@ def _body_size(head):
 
 
 def _bearer(head):
-    auth = _header(head, b"authorization")
-    return auth[7:].strip() if auth.startswith(b"Bearer ") else b""
+    auth = _header(head, b"authorization").decode("latin-1")  # read as the room reads it, whatever the spaces are
+    return auth[7:].strip() if auth.startswith("Bearer ") else ""
 
 
 def _door_key(head, path):
@@ -103,25 +106,27 @@ def _door_key(head, path):
     else, all the others a person's cookie and nothing else. So a key for the one opens nothing of the other."""
     if path.startswith(b"/lodge/"):
         key = _bearer(head)
-    else:  # the last one wins, as it does in the room
-        jar = dict(c.strip().split(b"=", 1) for c in _header(head, b"cookie").split(b";") if b"=" in c)
-        key = jar.get(b"spo", b"")
-    return key if key and len(key) < 513 and all(33 <= c < 127 and c not in b';,"\\' for c in key) else b""
+    else:
+        cookie = _header(head, b"cookie").decode("latin-1")
+        key = dict(c.strip().split("=", 1) for c in cookie.split(";") if "=" in c).get("spo", "")
+    return key.encode("latin-1") if key and len(key) < 513 and all(33 <= ord(c) < 127 and c not in ';,"\\' for c in key) else b""
 
 
 def room_takes(host, port, key, agent):
-    """Whether the room takes this key right now, asked by routes every room has, which change nothing. An agent's key
-    gets "no such route" (404), or "you're paused" (403); anyone else's 401. A person's gets the app's manifest."""
-    path, headers, yes = (("/lodge/door", {"Authorization": b"Bearer " + key}, (403, 404)) if agent
-                          else ("/manifest.webmanifest", {"Cookie": b"spo=" + key}, (200,)))
+    """Whether the room takes this key right now: True, False, or None when it couldn't be asked. Only the room's own
+    refusal is a no: "couldn't ask" mistaken for one tells an agent to leave for good. Asked by routes every room has,
+    which change nothing. An agent's key gets "no such route" (404), or "you're paused" (403); anyone else's 401. A
+    person's gets the app's manifest; anyone else's 403."""
+    path, headers, yes, no = (("/lodge/door", {"Authorization": b"Bearer " + key}, (403, 404), (401,)) if agent
+                              else ("/manifest.webmanifest", {"Cookie": b"spo=" + key}, (200,), (401, 403)))
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=TURN_SECONDS)
     try:
         conn.request("GET", path, headers={"Host": host, **headers})
         res = conn.getresponse()
         res.read()
-        return res.status in yes
+        return True if res.status in yes else False if res.status in no else None
     except (OSError, ValueError, http.client.HTTPException):
-        return False
+        return None
     finally:
         conn.close()
 
@@ -185,9 +190,10 @@ def _to_room(conn, port, head, first, left, idle):
 
 class Door:
     def __init__(self, path, rooms, is_room, takes=room_takes, strangers=STRANGERS, checks=CHECKS, inside=INSIDE,
-                 total=ALL_CONNECTIONS, head_seconds=HEAD_SECONDS, hand_in_seconds=HAND_IN_SECONDS, idle=BODY_IDLE):
+                 total=ALL_CONNECTIONS, each_name=EACH_NAME, each_key=EACH_KEY, head_seconds=HEAD_SECONDS, hand_in_seconds=HAND_IN_SECONDS, idle=BODY_IDLE):
         self.path, self.rooms, self.is_room, self.takes = str(path), rooms, is_room, takes
-        self.sizes = {"strangers": strangers, "checks": checks, "inside": inside}
+        self.sizes = {"strangers": strangers, "checks": checks, "inside": inside, "name": each_name, "lingering": LINGERING}
+        self.each_key, self.by_key = each_key, {}
         self.head_seconds, self.hand_in_seconds, self.idle = head_seconds, hand_in_seconds, idle
         self.places, self.lock, self.slots = {}, threading.Lock(), threading.BoundedSemaphore(total)
         _room_for_connections(3 * total + 64)
@@ -221,6 +227,31 @@ class Door:
             if got:
                 places.release()
 
+    @contextlib.contextmanager
+    def key_place(self, host, key):
+        """One of the few places one key has at a time."""
+        who = (host, hashlib.sha256(key).digest())
+        with self.lock:
+            got = self.by_key.get(who, 0) < self.each_key
+            if got:
+                self.by_key[who] = self.by_key.get(who, 0) + 1
+        try:
+            yield got
+        finally:
+            if got:
+                with self.lock:
+                    self.by_key[who] -= 1
+                    if not self.by_key[who]:
+                        del self.by_key[who]
+
+    def turn_away(self, conn, host, size, say, *what):
+        """Say no. Where a body is on its way, let a little of it run out so the answer arrives: in a few places of
+        their own, never the ones the people inside need."""
+        if not size:
+            return say(conn, *what)
+        with self.place(host, "lingering", wait=0) as free:
+            return say(conn, *what, linger=free)
+
     def handle(self, conn):
         until, got = time.monotonic() + self.head_seconds, b""
         while b"\r\n\r\n" not in got:
@@ -249,37 +280,52 @@ class Door:
         path, port = target.split(b"?", 1)[0].split(b"#", 1)[0], room["port"]
         conn.settimeout(self.idle)
         way = _getting_in(method, path, head_only)
+        key = _door_key(head_only, path)
+        takes, trouble = False, None
+        if key:  # looked at first: someone who is in never waits behind strangers, for the page either
+            with self.place(host, "name", wait=0) as free:
+                if not free:
+                    return _refuse(conn, "503 Service Unavailable", "this room is busy")
+                with self.place(host, "checks") as free:
+                    if not free:
+                        trouble = "this room is busy"
+                    elif not self.is_room(host, port):  # closed, unshared, or something else has its port now: it isn't shown the key
+                        trouble = "this room is offline"
+                    else:
+                        takes = self.takes(host, port, key, path.startswith(b"/lodge/"))
+                        if takes is None:
+                            trouble = "the room didn't answer: try again"
+                if takes and not trouble:
+                    with self.key_place(host, key) as mine:
+                        if not mine:
+                            trouble = "too much at once with this key"
+                        else:
+                            with self.place(host, "inside") as free:
+                                if free:
+                                    first = rest[:size]
+                                    return _to_room(conn, port, head, first, size - len(first), self.idle)
+                                trouble = "this room is busy"
+        if trouble:  # never a 401 or 403: those tell an agent it is out for good
+            return self.turn_away(conn, host, size, _refuse, "503 Service Unavailable", trouble)
         if way:  # no key needed, so never more than it takes to get in
             return self._stranger(conn, host, port, head, rest, size if way == "hand in" else 0, size)
-        key = _door_key(head_only, path)
-        if not key:
-            return _no_key(conn, path)  # nothing is read, and the room never hears of it
-        with self.place(host, "checks") as free:
-            if not free:
-                return _refuse(conn, "503 Service Unavailable", "this room is busy")
-            if not self.is_room(host, port):  # closed, unshared, or something else has its port now: it isn't shown the key
-                return _refuse(conn, "503 Service Unavailable", "this room is offline")
-            if not self.takes(host, port, key, path.startswith(b"/lodge/")):
-                return _no_key(conn, path)
-        with self.place(host, "inside") as free:
-            if not free:
-                return _refuse(conn, "503 Service Unavailable", "this room is busy")
-            first = rest[:size]
-            _to_room(conn, port, head, first, size - len(first), self.idle)
+        return self.turn_away(conn, host, size, _no_key, path)  # nothing more is read, and the room never hears of it
 
     def _stranger(self, conn, host, port, head, rest, allowed, size):
         if size > min(allowed, HAND_IN_LIMIT):
-            return _refuse(conn, "413 Content Too Large", "too much, without a key")
+            return self.turn_away(conn, host, size, _refuse, "413 Content Too Large", "too much, without a key")
         with self.place(host, "strangers", wait=0) as free:
             if not free:
                 return _refuse(conn, "503 Service Unavailable", "this room is busy")
             body, until = rest[:size], time.monotonic() + self.hand_in_seconds
             while len(body) < size:  # all of it here, before the room hears anything
-                spare = until - time.monotonic()
-                if spare <= 0:
+                try:
+                    conn.settimeout(max(0.01, until - time.monotonic()))
+                    data = conn.recv(size - len(body))
+                except TimeoutError:
+                    data = None
+                if data is None or time.monotonic() > until:
                     return _refuse(conn, "408 Request Timeout", "too slow")
-                conn.settimeout(spare)
-                data = conn.recv(size - len(body))
                 if not data:
                     return
                 body += data
