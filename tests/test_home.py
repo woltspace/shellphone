@@ -102,6 +102,33 @@ class Home(unittest.TestCase):
         self.assertIn("b.example.com", settings)
         self.assertEqual(list(home.rooms()), ["b.example.com"])
 
+    def test_a_room_elsewhere_gets_a_name_and_is_never_opened_from_here(self):
+        self.set_up()
+        a = home.claim("a.example.com", self.dir / "a", lambda p: True)
+        add = lambda name, port: home.add(argparse.Namespace(hostname=name, port=port))
+        add("box", 4501)
+        self.assertEqual(home.rooms()["box.example.com"], {"port": 4501, "keep": None})
+        self.assertIn("  - hostname: box.example.com\n    service: http://127.0.0.1:4501\n", (home.home() / home.SETTINGS).read_text())
+        for name, port in (("other", 4501), ("a", 4502), ("box.elsewhere.org", 4503), ("low", 80)):  # its port, a room here, not our domain, not a port for this
+            with self.assertRaises(SystemExit):
+                add(name, port)
+        with self.assertRaises(SystemExit) as got:  # a room here can't take the name either
+            home.claim("box.example.com", self.dir / "b", lambda p: True)
+        self.assertIn("elsewhere", str(got.exception))
+        add("box", 4510)  # moving it is just adding it again
+        self.assertEqual(home.rooms()["box.example.com"]["port"], 4510)
+        opened = []
+        with patch.object(home, "_cloudflared", lambda: "cloudflared"), patch("shellphone.cli.open_rooms", lambda: []), \
+             patch.object(home.subprocess, "Popen", lambda cmd, **kw: opened.append(cmd) or (_ for _ in ()).throw(KeyboardInterrupt)), \
+             patch.object(home.signal, "signal", lambda *a: None):
+            (self.dir / "a").mkdir()
+            try:
+                home.run(argparse.Namespace())
+            except KeyboardInterrupt:
+                pass
+        self.assertEqual(len(opened), 1)
+        self.assertIn(str((self.dir / "a").resolve()), opened[0])  # only the room kept here
+
     def test_what_is_kept_is_private(self):
         self.set_up()
         home.claim("a.example.com", self.dir / "a", lambda p: True)

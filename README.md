@@ -131,6 +131,18 @@ screen from there; on this address that's safe. `shellphone tunnel list` shows y
 `shellphone tunnel remove demo` takes one off the tunnel. Everything is kept in `~/.shellphone`, apart from any other
 tunnel on the computer.
 
+**A room in a container.** Keep the tunnel on this computer, so the container holds no Cloudflare credentials. Inside
+the container, the room listens on all of the container's addresses and is published only on this computer:
+
+```bash
+docker run ... -p 127.0.0.1:4501:4501 ...                         # the container publishes the room's port here only
+SHELLPHONE_BIND=0.0.0.0 shellphone room --keep DIR --port 4501 --hostname box.example.com --share   # inside it
+uvx shellphone tunnel add box --port 4501                         # here: box.example.com goes to that port
+```
+
+`tunnel add` lists the name without opening anything here (`tunnel run` leaves it to the container). Give each container
+a Docker network of its own if other containers shouldn't reach the room's port; they'd still need a key.
+
 Already running a tunnel of your own? Give `--hostname` the whole name (`shell.example.com`) and send that name to the
 room's `--port` yourself.
 

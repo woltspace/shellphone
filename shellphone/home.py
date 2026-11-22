@@ -39,7 +39,7 @@ def config():
 
 def rooms():
     got = _read(ROOMS, {})
-    return {h: r for h, r in got.items() if isinstance(r, dict) and isinstance(r.get("port"), int) and isinstance(r.get("keep"), str)} if isinstance(got, dict) else {}
+    return {h: r for h, r in got.items() if isinstance(r, dict) and isinstance(r.get("port"), int) and (r.get("keep") is None or isinstance(r.get("keep"), str))} if isinstance(got, dict) else {}
 
 
 def settings_text(conf, listed):
@@ -101,7 +101,8 @@ def _claim(host, keep, port_free, wanted):
             sys.exit(f"the room in {keep} is already at {other}: one address per room (shellphone tunnel remove {other} first)")
     if host in listed:
         if listed[host]["keep"] != keep:
-            sys.exit(f"{host} is the room in {listed[host]['keep']}: pick another name, or shellphone tunnel remove {host} first")
+            where = f"the room in {listed[host]['keep']}" if listed[host]["keep"] else f"listed for a room elsewhere (port {listed[host]['port']})"
+            sys.exit(f"{host} is {where}: pick another name, or shellphone tunnel remove {host} first")
     used = {r["port"] for h, r in listed.items() if h != host}  # every other listed room's port
     if wanted is not None and wanted in used:
         sys.exit(f"port {wanted} is already another listed room's (shellphone tunnel list)")
@@ -164,7 +165,28 @@ def listing(a):
     open_ports = {r["port"] for r in open_rooms()}
     print(f"Tunnel {conf['name']!r} for *.{conf['domain']}" + ("" if listed else ": no rooms listed yet"))
     for host, r in sorted(listed.items()):
-        print(f"  https://{host}   port {r['port']}   {'open' if r['port'] in open_ports else 'closed'}   {r['keep']}")
+        state = ('open' if r['port'] in open_ports else 'closed') if r["keep"] else "elsewhere"
+        print(f"  https://{host}   port {r['port']}   {state}   {r['keep'] or '(tunnel add: not opened from here)'}")
+
+
+def add(a):
+    """A name for a room this computer doesn't open itself (one in a container, publishing its port on 127.0.0.1): the
+    tunnel sends the name to that port. Nothing else is listed there, and nothing here reopens it."""
+    host = full_name(a.hostname)
+    if not ours(host):
+        sys.exit(f"{host} isn't under the domain set up here (shellphone tunnel list)")
+    if not 1024 <= a.port <= 65535:
+        sys.exit("--port is a port from 1024 to 65535")
+    with registry():
+        listed = rooms()
+        if host in listed and listed[host]["keep"]:
+            sys.exit(f"{host} is the room in {listed[host]['keep']} on this computer: shellphone tunnel remove {host} first")
+        if any(r["port"] == a.port for h, r in listed.items() if h != host):
+            sys.exit(f"port {a.port} is already another listed room's (shellphone tunnel list)")
+        listed[host] = {"port": a.port, "keep": None}
+        save_rooms(listed)
+    print(f"https://{host} now leads to http://127.0.0.1:{a.port} (the tunnel picks that up in a moment). Open the room there "
+          f"with --hostname {host} so its links use that address.")
 
 
 def remove(a):
@@ -196,7 +218,7 @@ def run(a):
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
     open_ports = {r["port"] for r in open_rooms()}
     for host, r in rooms().items():  # every listed room comes back, at its own address
-        if r["port"] not in open_ports and Path(r["keep"]).is_dir():
+        if r["keep"] and r["port"] not in open_ports and Path(r["keep"]).is_dir():  # not the ones added for rooms elsewhere
             with open(logs / f"{host}.log", "a") as log:
                 subprocess.Popen(_room_cmd(host, r), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             print(f"opened https://{host}", flush=True)

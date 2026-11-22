@@ -117,6 +117,13 @@ class Asked(unittest.TestCase):
             cli.room(a)
         return str(got.exception)
 
+    def test_a_room_listens_on_this_computer_unless_told_its_in_a_container(self):
+        self.assertEqual(cli.bind_address(), "127.0.0.1")
+        with patch.dict("os.environ", {"SHELLPHONE_BIND": "0.0.0.0"}):
+            self.assertEqual(cli.bind_address(), "0.0.0.0")
+        with patch.dict("os.environ", {"SHELLPHONE_BIND": "192.168.1.5"}), self.assertRaises(SystemExit):
+            cli.bind_address()
+
     def test_it_needs_a_kept_room_a_real_name_and_its_own_port(self):
         self.assertIn("--keep", self.room())
         self.assertIn("a name like", self.room(hostname="not_a.name", keep="/tmp/x"))

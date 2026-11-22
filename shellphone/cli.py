@@ -131,6 +131,15 @@ def sweep():
             continue
 
 
+def bind_address():
+    """Where the room listens: this computer only. SHELLPHONE_BIND=0.0.0.0 is for a room inside a container, so the
+    container's published port (docker run -p 127.0.0.1:P:P) reaches it; the keys still guard every door."""
+    addr = os.environ.get("SHELLPHONE_BIND", "127.0.0.1")
+    if addr not in ("127.0.0.1", "0.0.0.0"):
+        sys.exit(f"SHELLPHONE_BIND is 127.0.0.1 (the default) or 0.0.0.0 (inside a container), not {addr!r}")
+    return addr
+
+
 def free_port(wanted):
     for port in (wanted, 0):
         with socket.socket() as s:
@@ -173,7 +182,7 @@ def start(a, token=None):
     with r.tx() as c:  # one agent link per run; a kept room's old link stops working
         c.execute("delete from invites where owner = ? and expires is null", (HOST_EMAIL,))
         c.execute("insert into invites (code_hash, owner, expires, once) values (?, ?, null, 0)", (r.key_hash(code), HOST_EMAIL))
-    server = r.http.server.ThreadingHTTPServer(("127.0.0.1", port), r.Handler)
+    server = r.http.server.ThreadingHTTPServer((bind_address(), port), r.Handler)
     server.daemon_threads = True
     return r, data, url, token, code, server
 
@@ -951,13 +960,16 @@ def main():
     s.add_argument("--via", choices=list(WAYS), help="how the room is shared: relay (the default: sealed messages through the site, text only) or tunnel (experimental: a Cloudflare quick tunnel, with voice and files; needs cloudflared)")
     s.add_argument("--relay", help=argparse.SUPPRESS)  # share through another site than the usual one (testing)
     s.add_argument("--hostname", metavar="NAME", help="share at a fixed address of your own (e.g. shell.example.com), through a named Cloudflare tunnel you run; needs --keep and a fixed --port")
-    s = sub.add_parser("tunnel", help="rooms at addresses of your own: one named Cloudflare tunnel for a domain of yours (setup | run | list | remove)")
+    s = sub.add_parser("tunnel", help="rooms at addresses of your own: one named Cloudflare tunnel for a domain of yours (setup | run | list | add | remove)")
     t = s.add_subparsers(dest="tcmd", required=True)
     x = t.add_parser("setup", help="once: make the tunnel and point *.DOMAIN at it (after: cloudflared tunnel login)")
     x.add_argument("--domain", required=True, help="e.g. example.com: rooms get demo.example.com")
     x.add_argument("--name", default="shellphone", help="the tunnel's name in your Cloudflare account (default shellphone)")
     t.add_parser("run", help="keep the tunnel up, and open the listed rooms")
     t.add_parser("list", help="the rooms at addresses of your own, and whether each is open")
+    x = t.add_parser("add", help="list a name for a room that runs elsewhere on this computer (e.g. in a container publishing PORT on 127.0.0.1)")
+    x.add_argument("hostname")
+    x.add_argument("--port", type=int, required=True, help="the port on this computer the tunnel sends the name to")
     x = t.add_parser("remove", help="take a room's address off the tunnel")
     x.add_argument("hostname")
     s = sub.add_parser("invite", help="a new invite for people to the shared room on this computer: a link that ends, or is for one person. --end ends the open ones")
@@ -1000,7 +1012,7 @@ def main():
 
 def tunnel(a):
     from . import home
-    {"setup": home.setup, "run": home.run, "list": home.listing, "remove": home.remove}[a.tcmd](a)
+    {"setup": home.setup, "run": home.run, "list": home.listing, "add": home.add, "remove": home.remove}[a.tcmd](a)
 
 
 if __name__ == "__main__":
