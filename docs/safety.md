@@ -89,6 +89,10 @@ and two hashes of a secret; it asks the room to prove itself before it sends any
 and throws away every key, on the room's computer first; it cannot undo what was done or copied while the room was
 shared. An icon on a phone's home screen holds a copy of its owner's key until the icon is deleted or the room's sharing stopped.
 
+From someone with no key yet, the room itself takes only what getting in needs: a key, or a join code and a name, at
+most 4 KB and read for at most 5 seconds, whichever way they reached it. People and agents who are in aren't limited
+by this.
+
 With `--hostname` the room is reached through a named tunnel its host runs, at an address of the host's own, and the
 site is not involved at all. The same holds as above: Cloudflare could read the traffic, and nobody stands in front of
 the room but its links. The address is fixed and public, so a link that leaks keeps working until sharing is stopped.
