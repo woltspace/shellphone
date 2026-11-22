@@ -5,7 +5,7 @@
 tunnel's settings. `shellphone tunnel run` keeps the tunnel up, restarts it when a room is added or removed, and opens
 the listed rooms when it starts (at login, with `shellphone tunnel startup`). Everything lives in ~/.shellphone (or
 $SHELLPHONE_HOME): nothing here is anyone's in particular."""
-import json, os, plistlib, re, shutil, signal, subprocess, sys, time
+import contextlib, fcntl, json, os, plistlib, re, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
 CONFIG, ROOMS, SETTINGS = "home.json", "rooms.json", "tunnel.yml"
@@ -75,9 +75,26 @@ def ours(host):
     return bool(conf) and (host == conf["domain"] or host.endswith("." + conf["domain"]))
 
 
+@contextlib.contextmanager
+def registry():
+    """The list of rooms, read and written by one command at a time: two rooms opening at once never get one port,
+    and neither loses the other's line."""
+    with open(home() / ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def claim(host, keep, port_free, wanted=None):
     """The port the room at this name always uses: the one it had, the one asked for (wanted), or the next one nobody
     has. Listed from here on."""
+    with registry():
+        return _claim(host, keep, port_free, wanted)
+
+
+def _claim(host, keep, port_free, wanted):
     listed = rooms()
     keep = str(Path(keep).expanduser().resolve())
     for other, r in listed.items():
@@ -86,13 +103,18 @@ def claim(host, keep, port_free, wanted=None):
     if host in listed:
         if listed[host]["keep"] != keep:
             sys.exit(f"{host} is the room in {listed[host]['keep']}: pick another name, or shellphone tunnel remove {host} first")
-        if wanted is not None and wanted != listed[host]["port"]:
+    used = {r["port"] for h, r in listed.items() if h != host}  # every other listed room's port
+    if wanted is not None and wanted in used:
+        sys.exit(f"port {wanted} is already another listed room's (shellphone tunnel list)")
+    if host in listed:
+        if wanted is not None and wanted != listed[host]["port"]:  # moving to another port: only to one nobody has, checked before anything is written
+            if not port_free(wanted):
+                sys.exit(f"port {wanted} is taken on this computer")
             listed[host]["port"] = wanted
             save_rooms(listed)
         return listed[host]["port"]
-    used = {r["port"] for r in listed.values()}
-    if wanted is not None and wanted in used:
-        sys.exit(f"port {wanted} is already another listed room's (shellphone tunnel list)")
+    if wanted is not None and not port_free(wanted):
+        sys.exit(f"port {wanted} is taken on this computer")
     port = wanted if wanted is not None else next(p for p in range(FIRST_PORT, 65000) if p not in used and port_free(p))
     listed[host] = {"port": port, "keep": keep}
     save_rooms(listed)
@@ -147,11 +169,13 @@ def listing(a):
 
 
 def remove(a):
-    host, listed = full_name(a.hostname), rooms()
-    if host not in listed:
-        sys.exit(f"{host} isn't listed here (shellphone tunnel list)")
-    del listed[host]
-    save_rooms(listed)
+    host = full_name(a.hostname)
+    with registry():
+        listed = rooms()
+        if host not in listed:
+            sys.exit(f"{host} isn't listed here (shellphone tunnel list)")
+        del listed[host]
+        save_rooms(listed)
     print(f"{host} no longer leads here (the tunnel picks that up in a moment). The room itself is untouched: close it with "
           f"shellphone stop --port <its port>, and stop sharing it for good with shellphone share --stop.")
 
@@ -188,8 +212,7 @@ def run(a):
                 continue
             if proc and now != seen:  # a room was added or removed: the tunnel takes its new settings on a restart
                 print("rooms changed: restarting the tunnel", flush=True)
-                proc.terminate()
-                proc.wait(10)
+                _end(proc)
                 proc = None
             if proc is None or proc.poll() is not None:
                 if proc is not None:  # it ended by itself: wait a little longer each time before the next
@@ -206,8 +229,19 @@ def run(a):
     except KeyboardInterrupt:
         pass
     finally:
-        if proc and proc.poll() is None:
-            proc.terminate()
+        if proc:
+            _end(proc)
+
+
+def _end(proc, grace=10):
+    """Stop the tunnel's program, and wait until it is gone: killed if it doesn't stop by itself in time."""
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(grace)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
 def startup(a):

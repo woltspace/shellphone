@@ -1,6 +1,6 @@
 """Rooms at addresses of your own (shellphone/home.py): names under the domain set up here, a port each that is kept,
 and the tunnel's settings that list exactly those. No cloudflared and no network: the setup is written as `setup` would."""
-import argparse, json, os, sys, tempfile, unittest
+import argparse, json, os, subprocess, sys, tempfile, threading, time, unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -57,6 +57,39 @@ class Home(unittest.TestCase):
             home.claim("other.example.com", self.dir / "a", lambda p: True)
         with self.assertRaises(SystemExit):
             home.claim("a.example.com", self.dir / "b", lambda p: True)
+
+    def test_a_listed_room_cant_move_onto_another_rooms_port(self):
+        self.set_up()
+        a = home.claim("a.example.com", self.dir / "a", lambda p: True)
+        b = home.claim("b.example.com", self.dir / "b", lambda p: True)
+        before = (home.home() / home.SETTINGS).read_text()
+        with self.assertRaises(SystemExit):
+            home.claim("a.example.com", self.dir / "a", lambda p: True, b)
+        with self.assertRaises(SystemExit):  # nor onto a port something else on this computer has
+            home.claim("a.example.com", self.dir / "a", lambda p: False, b + 1)
+        self.assertEqual({h: r["port"] for h, r in home.rooms().items()}, {"a.example.com": a, "b.example.com": b})
+        self.assertEqual((home.home() / home.SETTINGS).read_text(), before)
+
+    def test_rooms_opening_at_once_get_ports_of_their_own_and_both_stay_listed(self):
+        self.set_up()
+        read = home.rooms
+        def slow():  # every reader dawdles between reading the list and writing it back: without the lock, both get one port
+            got = read()
+            time.sleep(0.3)
+            return got
+        got = {}
+        with patch.object(home, "rooms", slow):
+            ts = [threading.Thread(target=lambda n=n: got.__setitem__(n, home.claim(f"{n}.example.com", self.dir / n, lambda p: True))) for n in ("a", "b")]
+            [t.start() for t in ts]
+            [t.join() for t in ts]
+        self.assertNotEqual(got["a"], got["b"])
+        self.assertEqual(sorted(home.rooms()), ["a.example.com", "b.example.com"])
+
+    def test_a_tunnel_that_wont_stop_is_killed_not_left_to_end_the_watch(self):
+        proc = subprocess.Popen([sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print(flush=True); time.sleep(60)"], stdout=subprocess.PIPE)
+        proc.stdout.readline()  # it ignores being asked to stop from here on
+        home._end(proc, grace=0.5)
+        self.assertIsNotNone(proc.poll())
 
     def test_removing_a_name_takes_it_off_the_tunnel(self):
         self.set_up()
