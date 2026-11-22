@@ -126,7 +126,8 @@ uvx shellphone room --keep ~/rooms/demo --hostname demo --share     # at https:/
 
 The room gets a port of its own, which it keeps, and `demo.example.com` starts leading to it without restarting the
 tunnel. Every request is checked: a name is served only while that shared room is what answers on its port, so a
-closed or unshared room's name shows nothing else. `tunnel run` opens the listed rooms when it starts; one you close
+closed or unshared room's name shows nothing else. And it needs a key that room accepts: without one there is only
+the join page and handing a key or join code in (4 KB, 5 seconds), so only someone who is in can upload. `tunnel run` opens the listed rooms when it starts; one you close
 later stays closed. Names are one level under your domain. The room prints your
 own link (`https://demo.example.com/enter#k.…`) and an invite. Open your link on your phone and add it to the home
 screen from there; on this address that's safe. `shellphone tunnel list` shows your rooms, and
