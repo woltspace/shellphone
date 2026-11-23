@@ -555,33 +555,55 @@ def notify(m):
     if not pywebpush:
         return
     try:
-        pem, _ = vapid()
         people = {r["email"]: r["name"] for r in q("select email, name from people")}
         who = m.get("wolt") or people.get(m.get("email"), "someone")
         who += " 🧵" if m.get("thread") else ""
-        body = json.dumps({"title": who, "body": (m.get("text") or f"📎 {m['files'][0]['name']}" + (f" +{len(m['files']) - 1}" if len(m["files"]) > 1 else ""))[:180], "tag": m["id"],
-                           "url": f"./#m={m['id']}" + (f"&t={m['thread']}" if m.get("thread") else "")})  # a tap lands on this message
-        for row in q("select * from push"):
-            if row["at"]:  # signed up through a tunnel: at the address the room has now, or at one it no longer has?
-                with tx() as c:  # asked now, for this row, with the removal: never from a look taken before the rows were read. A tunnel may have changed in between, and a phone signed up at its new address
-                    now_at = OUTSIDE.host if OUTSIDE and OUTSIDE.open and OUTSIDE.host else None
-                    gone = row["at"] != now_at
-                    if gone:  # that app opens nothing any more; its person signs up again at the new address. Only this sign-up as it was read: one made again since, at another address, stays
-                        c.execute("delete from push where endpoint = ? and at = ?", (row["endpoint"], row["at"]))
-                if gone:
-                    continue
-            if row["email"] == m.get("email") or time.time() - ACTIVE.get(row["email"], 0) < 15:
-                continue
-            try:
-                pywebpush.webpush(json.loads(row["sub"]), body, vapid_private_key=pem, vapid_claims={"sub": push_contact(row["email"])}, ttl=3600)
-            except pywebpush.WebPushException as exc:
-                if exc.response is not None and exc.response.status_code in (404, 410):  # that phone unsubscribed
-                    with tx() as c:
-                        c.execute("delete from push where endpoint = ?", (row["endpoint"],))
-                else:
-                    print(f"push failed: {exc}", flush=True)
+        push_all({"title": who, "body": (m.get("text") or f"📎 {m['files'][0]['name']}" + (f" +{len(m['files']) - 1}" if len(m["files"]) > 1 else ""))[:180], "tag": m["id"],
+                  "url": f"./#m={m['id']}" + (f"&t={m['thread']}" if m.get("thread") else "")}, m.get("email"))  # a tap lands on this message
     except Exception as exc:
         print(f"push failed: {exc}", flush=True)
+
+
+def joined(name, skip=None, agent_of=None):
+    """Someone new is in the room: a guest who came in by an invite, or an agent that signed itself up. Everyone with
+    notifications on hears it, whether or not they are looking at the room just then, except skip: the guest
+    themself, or the human whose agent it is (they sent it)."""
+    if not pywebpush:
+        return
+    def send():
+        try:
+            people = {r["email"]: r["name"] for r in q("select email, name from people")}
+            text = f"{name} joined" + (f" ({people.get(agent_of, 'someone')}'s agent)" if agent_of else "")
+            push_all({"title": "shellphone", "body": text[:180], "tag": f"joined-{skip or name}", "url": "./"}, skip, look=False)
+        except Exception as exc:
+            print(f"push failed: {exc}", flush=True)
+    threading.Thread(target=send, daemon=True).start()
+
+
+def push_all(note, sender=None, look=True):
+    """Send one notification to every phone signed up, except the sender's. look: skip anyone looking at the room now."""
+    pem, _ = vapid()
+    body = json.dumps(note)
+    for row in q("select * from push"):
+        if row["at"]:  # signed up through a tunnel: at the address the room has now, or at one it no longer has?
+            with tx() as c:  # asked now, for this row, with the removal: never from a look taken before the rows were read. A tunnel may have changed in between, and a phone signed up at its new address
+                now_at = OUTSIDE.host if OUTSIDE and OUTSIDE.open and OUTSIDE.host else None
+                gone = row["at"] != now_at
+                if gone:  # that app opens nothing any more; its person signs up again at the new address. Only this sign-up as it was read: one made again since, at another address, stays
+                    c.execute("delete from push where endpoint = ? and at = ?", (row["endpoint"], row["at"]))
+            if gone:
+                continue
+        if row["email"] == sender or (look and time.time() - ACTIVE.get(row["email"], 0) < 15):
+            continue
+        try:
+            pywebpush.webpush(json.loads(row["sub"]), body, vapid_private_key=pem, vapid_claims={"sub": push_contact(row["email"])}, ttl=3600)
+        except pywebpush.WebPushException as exc:
+            if exc.response is not None and exc.response.status_code in (404, 410):  # that phone unsubscribed
+                with tx() as c:
+                    c.execute("delete from push where endpoint = ?", (row["endpoint"],))
+            else:
+                print(f"push failed: {exc}", flush=True)
+
 
 
 def save_upload(name, blob):
@@ -1293,6 +1315,8 @@ def join_wolt(code_hash, data, door=None):
         keep_main(c)
         if inv["once"]:  # codes from the join page work once
             c.execute("delete from invites where code_hash = ?", (code_hash,))
+    if not taken:  # new to the room; one joining again with a fresh key isn't news
+        joined(wolt, skip=inv["owner"], agent_of=inv["owner"])
     return reply(200, {"key": key, "wolt": wolt, "owner": inv["owner"], "voice": voice})
 
 
