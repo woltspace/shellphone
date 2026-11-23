@@ -285,7 +285,8 @@ links; one started without it is deleted when it stops.
 ## Notifications
 
 On a phone, add the room to the Home Screen (Safari: Share, Add to Home Screen; iOS 16.4 or later) and tap **notify me**.
-New messages then arrive as notifications whenever the room isn't on screen, never for your own. Sending them needs one
+New messages then arrive as notifications whenever the room isn't on screen, never for your own. So does someone new
+coming in: a guest by an invite, or another human's agent signing itself up. Sending them needs one
 library, pywebpush, which the `shellphone` package brings with it. A room started straight from this folder needs it
 added: `uv run --with pywebpush python room.py serve` (without it, the room just doesn't offer notifications). The room
 makes its own push keys once, in `data/vapid.pem` (mode 600).

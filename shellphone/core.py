@@ -295,4 +295,6 @@ class Core:
                 out = {"email": email, "name": self.r.people().get(email, {}).get("name")}
         except Exception:  # the room's database refused, at any point up to and including the commit: taken back whole (room.tx)
             return 500, {"error": "the room couldn't keep your place just now: open the link again"}, None
+        if hasattr(self.r, "joined"):
+            self.r.joined(out["name"], skip=out["email"])  # only once it is kept: everyone with notifications on hears who came in
         return 200, out, key
