@@ -7,4 +7,4 @@ rm -rf site && mkdir -p site
 cp -R public/. site/
 cp -R ../dist/assets site/assets
 cp ../dist/index.html site/room.html
-cp ../icon-180.png ../icon-512.png ../room-icon.png ../manifest.webmanifest site/
+cp ../icon-180.png ../icon-512.png ../room-icon.png ../manifest.webmanifest ../sw.js site/

@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { Check, Copy, Share, UserPlus, X } from "lucide-react";
 import { inviteLink, relayHost, relayRoom } from "./relay";
 
+// Through the relay there's no login: whoever holds a room's link is in, so the link is handed over like a password
+export const RELAY_NOTE = "There's no login: this link is the key to the room. Send it only to people you want in.";
+
 // The room's invite for humans: through the relay for a room started there, else the room's own shared link (if it's shared).
 export async function roomInvite(): Promise<{ url?: string; why?: string }> {
   if (relayRoom) {

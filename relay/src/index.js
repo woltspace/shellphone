@@ -26,7 +26,7 @@ const PING = '{"ping":1}', PONG = '{"pong":1}';
 const CLAIM = /^[A-Za-z0-9_-]{43}$/;   // what a host shows to prove a room is its own: a hash only the host's link can make (see Room.fetch)
 const INSTANCE = /^[A-Za-z0-9_-]{22}$/;  // names the host's process: its own reconnect is let in at once
 const DESK_WAIT = 10 * 1000;           // how long a room waits for the desk's answer to a report before counting it as not given
-const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up))?$/;
+const ROOM = /^\/r\/([A-Za-z0-9_-]{22})(\/(host|ws|up|manifest\.webmanifest)?)?$/;  // "/r/<id>/" is the room page too
 // A signpost: a lasting address (/t/ID) for a room that is reached through a tunnel of its own, whose address changes
 // at every start. The room says where it is now; a visitor is sent on. Nothing of the chat passes through here.
 const SIGN = /^\/t\/([A-Za-z0-9_-]{16,64})(\/where)?$/;
@@ -162,7 +162,9 @@ export default {
     if (t) return signpost(request, env, t[1], !!t[2], page);
     if (!m) return PAGES[url.pathname] && request.method === "GET" ? page(PAGES[url.pathname]) : new Response("not found", { status: 404 });
     const [, room, , what] = m;
-    if (!what) return page("/room.html");  // the chat page, at the room's own address: it reads the key from the link itself
+    const plain = (file) => env.ASSETS.fetch(new Request(new URL(file, url)));  // no If-None-Match: a 304 would keep an old page's manifest link
+    if (!what) return roomPage(await plain("/room.html"), room);  // the chat page, at the room's own address: it reads the key from the link itself
+    if (what === "manifest.webmanifest") return roomManifest(await plain("/manifest.webmanifest"), room);
     const stub = env.ROOM.get(env.ROOM.idFromName(room));
     if (what === "up") return stub.fetch(request);
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected a websocket", { status: 426 });
@@ -174,6 +176,22 @@ export default {
     return stub.fetch(request);
   },
 };
+
+// Added to a home screen, a room opens at its own address. The shared manifest's "./" would open the site's front page,
+// which has no room, so each room's page names a manifest of its own. Only the room's id is in it, never its key:
+// the key stays in the browser, kept by the page (relay.ts) for the home-screen app to find again.
+export async function roomManifest(shared, room) {
+  if (!shared.ok) return new Response("not found", { status: 404 });
+  const m = await shared.json(), at = `/r/${room}`;
+  m.id = at; m.start_url = at; m.scope = at;
+  m.icons = (m.icons || []).map((i) => ({ ...i, src: i.src.startsWith("/") ? i.src : "/" + i.src }));  // from the site's root, not the room's
+  return new Response(JSON.stringify(m), { headers: { "content-type": "application/manifest+json", "cache-control": "no-cache" } });
+}
+export async function roomPage(shared, room) {
+  if (!shared.ok) return shared;
+  const html = (await shared.text()).replace('<link rel="manifest" href="/manifest.webmanifest"', `<link rel="manifest" href="/r/${room}/manifest.webmanifest"`);
+  return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
+}
 
 const desk = (env) => env.DESK.get(env.DESK.idFromName("desk"));
 
