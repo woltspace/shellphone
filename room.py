@@ -577,7 +577,10 @@ def joined(name, skip=None, agent_of=None):
             push_all({"title": "shellphone", "body": text[:180], "tag": f"joined-{skip or name}", "url": "./"}, skip, look=False)
         except Exception as exc:
             print(f"push failed: {exc}", flush=True)
-    threading.Thread(target=send, daemon=True).start()
+    try:
+        threading.Thread(target=send, daemon=True).start()
+    except RuntimeError as exc:  # no thread to be had just now: the join is kept all the same, only its notification is lost
+        print(f"push failed: {exc}", flush=True)
 
 
 def push_all(note, sender=None, look=True):

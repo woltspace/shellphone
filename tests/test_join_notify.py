@@ -25,6 +25,10 @@ class JoinNotify(unittest.TestCase):
     def test_an_agent_signing_up_again_is_not_news(self):
         self.assertEqual(self.got["agent_again"], [200, []])
 
+    def test_no_thread_for_the_notification_still_lets_them_in(self):
+        self.assertEqual(self.got["guest_no_thread"], [200, True, []])  # the guest's key is handed out
+        self.assertEqual(self.got["agent_no_thread"], [200, True, []])  # and the agent's
+
 
 if __name__ == "__main__":
     unittest.main()
