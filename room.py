@@ -815,7 +815,7 @@ def react(msg_id, who, name, emoji, owner=None):
     # message. Taking it back wakes nobody; everyone else's reactions just show.
     boss = q("select owner from wolts where wolt = ?", m["wolt"]) if m["kind"] == "wolt" else []
     woke = q("select count(*) as n from messages where kind = 'reaction' and json_extract(data, '$.reaction.of') = ? and json_extract(data, '$.reaction.who') = ?", msg_id, who)[0]["n"]
-    if emoji and (not before or before["emoji"] != emoji) and woke < 3 and boss and who == "p:" + boss[0]["owner"]:
+    if emoji and (not before or before["emoji"] != emoji) and woke < 3 and boss and who.startswith("p:") and canon(who[2:]) == canon(boss[0]["owner"]):
         append(kind="reaction", text=f"{name} reacted {emoji}", reaction={"of": msg_id, "emoji": emoji, **({"was": before["emoji"]} if before else {}), "who": who, "wolt": m["wolt"], "said": " ".join((m.get("text") or "").split())[:300], "said_at": m["at"]},
                **({"email": who[2:]} if who.startswith("p:") else {"by_wolt": who[2:], "owner": owner}),
                **({"thread": m["thread"]} if m.get("thread") else {}))
@@ -1548,7 +1548,8 @@ def for_person(req, email):
             return reply(200, {"key": vapid()[1]} if pywebpush else {"key": None})
         if path == "/api/state":
             sent = messages(after)
-            got, rx = reactions_since(int(q.get("rx", ["0"])[0] or 0), {m["id"] for m in sent})
+            rx = q.get("rx", ["0"])[0]
+            got, rx = reactions_since(int(rx) if rx.isdigit() else 0, {m["id"] for m in sent})
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
             return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": got, "rx": rx, **desk_for(email), "terminals": terminals() if email and email == host() else {}, "messages": sent})

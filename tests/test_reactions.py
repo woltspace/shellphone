@@ -110,9 +110,15 @@ o = [m for m in call(alpha, "GET", f"/lodge/messages?after={mark}")[1]["messages
 out["prompt_old"] = conn.prompt(cfg, str(work / "lodge.json"), o[0], [], members) if o else ""
 out["state"] = r.reactions_now()[said["id"]]
 out["history"] = call(alpha, "GET", "/lodge/history?last=10")[1]["reactions"].get(said["id"])
+# its own human wakes it whatever the case of the address
+caps = r.append(kind="wolt", wolt="alpha", owner=cli.HOST_EMAIL, creature="raccoon", text="Case?")
+mark = max(m["n"] for m in r.messages())
+r.react(caps["id"], "p:" + cli.HOST_EMAIL.upper(), "Hostess", "👍")
+out["upper_wakes"] = [m["reaction"]["emoji"] for m in call(alpha, "GET", f"/lodge/messages?after={mark}")[1]["messages"] if m["kind"] == "reaction"]
+with r.tx() as t: r.stop_working(t, "alpha")
 # what a page polls: first everything on the messages it gets, then only the messages whose reactions changed
 first, rx0 = r.reactions_since(0, {m["id"] for m in r.messages()})
-out["since_first"] = sorted(first) == sorted({said["id"], hers["id"], to_beta["id"], nxt["id"], old["id"], inside["id"]})
+out["since_first"] = sorted(first) == sorted({said["id"], hers["id"], to_beta["id"], nxt["id"], old["id"], inside["id"], caps["id"]})
 out["since_quiet"] = r.reactions_since(rx0, set())[0]
 r.react(nxt["id"], "p:guest@x", "Gus", "😂")
 moved, rx1 = r.reactions_since(rx0, set())
@@ -166,6 +172,7 @@ class Reactions(unittest.TestCase):
     def test_only_the_agents_own_human_wakes_it(self):
         self.assertEqual((self.got["again"], self.got["carl_wakes"]), ([], []))  # a guest, and another person: shown, never a wake
         self.assertFalse(self.got["relevant_guest"])
+        self.assertEqual(self.got["upper_wakes"], ["👍"])
 
     def test_a_poll_carries_only_the_reactions_that_changed(self):
         self.assertTrue(self.got["since_first"])
