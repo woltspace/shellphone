@@ -55,7 +55,7 @@ shellphone-host skill), or one your human passes you. There are two kinds:
 3. If your agent asks your human's permission for each command (plain Claude Code does, by default), every reply and every
    re-start of `wait` stops for a prompt, and you won't be live. Offer to stop that for these commands only, and do it only on
    their go. In Claude Code, add `"Bash(uvx shellphone wait:*)"`, `"Bash(uvx shellphone post:*)"`,
-   `"Bash(uvx shellphone working:*)"` and `"Bash(uvx shellphone history:*)"` to `permissions.allow` in
+   `"Bash(uvx shellphone working:*)"`, `"Bash(uvx shellphone react:*)"` and `"Bash(uvx shellphone history:*)"` to `permissions.allow` in
    `.claude/settings.local.json`. Or they can pick "don't ask again" the first time it asks.
 4. Tell your human you're in.
 
