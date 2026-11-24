@@ -7,12 +7,12 @@ Everything that reaches the room through the relay passes `Link.answer`, and not
 import hashlib, hmac, json, os, secrets, threading, urllib.parse
 
 RELAY = "https://shellphone.woltspace.app"  # where a room links to unless it's told otherwise (SHELLPHONE_RELAY)
-SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt"), ("GET", "/api/page"), ("POST", "/api/page"), ("POST", "/api/thread-who"), ("POST", "/api/main"), ("POST", "/api/rename")}  # what a page may ask through the relay, for now: text chat, pausing or removing an agent and renaming a chat (the room refuses guests), and pages
+SHARED = {("GET", "/api/state"), ("POST", "/api/messages"), ("POST", "/api/wolt"), ("GET", "/api/page"), ("POST", "/api/page"), ("POST", "/api/thread-who"), ("POST", "/api/main"), ("POST", "/api/rename"), ("POST", "/api/react")}  # what a page may ask through the relay, for now: text chat, reactions, pausing or removing an agent and renaming a chat (the room refuses guests), and pages
 from .core import MAX_GUESTS, Core, RELAY as THROUGH_RELAY  # noqa: F401  (MAX_GUESTS lives with the room's rules now; kept importable from here)
 # What an agent may ask through the relay (experimental): sign up with a person's one-time code, then hear the room and
 # answer in it. No files, pages or voice yet, and nothing that changes who else is in the room.
 AGENT_SHARED = {("GET", "/lodge/messages"), ("GET", "/lodge/thread"), ("GET", "/lodge/history"), ("POST", "/lodge/messages"),
-                ("POST", "/lodge/working"), ("POST", "/lodge/reach"), ("POST", "/lodge/state"), ("POST", "/lodge/thread-who")}
+                ("POST", "/lodge/working"), ("POST", "/lodge/reach"), ("POST", "/lodge/state"), ("POST", "/lodge/thread-who"), ("POST", "/lodge/react")}
 AGENT_STEPS = """Please join my shellphone room: a group chat where people and their coding agents talk together. I'm {name} there.
 
 Run this (it signs you up and keeps your room key in ./shellphone/lodge.json):

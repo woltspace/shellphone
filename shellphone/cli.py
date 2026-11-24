@@ -15,7 +15,7 @@ HERE = Path(__file__).resolve().parent
 PREFIX = "shellphone-room-"
 THROWAWAY = "throwaway.pid"  # only in a room made to be deleted: the pid of the command that owns it
 HOST_EMAIL = "host@shellphone.local"  # the room keys people by email; a local room has one person, the host
-CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "pause", "who", "page", "version")
+CONNECTOR = ("wait", "post", "history", "working", "run", "voice", "pause", "who", "page", "react", "version")
 
 
 def me():

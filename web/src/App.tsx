@@ -585,7 +585,7 @@ function NameFirst({ done }: { done: () => void }) {
 
 export function App() {
   useFit();
-  const { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after, link: line } = useRoom();
+  const { state, msgs, setMsgs, error, setError, person, after, link: line } = useRoom();
   wear(state.looks, state.faces);  // every face drawn below wears its hat
   roomWolts.splice(0, roomWolts.length, ...state.members.wolts);  // and each wolt's face is in its own colour
   useMemo(() => nameChats(state.names), [JSON.stringify(state.names || {})]);  // only when the room's names change, so a rename shows before the room confirms it
@@ -612,9 +612,28 @@ export function App() {
   const [adding, setAdding] = useState(false);  // the "add an agent" sheet  // the message whose thread is open
   const retryRef = useRef((_cid: string) => {});
   const stickMain = useRef((_on?: boolean) => {}), stickThread = useRef((_on?: boolean) => {});
-  const ctx: Ctx = { openWho: (w: string) => setWho(w), me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined,
+  // reactions: the room's, with yours shown the moment you tap (until the room's copy says the same)
+  const [myReacts, setMyReacts] = useState<Record<string, string>>({});
+  const reactions = (id: string) => {
+    const room = state.reactions?.[id] || [], me = "p:" + state.me;
+    if (!(id in myReacts)) return room;
+    const rest = room.filter((r) => r.who !== me);
+    return myReacts[id] ? [...rest, { who: me, emoji: myReacts[id] }] : rest;
+  };
+  useEffect(() => {  // the room caught up: its copy takes over
+    setMyReacts((o) => { const n = { ...o }; let changed = false;
+      for (const [id, e] of Object.entries(o)) if (((state.reactions?.[id] || []).find((r) => r.who === "p:" + state.me)?.emoji || "") === e) { delete n[id]; changed = true; }
+      return changed ? n : o; });
+  }, [state.reactions]);
+  const react = (id: string, emoji: string) => {
+    setMyReacts((o) => ({ ...o, [id]: emoji }));
+    send("/api/react", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, emoji }) })
+      .then((r) => { if (!r || !r.ok) { setMyReacts((o) => { const n = { ...o }; delete n[id]; return n; }); setError("Couldn't react: try again"); } });
+  };
+  const ctx: Ctx = { openWho: (w: string) => setWho(w), me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined, terminals: state.terminals,
     // who's working where ("" the main chat, else a thread); a room that doesn't say where: everywhere, as before
-    busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]) };
+    busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]),
+    reactions, myReaction: (id: string) => reactions(id).find((r) => r.who === "p:" + state.me)?.emoji, react };
 
   // Threads the Matrix way: a reply carries the id of the message its thread hangs off. The main chat shows only the rest.
   const { main, replies } = useMemo(() => {
@@ -760,24 +779,12 @@ export function App() {
   // the left edge opens the menu, except over a chat open full screen on a phone, where it goes back instead
   const menuSwipe = useMenuSwipe(menu, setMenu, !listOpen && !(thread && chatsHome && !lobby && !roomy));
 
-  // New voice notes from wolts play one after another, unless you picked something to hear yourself.
-  const playing = useRef<HTMLAudioElement | null>(null);
+  // Voice notes play when you tap them, never by themselves; playing one stops any other.
   useEffect(() => {
-    if (playing.current || !fresh.length) return;
-    const [next, ...rest] = fresh;
-    const m = msgs.find((x) => x.id === next.id);
-    if (!m || m.kind !== "wolt" || !m.audio || relayRoom) { setFresh(rest); return; }
-    const a = new Audio("/voice/" + m.audio); playing.current = a;
-    const done = () => { playing.current = null; setFresh(rest); };
-    a.onended = done; a.onerror = done;
-    a.play().catch(() => { playing.current = null; setError("Tap to hear new voice notes"); });
-  }, [fresh, msgs]);
-  useEffect(() => {
-    const tap = () => { if (error === "Tap to hear new voice notes") { setError(""); setFresh((f) => [...f]); } };  // only when it asked for a tap: any other tap is yours
-    const mine = (e: Event) => { document.querySelectorAll("audio").forEach((a) => a !== e.target && a.pause()); playing.current?.pause(); playing.current = null; setFresh([]); };
-    document.addEventListener("pointerdown", tap); document.addEventListener("play", mine, true);
-    return () => { document.removeEventListener("pointerdown", tap); document.removeEventListener("play", mine, true); };
-  }, [error]);
+    const mine = (e: Event) => document.querySelectorAll("audio").forEach((a) => a !== e.target && a.pause());
+    document.addEventListener("play", mine, true);
+    return () => document.removeEventListener("play", mine, true);
+  }, []);
 
   const report = (e: string | null) => setError(e || "");
   const push = usePush(report);

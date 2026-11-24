@@ -27,7 +27,9 @@ export type State = {
   working_in?: Record<string, string[]>;
   looks?: Record<string, Record<string, string>>;  // each wolt's look, by name: {"hat": id} (hats.ts)
   names?: Record<string, string>;  // chats renamed after they started: {thread: name}
+  reactions?: Record<string, { who: string; emoji: string }[]>;  // per message: who reacted ("p:email" or "w:agent") and with what
   faces?: Record<string, string>;  // what each person wears, by email: "hat-<id>"
+  terminals?: Record<string, string>;  // for the host only: a link to each of their wolts' terminals on their own lodge
   main?: string | null;  // the room's main agent: in every thread, and may flip anyone's switch when a person asks it to  // where each agent is working: thread ids, "" for the main chat  // an agent with no switch in a thread: in it (like before threads had switches) or out of it
 };
 
@@ -71,8 +73,8 @@ export function useRoom() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [error, setError] = useState("");
   const [link, setLink] = useState<"live" | "retry" | "down">("retry");  // the page's line to the room, for the dot in the top bar
-  const [fresh, setFresh] = useState<Msg[]>([]);  // wolt voice notes that arrived while open, to play in turn
-  const after = useRef(0), first = useRef(true), version = useRef<string | undefined>(undefined);
+  const after = useRef(0), version = useRef<string | undefined>(undefined);
+  const rx = useRef(0), reacted = useRef<Record<string, { who: string; emoji: string }[]>>({});  // reactions: each poll brings only what changed since rx
 
   useEffect(() => {
     // Through a host that says when something changed (its state answer carries news: true), the page asks only then (and when it reconnects or comes back on
@@ -88,17 +90,19 @@ export function useRoom() {
       if (needsName()) { timer = window.setTimeout(poll, 500); return; }
       busy = true;  // a guest picks a name first; until then the room has nothing for them
       try {
-        const url = `/api/state?after=${after.current}${document.visibilityState === "visible" ? "&here=1" : ""}`;
+        const url = `/api/state?after=${after.current}&rx=${rx.current}${document.visibilityState === "visible" ? "&here=1" : ""}`;
         const r = await (relayRoom ? call(url) : fetch(url, { cache: "no-store" }));
         if (r.status === 403) { busy = false; setError("You're not on this room's list."); return; }
-        const s = (await r.json()) as State & { messages: Msg[]; news?: boolean };
+        const s = (await r.json()) as State & { messages: Msg[]; news?: boolean; rx?: number };
         pushes = !!relayRoom && s.news === true;  // an older host never sends news: keep asking every 2 s
         // a new version of the page: reload, but not in the middle of recording, typing or sending (it waits, then reloads)
         // (through the relay the page comes from the relay, not the room: the room's version says nothing about it)
         if (!relayRoom && version.current && s.version && s.version !== version.current) { if (!document.querySelector("[data-busy]") && !sending.n) return location.reload(); }
         else version.current = s.version;
-        const { messages, news: _, ...rest } = s;
-        setState(rest);
+        const { messages, news: _, rx: nextRx, ...rest } = s;
+        if (s.reactions && Object.keys(s.reactions).length) { reacted.current = { ...reacted.current, ...s.reactions }; for (const [id, l] of Object.entries(s.reactions)) if (!l.length) delete reacted.current[id]; }
+        if (typeof nextRx === "number") rx.current = nextRx;
+        setState({ ...rest, reactions: reacted.current });
         const patches = messages.filter((m) => m.kind === "patch");
         const added = messages.filter((m) => m.kind === "human" || m.kind === "wolt" || (m.kind === "activity" && !!m.activity));
         for (const m of added) {
@@ -121,12 +125,7 @@ export function useRoom() {
             for (const p of patches) { const t = all.find((m) => m.id === p.of); if (t) t.audio = p.audio; }
             return patches.length ? all.map((m) => ({ ...m })) : all;
           });
-          if (!first.current) {
-            const voiced = patches.filter((p) => p.audio).map((p) => p.of);
-            if (voiced.length) setFresh((f) => [...f, ...voiced.map((id) => ({ id } as Msg))]);
-          }
         }
-        first.current = false;
         setError(""); failed = false; misses = 0; setLink(navigator.onLine === false ? "down" : "live");
       } catch { setError("Can't reach the room, trying again…"); failed = true; setLink(++misses >= 3 || navigator.onLine === false ? "down" : "retry"); }
       busy = false;
@@ -140,5 +139,5 @@ export function useRoom() {
   }, []);
 
   const person = (email?: string): Person => state.members.people.find((p) => p.email === email) || { email: email || "", name: email || "?", color: "#8a6a52" };
-  return { state, msgs, setMsgs, error, setError, person, fresh, setFresh, after, link };
+  return { state, msgs, setMsgs, error, setError, person, after, link };
 }
