@@ -1,6 +1,6 @@
 """Reactions, the WhatsApp way: one per person or agent on a message, a new one takes the old one's place and an empty
-one takes it back. A reaction reaches only the agent whose message it is, as a signal from its own human and as context
-from anyone else; no other agent hears it, and it is never a message on the page."""
+one takes it back. A reaction reaches only the agent whose message it is, and only from its own human (everyone else's just
+show); no other agent hears it, and it is never a message on the page."""
 import json, os, subprocess, sys, unittest
 from pathlib import Path
 
@@ -63,46 +63,63 @@ out["relevant_to_beta"] = [conn.relevant({**cfg, "wolt": "beta", "key": beta}, m
 work = Path(tempfile.mkdtemp()).resolve()
 out["prompt_human"] = conn.prompt(cfg, str(work / "lodge.json"), rs[0], [], members)
 out["prompt_change"] = conn.prompt(cfg, str(work / "lodge.json"), rs[1], [], members)
-r.react(said["id"], "p:guest@x", "Gus", "❤️")  # Gus woke alpha once already: taking it back and reacting again wakes nobody
+r.react(said["id"], "p:guest@x", "Gus", "❤️")  # a guest's reaction shows, and wakes nobody
 out["again"] = [m for m in call(alpha, "GET", f"/lodge/messages?after={rs[-1]['n']}")[1]["messages"] if m["kind"] == "reaction"]
 r.add_person("carl@x", "Carl")
 mark = max(m["n"] for m in r.messages())
 r.react(said["id"], "p:carl@x", "Carl", "🙏")
-g = [m for m in call(alpha, "GET", f"/lodge/messages?after={mark}")[1]["messages"] if m["kind"] == "reaction"]
-out["prompt_guest"] = conn.prompt(cfg, str(work / "lodge.json"), g[0], [], members)
+out["carl_wakes"] = [m for m in call(alpha, "GET", f"/lodge/messages?after={mark}")[1]["messages"] if m["kind"] == "reaction"]
 out["lit_by_guest"] = r.working_in_now().get("alpha", [])
-for e in ("👍", "🎉", "😂", "🔥"):
-    r.react(said["id"], "p:carl@x", "Carl", e)
+# a reaction from someone else, should a room ever send one: the connector won't wake for it, and calls it context
+fake = {**rs[0], "email": "carl@x", "reaction": {**rs[0]["reaction"], "who": "p:carl@x", "emoji": "🙏"}}
+out["relevant_guest"] = conn.relevant(cfg, fake)
+out["prompt_guest"] = conn.prompt(cfg, str(work / "lodge.json"), fake, [], members)
+mark = max(m["n"] for m in r.messages())
+for e in ("🎉", "😂", "🔥"):  # the host woke alpha twice already (👍, then ✅): one more change wakes it, then no more
+    r.react(said["id"], "p:" + cli.HOST_EMAIL, "Hostess", e)
 out["capped"] = [m["reaction"]["emoji"] for m in call(alpha, "GET", f"/lodge/messages?after={mark}")[1]["messages"] if m["kind"] == "reaction"]
-r.react(said["id"], "p:carl@x", "Carl", "🙏")
 # the real path: wait hands the agent its reaction, as it would a message
+nxt = r.append(kind="wolt", wolt="alpha", owner=cli.HOST_EMAIL, creature="raccoon", text="Next one?")
+mark = max(m["n"] for m in r.messages())
+r.react(nxt["id"], "p:" + cli.HOST_EMAIL, "Hostess", "👍")
 import contextlib, io
 (work / "lodge.json").write_text(json.dumps({**cfg, "after": mark}))
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     conn.wait(str(work / "lodge.json"), 10, 0.2)
 out["waited"] = buf.getvalue()
+with r.tx() as t: r.stop_working(t, "alpha")
 # paused: in the room, or in the thread the message is in, an agent hears no reaction
 old = r.append(kind="wolt", wolt="alpha", owner=cli.HOST_EMAIL, creature="raccoon", text="an old one")
 with r.tx() as t:
     t.execute("update messages set at = ? where id = ?", (old["at"] - 86400, old["id"]))
 mark = max(m["n"] for m in r.messages())
 r.set_paused("alpha", True)
-r.react(old["id"], "p:carl@x", "Carl", "👍")
+r.react(old["id"], "p:" + cli.HOST_EMAIL, "Hostess", "👍")
 out["paused_room"] = [m["kind"] for m in call(alpha, "GET", f"/lodge/messages?after={mark}")[1]["messages"]]
 r.set_paused("alpha", False)
 root = r.append(kind="human", email=cli.HOST_EMAIL, text="a chat")
 inside = r.append(kind="wolt", wolt="alpha", owner=cli.HOST_EMAIL, creature="raccoon", text="in a thread", thread=root["id"])
 r.set_who(root["id"], "alpha", "paused")
 mark = max(m["n"] for m in r.messages())
-r.react(inside["id"], "p:carl@x", "Carl", "👍")
+r.react(inside["id"], "p:" + cli.HOST_EMAIL, "Hostess", "👍")
 out["paused_thread"] = [m["kind"] for m in call(alpha, "GET", f"/lodge/messages?after={mark}")[1]["messages"]]
 mark = max(m["n"] for m in r.messages())
-r.react(old["id"], "p:guest@x", "Gus", "✅")
+r.react(old["id"], "p:" + cli.HOST_EMAIL, "Hostess", "✅")
 o = [m for m in call(alpha, "GET", f"/lodge/messages?after={mark}")[1]["messages"] if m["kind"] == "reaction"]
 out["prompt_old"] = conn.prompt(cfg, str(work / "lodge.json"), o[0], [], members) if o else ""
 out["state"] = r.reactions_now()[said["id"]]
 out["history"] = call(alpha, "GET", "/lodge/history?last=10")[1]["reactions"].get(said["id"])
+# what a page polls: first everything on the messages it gets, then only the messages whose reactions changed
+first, rx0 = r.reactions_since(0, {m["id"] for m in r.messages()})
+out["since_first"] = sorted(first) == sorted({said["id"], hers["id"], to_beta["id"], nxt["id"], old["id"], inside["id"]})
+out["since_quiet"] = r.reactions_since(rx0, set())[0]
+r.react(nxt["id"], "p:guest@x", "Gus", "😂")
+moved, rx1 = r.reactions_since(rx0, set())
+out["since_moved"] = {k: [x["emoji"] for x in v] for k, v in moved.items()} == {nxt["id"]: ["👍", "😂"]}
+r.react(nxt["id"], "p:guest@x", "Gus", "")
+r.react(nxt["id"], "p:" + cli.HOST_EMAIL, "Hostess", "")
+out["since_gone"] = r.reactions_since(rx1, set())[0] == {nxt["id"]: []}
 print(json.dumps(out))
 '''
 
@@ -130,15 +147,14 @@ class Reactions(unittest.TestCase):
 
     def test_a_reaction_reaches_only_the_agent_whose_message_it_is(self):
         # the host's 👍, their change to ✅ and the guest's 😂 wake alpha; alpha's own 🎉 and beta's 👍 don't
-        self.assertEqual(self.got["alpha_hears"], [["reaction", "👍"], ["reaction", "✅"], ["reaction", "😂"]])
+        self.assertEqual(self.got["alpha_hears"], [["reaction", "👍"], ["reaction", "✅"]])  # Gus's 😂 shows, wakes nobody
         self.assertEqual(self.got["beta_hears"], [])  # beta's 👀 on the host's message wakes nobody: it's a person's message
-        self.assertEqual(self.got["relevant"], [True, True, True])
-        self.assertEqual(self.got["relevant_to_beta"], [False, False, False])
+        self.assertEqual(self.got["relevant"], [True, True])
+        self.assertEqual(self.got["relevant_to_beta"], [False, False])
 
     def test_a_change_wakes_and_says_so_up_to_three_times_and_taking_back_wakes_nobody(self):
         self.assertIn("reacted (changed 👍 to ✅) to your message", self.got["prompt_change"])
-        self.assertEqual([m["reaction"]["emoji"] for m in self.got["again"]], ["❤️"])  # took 😂 back (nothing), then ❤️: a wake
-        self.assertEqual(self.got["capped"], ["🙏", "👍", "🎉"])  # Carl's 4th and 5th change wake nobody
+        self.assertEqual(self.got["capped"], ["🎉"])  # the host's 4th and 5th change wake nobody
 
     def test_a_reaction_that_wakes_an_agent_shows_it_working_like_a_message(self):
         self.assertNotIn("alpha", self.got["lit_before"])
@@ -147,12 +163,23 @@ class Reactions(unittest.TestCase):
         self.assertNotIn(self.got["said_id"], self.got["lit_by_guest"])  # someone else's 🙏 lights nothing
         self.assertNotIn("working --config", self.got["prompt_guest"])
 
+    def test_only_the_agents_own_human_wakes_it(self):
+        self.assertEqual((self.got["again"], self.got["carl_wakes"]), ([], []))  # a guest, and another person: shown, never a wake
+        self.assertFalse(self.got["relevant_guest"])
+
+    def test_a_poll_carries_only_the_reactions_that_changed(self):
+        self.assertTrue(self.got["since_first"])
+        self.assertEqual(self.got["since_quiet"], {})
+        self.assertTrue(self.got["since_moved"])
+        self.assertTrue(self.got["since_gone"])
+
     def test_a_paused_agent_is_not_woken(self):
         self.assertNotIn("reaction", self.got["paused_room"])
         self.assertNotIn("reaction", self.got["paused_thread"])
 
     def test_wait_hands_it_over(self):
-        self.assertIn("Carl (someone else in the room) reacted 🙏 to your message", self.got["waited"])
+        self.assertIn("reacted 👍 to your message", self.got["waited"])
+        self.assertIn("This is your own human", self.got["waited"])
         self.assertIn("keep listening", self.got["waited"])
 
     def test_an_old_message_says_when_and_only_its_own_humans_thumbs_is_go(self):
@@ -170,7 +197,7 @@ class Reactions(unittest.TestCase):
         self.assertIn("post --config", h)
 
     def test_the_page_and_history_show_them(self):
-        self.assertEqual(sorted(x["emoji"] for x in self.got["state"]), sorted(["✅", "🎉", "❤️", "🙏"]))
+        self.assertEqual(sorted(x["emoji"] for x in self.got["state"]), sorted(["🔥", "🎉", "❤️", "🙏"]))
         self.assertEqual(self.got["state"], self.got["history"])
 
 

@@ -244,9 +244,9 @@ def relevant(cfg, m):
     if m["kind"] == "activity":
         a = m.get("activity") or {}
         return a.get("wolt") == cfg["wolt"] and any((b.get("kind"), b.get("name")) != ("wolt", cfg["wolt"]) for b in a.get("by", []))
-    if m["kind"] == "reaction":  # a reaction reaches only the agent whose message it is, and never its own
+    if m["kind"] == "reaction":  # a reaction reaches only the agent whose message it is, and only from its own human
         r = m.get("reaction") or {}
-        return r.get("wolt") == cfg["wolt"] and r.get("who") != "w:" + cfg["wolt"]
+        return r.get("wolt") == cfg["wolt"] and r.get("who") == "p:" + cfg["owner"]
     if m["kind"] not in ("human", "wolt") or (m["kind"] == "wolt" and m["wolt"] == cfg["wolt"]):
         return False
     return m["kind"] == "human" or addressed(m, cfg["wolt"], cfg["owner"])

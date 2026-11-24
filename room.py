@@ -95,6 +95,7 @@ create table if not exists looks(wolt text primary key, look text not null);
 create table if not exists faces(email text primary key, face text not null);
 create table if not exists chat_names(thread text primary key, name text not null, by text not null, at real not null);
 create table if not exists reactions(msg text not null, who text not null, emoji text not null, at real not null, primary key(msg, who));
+create table if not exists reaction_log(n integer primary key autoincrement, msg text not null);
 """
 CON = None
 
@@ -770,12 +771,27 @@ REACTIONS = ("👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "👀", "
 
 def reactions_now(ids=None):
     """Who reacted to which message, and with what: {message id: [{"who": "p:email" | "w:agent", "emoji"}]}, oldest first."""
-    rows = q("select * from reactions order by at")
+    if ids is not None:
+        ids = list(ids)
+        rows = [r for i in range(0, len(ids), 500) for r in q(f"select * from reactions where msg in ({','.join('?' * len(ids[i:i + 500]))}) order by at", *ids[i:i + 500])] if ids else []
+        rows.sort(key=lambda r: r["at"])
+    else:
+        rows = q("select * from reactions order by at")
     out = {}
     for r in rows:
-        if ids is None or r["msg"] in ids:
-            out.setdefault(r["msg"], []).append({"who": r["who"], "emoji": r["emoji"]})
+        out.setdefault(r["msg"], []).append({"who": r["who"], "emoji": r["emoji"]})
     return out
+
+
+def reactions_since(rx, ids):
+    """What a page polling the room needs: the first time (rx 0), the reactions on the messages it's being sent; after
+    that, the whole list again for each message whose reactions changed since rx ([] once nobody's is left), so a poll
+    carries only what moved. Returns (reactions, the rx to ask with next time)."""
+    last = q("select coalesce(max(n), 0) as n from reaction_log")[0]["n"]
+    if rx:
+        ids = {r["msg"] for r in q("select distinct msg from reaction_log where n > ?", rx)}
+    now = reactions_now(ids)
+    return {i: now.get(i, []) for i in ids} if rx else now, last
 
 
 def react(msg_id, who, name, emoji, owner=None):
@@ -792,10 +808,14 @@ def react(msg_id, who, name, emoji, owner=None):
             c.execute("insert or replace into reactions values (?, ?, ?, ?)", (msg_id, who, emoji, time.time()))
         else:
             c.execute("delete from reactions where msg = ? and who = ?", (msg_id, who))
-    # only a person's reaction wakes the agent (agents nodding at each other would wake each other forever): a new one,
-    # or a change (👀 seen, then ✅ go), up to 3 times per person per message. Taking it back wakes nobody.
+        if (before["emoji"] if before else "") != emoji:
+            c.execute("insert into reaction_log (msg) values (?)", (msg_id,))
+    # only the agent's own human wakes it (agents nodding at each other would wake each other forever, and anyone else in
+    # the room, a guest say, could use up its runs): a new one, or a change (👀 seen, then ✅ go), up to 3 times per
+    # message. Taking it back wakes nobody; everyone else's reactions just show.
+    boss = q("select owner from wolts where wolt = ?", m["wolt"]) if m["kind"] == "wolt" else []
     woke = q("select count(*) as n from messages where kind = 'reaction' and json_extract(data, '$.reaction.of') = ? and json_extract(data, '$.reaction.who') = ?", msg_id, who)[0]["n"]
-    if emoji and (not before or before["emoji"] != emoji) and woke < 3 and m["kind"] == "wolt" and who.startswith("p:"):
+    if emoji and (not before or before["emoji"] != emoji) and woke < 3 and boss and who == "p:" + boss[0]["owner"]:
         append(kind="reaction", text=f"{name} reacted {emoji}", reaction={"of": msg_id, "emoji": emoji, **({"was": before["emoji"]} if before else {}), "who": who, "wolt": m["wolt"], "said": " ".join((m.get("text") or "").split())[:300], "said_at": m["at"]},
                **({"email": who[2:]} if who.startswith("p:") else {"by_wolt": who[2:], "owner": owner}),
                **({"thread": m["thread"]} if m.get("thread") else {}))
@@ -1527,9 +1547,11 @@ def for_person(req, email):
         if path == "/api/push":  # the key a page subscribes with, if this room can send notifications
             return reply(200, {"key": vapid()[1]} if pywebpush else {"key": None})
         if path == "/api/state":
+            sent = messages(after)
+            got, rx = reactions_since(int(q.get("rx", ["0"])[0] or 0), {m["id"] for m in sent})
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": reactions_now(), **desk_for(email), "terminals": terminals() if email and email == host() else {}, "messages": messages(after)})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": got, "rx": rx, **desk_for(email), "terminals": terminals() if email and email == host() else {}, "messages": sent})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
