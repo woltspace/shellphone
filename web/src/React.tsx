@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { SmilePlus } from "lucide-react";
 import { ActionRow, linkActions, messageActions, type Action } from "./actions";
 import { woltFace, type Ctx } from "./Message";
+import { Still } from "./Page";
 import { personAvatar } from "./sprites";
 import { worn } from "./hats";
 import type { Msg } from "./room";
@@ -114,7 +115,7 @@ function Lifted({ rect, mine, bar, actions, onClose, children }: { rect: DOMRect
   return <Dim label="Message options" onClose={onClose}>
     {bar && <div role="menu" aria-label="React to this message" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{ top: top - BAR - GAP, ...side }}
       className="absolute flex items-center gap-0.5 rounded-full bg-white shadow-[0_8px_30px_#18100a40] px-1.5 py-1.5 animate-[pop_.18s_ease-out]">{bar}</div>}
-    <div aria-hidden style={{ top, width: rect.width, maxHeight: height, ...side }} className="absolute overflow-hidden pointer-events-none rounded-[18px] [&>*]:!m-0">{children}</div>
+    <div aria-hidden style={{ top, width: rect.width, maxHeight: height, ...side }} className="absolute overflow-hidden pointer-events-none rounded-[18px] [&>*]:!m-0"><Still.Provider value={true}>{children}</Still.Provider></div>
     {actions.length > 0 && <div role="menu" aria-label="Message actions" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{ top: top + height + GAP, ...side }}
       className="absolute min-w-[220px] rounded-2xl bg-white shadow-[0_8px_30px_#18100a40] py-2 animate-[fadein_.18s_ease-out]">
       {actions.map((a) => <ActionRow key={a.id} a={a} done={onClose} />)}

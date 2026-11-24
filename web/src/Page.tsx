@@ -2,7 +2,7 @@
 // Opened, it runs in a sealed frame: its own empty origin, no storage, no way out to the internet (pages.js puts the
 // policy first in it). It reaches the room through one door only: it hands the app changes to its board, and the app
 // hands it back the changes the room confirmed, in order, each stamped by the room with who made it.
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { ExternalLink, FileCode2, X } from "lucide-react";
 import { call, relayRoom } from "./relay";
 import { send, type Msg, type PageRef } from "./room";
@@ -127,26 +127,49 @@ export type { PageRef };
 // GUIDE TESTBED: a page plays right in the chat, like a slide, full width of its bubble and live (it can be tapped).
 // No scaling: the page gets the real size, portrait on a phone and 16:9 on a wide screen, and lays itself out for
 // either (the guide's kit does that). ⤢ opens it full screen.
+// Inside a held message's lifted copy: draw pages as a still frame, so holding never starts a second live copy
+export const Still = createContext(false);
+
 export function PageInline({ m, ctx }: { m: Msg; ctx: Ctx }) {
+  // Live only near the screen: a long chat of pages runs just the few in view, the rest wait as a still frame.
   const p = m.page!;
+  const box = useRef<HTMLDivElement>(null), got = useRef("");
+  const still = useContext(Still);
+  const [near, setNear] = useState(false);
   const [html, setHtml] = useState("");
   const [failed, setFailed] = useState(false);  // never "drawing…" forever: say so, and the full-screen view can still try
   useEffect(() => {
+    const el = box.current;
+    if (still) return;
+    if (!el || typeof IntersectionObserver === "undefined") { setNear(true); return; }
+    const io = new IntersectionObserver(([e]) => setNear(e.isIntersecting), { rootMargin: "600px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [still]);
+  useEffect(() => {
+    const key = `${p.id}:${p.v}`;
+    if (!near || got.current === key) return;
     let live = true;
     setFailed(false);
     look({ v: 0, changes: [] }, (after, v) => get(`/api/page?id=${encodeURIComponent(p.id)}&after=${after}&v=${v}`))
-      .then((r) => { if (!live) return; if (r.page) setHtml(sealed(r.page.html || "")); else setFailed(true); })
+      .then((r) => { if (!live) return; if (r.page) { got.current = key; setHtml(sealed(r.page.html || "")); } else setFailed(true); })
       .catch(() => { if (live) setFailed(true); });
     return () => { live = false; };
-  }, [p.id, p.v]);
-  return <div className="mt-1.5 mb-0.5 w-full">
+  }, [p.id, p.v, near]);
+  const open = (e: { stopPropagation: () => void }) => { e.stopPropagation(); ctx.openPage?.(p.id); };
+  return <div ref={box} className="mt-1.5 mb-0.5 w-full">
     <div className="relative w-full overflow-hidden rounded-xl border border-line bg-white shadow-[0_2px_10px_#18100a1f] aspect-[4/5] sm:aspect-video">
-      {html ? <iframe title={p.title} srcDoc={html} sandbox="allow-scripts" referrerPolicy="no-referrer" allow=""
+      {html && near && !still ? <iframe title={p.title} srcDoc={html} sandbox="allow-scripts" referrerPolicy="no-referrer" allow=""
         className="absolute inset-0 h-full w-full border-0" />
         : failed ? <div className="absolute inset-0 grid place-items-center font-mono text-xs text-dim">couldn't load this page here: ⤢ to open it</div>
-        : <div className="absolute inset-0 grid place-items-center font-mono text-xs text-dim animate-pulse">drawing…</div>}
-      <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.openPage?.(p.id); }} aria-label="Full screen"
+        : <div className={`absolute inset-0 grid place-items-center font-mono text-xs text-dim ${near ? "animate-pulse" : ""}`}>{near ? "drawing…" : p.title}</div>}
+      <button type="button" data-tap onClick={open} aria-label="Full screen"
         className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg border border-line bg-paper/90 text-ink cursor-pointer text-base shadow-sm">⤢</button>
+    </div>
+    {/* outside the frame, so holding it reaches the message (react, reply) even when the page has no text above it */}
+    <div className="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-dim">
+      <FileCode2 className="h-3 w-3 flex-none" aria-hidden="true" /><span className="min-w-0 truncate">{p.title}</span>
+      <button type="button" data-tap onClick={open} className="ml-auto flex-none border-0 bg-transparent p-0 font-mono text-[11px] text-dim cursor-pointer underline-offset-2 hover:underline">open ⤢</button>
     </div>
   </div>;
 }
