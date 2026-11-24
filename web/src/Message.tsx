@@ -3,7 +3,7 @@ import { relayRoom } from "./relay";
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import { Card } from "./Card";
-import { PageTile } from "./Page";
+import { PageInline } from "./Page";
 import { ShareButton } from "./Share";
 import { share } from "./sharefile.js";
 import { FileView, canPreview } from "./FileView";
@@ -158,7 +158,7 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
       <div className={`flex items-end gap-2 px-3 md:px-5 ${firstOfRun ? "mt-3" : "mt-[3px]"} ${mine ? "justify-end" : ""}`} id={m.cid || m.id}>
         {!mine && (firstOfRun ? <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.openWho?.(human ? "p:" + m.email : "w:" + m.wolt); }} aria-label={`${human ? who.name : m.wolt}'s card`}
           className="flex-none self-start p-0 border-0 bg-transparent cursor-pointer hover:-translate-y-0.5 transition-transform"><img src={avatar} alt="" className="pixel w-9 h-9" /></button> : <span className="flex-none w-9" />)}
-        <div data-bubble className={`min-w-0 max-w-[82%] md:max-w-[min(68%,720px)] px-3.5 py-2 border rounded-[18px] shadow-[0_1px_1.5px_#18100a14] ${mine
+        <div data-bubble className={`min-w-0 ${m.page ? "w-[94%] md:w-[min(68%,640px)]" : "max-w-[82%] md:max-w-[min(68%,720px)]"} px-3.5 py-2 border rounded-[18px] shadow-[0_1px_1.5px_#18100a14] ${mine
           ? (firstOfRun ? "rounded-tr-[5px]" : "") : (firstOfRun ? "rounded-tl-[5px]" : "")}`}
           style={{ background: mix(voice, "#ffffff", mine ? 0.8 : human ? 0.86 : 0.9), borderColor: mix(voice, "#ffffff", 0.6) }}>
           {!mine && firstOfRun && <div className="flex items-baseline gap-1.5 mb-0.5">
@@ -169,7 +169,7 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
           {m.audio ? <div className="min-w-[260px]"><Voice m={m} ctx={ctx} /></div> : m.text ? <div className="text-[14.5px] leading-[1.45] whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
           {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
           <Card msg={m} all={ctx.all} />
-          {m.page && <PageTile m={m} ctx={ctx} />}
+          {m.page && <PageInline m={m} ctx={ctx} />}
           {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
             className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
             style={{ color: voice, borderColor: mix(voice, "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}
@@ -188,7 +188,7 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
       <button type="button" data-tap disabled={!firstOfRun} onClick={(e) => { e.stopPropagation(); ctx.openWho?.(human ? "p:" + m.email : "w:" + m.wolt); }} aria-label={`${human ? who.name : m.wolt}'s card`}
         className={`flex-none p-0 border-0 bg-transparent cursor-pointer ${firstOfRun ? "" : "invisible"}`}><img src={avatar} alt="" className="pixel w-7 h-7 rounded-full" /></button>
       {/* a message with a thread sits in a frame of the thread's wallpaper; the message itself stays on its own solid color */}
-      <div data-bubble className={`max-w-[80%] ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border ${wallpaper ? "px-2.5 pt-2.5 pb-1.5 bg-paper" : `px-2.5 py-1.5 ${solid.backgroundColor ? "" : "bg-panel"}`} border-line`}
+      <div data-bubble className={`${m.page ? "w-[88%]" : "max-w-[80%]"} ${footer ? "min-w-[210px]" : "min-w-0"} rounded-xl border ${wallpaper ? "px-2.5 pt-2.5 pb-1.5 bg-paper" : `px-2.5 py-1.5 ${solid.backgroundColor ? "" : "bg-panel"}`} border-line`}
         style={wallpaper ? { ...wallpaper } : solid}>
         <div className={wallpaper ? `rounded-lg border px-2.5 py-1.5 ${solid.backgroundColor ? "" : "bg-panel"} border-line` : ""} style={wallpaper ? solid : undefined}>
         {!mine && firstOfRun && <div className="font-mono text-[11px] text-dim lowercase mb-0.5" style={!human ? { color: woltColor(m.wolt, ctx.wolts) } : undefined}>[{name}]{human && who.guest && <span title="Came in with the invite link: this name wasn't checked" className="ml-1 px-1 rounded border border-line normal-case">guest</span>}</div>}
@@ -196,7 +196,7 @@ export function Message({ m, ctx, firstOfRun, footer, wallpaper }: { m: Msg; ctx
         {m.audio ? <Voice m={m} ctx={ctx} /> : m.text ? <div className="text-[15px] leading-snug whitespace-pre-wrap break-words"><Words text={m.text} ctx={ctx} /></div> : null}
         {m.failed && !m.audio && <Unsent m={m} ctx={ctx} />}
         <Card msg={m} all={ctx.all} />
-        {m.page && <PageTile m={m} ctx={ctx} />}
+        {m.page && <PageInline m={m} ctx={ctx} />}
         {!human && ctx.showTerminal && <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.showTerminal!(m.wolt!); }}
           className="mt-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-mono text-[11px] cursor-pointer bg-transparent"
           style={{ color: woltColor(m.wolt, ctx.wolts), borderColor: mix(woltColor(m.wolt, ctx.wolts), "#ffffff", 0.6) }}>▸ {m.wolt}'s terminal</button>}

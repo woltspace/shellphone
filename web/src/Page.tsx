@@ -123,3 +123,30 @@ export function PageViewer({ id, mark, ctx, close, tab }: { id: string; mark?: {
 }
 
 export type { PageRef };
+
+// GUIDE TESTBED: a page plays right in the chat, like a slide, full width of its bubble and live (it can be tapped).
+// No scaling: the page gets the real size, portrait on a phone and 16:9 on a wide screen, and lays itself out for
+// either (the guide's kit does that). ⤢ opens it full screen.
+export function PageInline({ m, ctx }: { m: Msg; ctx: Ctx }) {
+  const p = m.page!;
+  const [html, setHtml] = useState("");
+  const [failed, setFailed] = useState(false);  // never "drawing…" forever: say so, and the full-screen view can still try
+  useEffect(() => {
+    let live = true;
+    setFailed(false);
+    look({ v: 0, changes: [] }, (after, v) => get(`/api/page?id=${encodeURIComponent(p.id)}&after=${after}&v=${v}`))
+      .then((r) => { if (!live) return; if (r.page) setHtml(sealed(r.page.html || "")); else setFailed(true); })
+      .catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [p.id, p.v]);
+  return <div className="mt-1.5 mb-0.5 w-full">
+    <div className="relative w-full overflow-hidden rounded-xl border border-line bg-white shadow-[0_2px_10px_#18100a1f] aspect-[4/5] sm:aspect-video">
+      {html ? <iframe title={p.title} srcDoc={html} sandbox="allow-scripts" referrerPolicy="no-referrer" allow=""
+        className="absolute inset-0 h-full w-full border-0" />
+        : failed ? <div className="absolute inset-0 grid place-items-center font-mono text-xs text-dim">couldn't load this page here: ⤢ to open it</div>
+        : <div className="absolute inset-0 grid place-items-center font-mono text-xs text-dim animate-pulse">drawing…</div>}
+      <button type="button" data-tap onClick={(e) => { e.stopPropagation(); ctx.openPage?.(p.id); }} aria-label="Full screen"
+        className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg border border-line bg-paper/90 text-ink cursor-pointer text-base shadow-sm">⤢</button>
+    </div>
+  </div>;
+}

@@ -216,6 +216,28 @@ class Outside:
             return 200, {"ok": True, "mine": mine, "name": out.get("name")}, mine  # their own key from here on: the page hands it to the room's lasting address, which remembers it in this browser
         return 403, {"error": "this link doesn't open this room any more: ask its host for a new one"}, None
 
+    def invite_ok(self, token):
+        """Whether this invite would let someone in right now, without using it: open, made through what the room is
+        shared by now, and its maker may still invite. Only then does the door show a preview of the room."""
+        with self.lock:  # as the room is shared at this moment, like enter: a stop is either before this or after it
+            return self._invite_ok(token)
+
+    def _invite_ok(self, token):
+        if not self.open or not isinstance(token, str) or not token or self.r is None:
+            return False
+        mark = self.door_mark()
+        if not mark:
+            return False
+        try:
+            core = self.core()
+            row = core.invite(mark, token)
+            if not core._open(row, time.time()):
+                return False
+            with core._tx() as c:
+                return bool(core._maker_may(c, row))
+        except Exception:  # the room's database can't be read just now: no preview on a guess
+            return False
+
     def proof(self, n):
         """What the site asks before it sends anyone here: sign its number with the key only this room and the site
         hold. An address that has become someone else's can't."""
@@ -543,16 +565,33 @@ p{color:#5c4d3c;margin:8px 0}
 form{display:none;margin-top:16px;gap:10px}
 input{flex:1;font:16px -apple-system,system-ui,sans-serif;padding:12px;border-radius:12px;border:1px solid #d6ccba;background:#fffdf6;min-width:0}
 button{font:600 16px -apple-system,system-ui,sans-serif;padding:12px 18px;border-radius:12px;border:1px solid #c4531e;background:#c4531e;color:#fff}
-</style></head><body><main>
+#bg{position:fixed;inset:0;overflow:hidden;opacity:0;filter:blur(3.5px) saturate(.9);transform:scale(1.03);transition:opacity .6s,filter .5s,transform .5s;pointer-events:none}
+#bg.on{opacity:1}#bg.clear{filter:none;transform:none}
+#bg .top{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid #d6ccba;font:600 17px -apple-system,system-ui,sans-serif}
+#bg .bub{margin:22px 14px 0 56px;position:relative;background:#e8eef5;border:1px solid #b9cbe0;border-radius:18px;padding:12px 14px;max-width:640px}
+#bg .av{position:absolute;left:-46px;top:0;width:36px;height:36px;border-radius:50%;border:2px solid #2f6fa3;background:#fff;display:grid;place-items:center;font-size:20px}
+#bg .who{color:#2f6fa3;font-weight:600;margin-bottom:4px}#bg .txt{margin:0 0 10px;color:#18100a}
+#bg iframe{width:100%;aspect-ratio:4/5;border:1px solid #d6ccba;border-radius:12px;background:#fff;display:block}
+@media (min-width:640px){#bg iframe{aspect-ratio:16/9}}
+main.over{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(360px,calc(100% - 40px));padding:26px 22px;margin:0;box-sizing:border-box;
+ background:rgba(255,253,246,.78);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid #d6ccba;border-radius:20px;box-shadow:0 18px 50px #18100a40}
+main.over.gone{opacity:0;transform:translate(-50%,-46%);transition:opacity .35s,transform .35s}
+main.over form{margin-top:14px}
+main.over{padding-bottom:34px}
+.inv{font:600 17px -apple-system,system-ui,sans-serif;color:#18100a;margin:0}
+.inv a{color:#c4531e;text-decoration:none;border-bottom:1.5px solid #c4531e}
+#flair{display:none;margin-top:16px;padding-top:14px;border-top:1px dashed #d6ccba}
+#flair p{margin:0;font-size:14px;line-height:1.45;color:#5c4d3c}
+#flair a{white-space:nowrap;font-weight:700;color:#18100a;text-decoration:none;border-bottom:1.5px solid #c4531e}
+#flair svg,.part svg{width:1em;height:1em;vertical-align:-.15em;margin-right:4px}
+.part{display:none;position:absolute;right:22px;bottom:12px;font:12px ui-monospace,Menlo,monospace;color:#8a7a68;text-decoration:none}
+.part svg{width:12px;height:12px;margin:0 3px 0 2px;vertical-align:-2px}
+</style></head><body><div id="bg" aria-hidden="true"></div><main>
 <h1>&gt; shellphone</h1>
 <p id="say">Opening the room…</p>
 <form id="form"><input id="name" maxlength="40" autocomplete="nickname" placeholder="Your name" required><button>Join</button></form>
-<p id="keepline" style="display:none;font-size:14px"><label><input type="checkbox" id="keep"> Remember me on this device</label></p>
-<div id="back" style="display:none">
-<p>To come back later, save your own link. Keep it to yourself: anyone who has it comes in as you. The invite you came by may stop working; this link stays yours.</p>
-<p><button type="button" id="copy">Copy my link</button> <button type="button" id="go" style="background:#fffdf6;color:#c4531e">Open the room</button></p>
-<p id="mine" style="font-size:13px;word-break:break-all"></p>
-</div>
+<div id="flair"><p><a href="https://github.com/woltspace/shellphone" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>shellphone</a>: where humans and their agents collaborate.</p></div>
+<a class="part" id="part" href="https://github.com/jerpint/woltspace" target="_blank" rel="noopener">built by <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>woltspace</a>
 <script>
 // The link's part after # says who is at the door: k.TOKEN (a person's own key, maybe followed by .i.INVITE to fall
 // back on), i.INVITE (the room's invite: pick a name, become a guest) or a.CODE (for an agent, not for this page).
@@ -565,29 +604,52 @@ async function enter(body) {
     const r = await fetch("/api/enter", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const got = await r.json().catch(() => ({}));
     if (!r.ok) return body.k && invite ? ask() : say(got.error || "That link doesn't open this room.");
-    history.replaceState(null, "", "/");
+    history.replaceState(null, "", "/enter");  // the key leaves the address bar; not "/" yet, so going on to "/#c=…" is a real load, not just a new #
     if (OFFLINE && navigator.serviceWorker) await navigator.serviceWorker.register("/sw.js").catch(() => {});  // in now: the room hands its worker only to someone who is in
-    if (!got.mine) return location.replace("/");
-    // a new guest: shown their own link once, to keep (an invite ends; their own key doesn't), then on by way of the
-    // room's lasting address, so this browser finds its way back as the same person
-    const mine = SIGN + "#k." + got.mine, on = mine + (document.getElementById("keep").checked ? ".r" : "");
-    document.getElementById("form").style.display = document.getElementById("keepline").style.display = "none";
+    let chat = ""; try { chat = sessionStorage.getItem("sp-open") || ""; sessionStorage.removeItem("sp-open"); } catch {}
+    const inside = "/" + (/^[0-9a-f]{32}$/.test(chat) ? "#c=" + chat : "");  // a new guest lands in the chat they saw behind the name box
+    if (!got.mine) return location.replace(inside);
+    // a new guest: straight in by way of the room's lasting address, so this browser finds its way back as the same person
+    const mine = SIGN + "#k." + got.mine, on = mine + ".r";  // remembered on this device: one step, straight in
+    const bg = document.getElementById("bg"), main = document.querySelector("main");
     say("You're in" + (typeof got.name === "string" && got.name ? ", " + got.name : "") + ".");
-    document.getElementById("back").style.display = "block";
-    const copy = document.getElementById("copy");
-    copy.onclick = async () => {
-      try { await navigator.clipboard.writeText(mine); copy.textContent = "Copied"; }
-      catch { document.getElementById("mine").textContent = mine; }  // no clipboard here: shown, to copy by hand
-    };
-    document.getElementById("go").onclick = () => location.replace(on);
+    document.getElementById("form").style.display = "none";
+    bg.classList.add("clear"); main.classList.add("gone");
+    // at the room's own fixed address the cookie from this very call already remembers them: straight in. Through the
+    // site, on by way of its lasting address, as before
+    setTimeout(() => location.replace(SIGN.startsWith(location.origin + "/") ? inside : on), 450);
   } catch { say("Couldn't reach the room. Try again in a moment."); }
 }
-function ask() {
-  say("You're invited to a shellphone room. Pick the name people will see.");
+// An invite: the room is asked first whether it is a good one. Only then the name box, over a blurred glimpse of the
+// room (its main agent's opening, its page sealed off the way the room seals every page). A bad code gets neither.
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const FACE = { beaver: "🦫", raccoon: "🦝", otter: "🦦" };
+const SEAL = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:">`;
+async function ask() {
+  say("Checking your invite…");
+  let got;
+  try {
+    const r = await fetch("/api/enter", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ i: invite, peek: true }) });
+    got = await r.json().catch(() => ({}));
+    if (!r.ok) return say(got.error || "This invite doesn't open this room: ask its host for a new one.");
+  } catch { return say("Couldn't reach the room. Try again in a moment."); }
+  const o = got.opening, bg = document.getElementById("bg"), main = document.querySelector("main");
+  if (o) {
+    try { sessionStorage.setItem("sp-open", o.id || ""); } catch {}
+    bg.innerHTML = '<div class="top">' + esc(got.room && got.room !== "shell" ? got.room : "shellphone") + '</div><div class="bub"><div class="av">' + (FACE[o.creature] || "🐾") + '</div><div class="who">' + esc(o.wolt) + '</div><p class="txt">' + esc(o.text) + '</p>' + (o.html ? '<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" tabindex="-1"></iframe>' : "") + '</div>';
+    const f = bg.querySelector("iframe"); if (f) f.srcdoc = SEAL + o.html;
+    main.classList.add("over"); requestAnimationFrame(() => bg.classList.add("on"));
+  }
+  // "You're invited to join this shell 🐚 by <host>", the host's name linked where the room was told where (by_url)
+  document.querySelector("h1").style.display = "none";
+  const line = document.getElementById("say"), by = typeof got.by === "string" && got.by ? got.by : "";
+  line.className = "inv";
+  line.innerHTML = "You're invited to join this shell 🐚" + (by ? " by " + (String(got.by_url || "").startsWith("https://") ? '<a href="' + esc(got.by_url) + '" target="_blank" rel="noopener">' + esc(by) + "</a>" : esc(by)) : "");
+  document.getElementById("flair").style.display = "block"; document.getElementById("part").style.display = "inline";
   const form = document.getElementById("form");
   form.style.display = "flex";
-  document.getElementById("keepline").style.display = "block";
-  form.onsubmit = (e) => { e.preventDefault(); enter({ i: invite, name: document.getElementById("name").value }); };
+  document.getElementById("name").focus();
+  form.onsubmit = (e) => { e.preventDefault(); form.querySelector("button").disabled = true; enter({ i: invite, name: document.getElementById("name").value }).then(() => { form.querySelector("button").disabled = false; }); };
 }
 if (kind === "k" && token) enter({ k: token });
 else if (invite) ask();

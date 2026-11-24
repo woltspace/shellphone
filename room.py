@@ -998,8 +998,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return cookie.get("spo", "")
 
     def enter(self):
-        """Someone with a link from outside: their own token, or the invite and a name. A cookie from here on."""
-        status, out, token = OUTSIDE.enter(json.loads(self.hand_in() or b"{}"))
+        """Someone with a link from outside: their own token, or the invite and a name. A cookie from here on.
+        With "peek": only a look, for a valid invite (see peek): nothing is used up and no cookie is set."""
+        body = json.loads(self.hand_in() or b"{}")
+        if isinstance(body, dict) and body.get("peek"):
+            return self.peek(body)
+        status, out, token = OUTSIDE.enter(body)
         data = json.dumps(out).encode()
         self.send_response(status)
         if token:
@@ -1009,6 +1013,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def peek(self, body):
+        """A glimpse of the room for someone holding a valid invite, before they name themselves: the main chat's
+        latest opening from an agent (its words and its page) and who the agents are. Nothing for any other code.
+        It comes in as /api/enter with "peek", the one call the room's door lets through without a key."""
+        if not OUTSIDE.invite_ok(body.get("i")):
+            return self.send(403, {"error": "This invite doesn't open this room. Ask whoever sent it for a new one."})
+        out = {"room": title(), "wolts": [{"name": w["wolt"], "creature": w["creature"]} for w in q("select wolt, creature from wolts")]}
+        try:  # who the invite is from, as the host wrote it in the room's folder: door.json {"by": "@name", "by_url": "https://…"}
+            door = json.loads((DATA / "door.json").read_text())
+            out.update({k: door[k] for k in ("by", "by_url") if isinstance(door.get(k), str) and len(door[k]) < 200})
+        except (OSError, ValueError, AttributeError):
+            pass
+        for row in q("select id, data from messages where kind = 'wolt' order by n desc limit 50"):
+            d = json.loads(row["data"])
+            if d.get("thread") or not d.get("page"):
+                continue
+            p = d["page"]
+            html = q("select html from page_versions where page = ? order by v desc limit 1", p.get("id"))
+            out["opening"] = {"id": row["id"], "wolt": d.get("wolt"), "creature": d.get("creature"), "text": d.get("text", ""), "title": p.get("title", ""), "html": html[0]["html"] if html else ""}
+            break
+        return self.send(200, out)
 
     def own_origins(self):
         """The origins this room's page is served from, at the door this call came to. Told from what the room itself
