@@ -583,12 +583,15 @@ main.over{padding-bottom:34px}
 #flair{display:none;margin-top:16px;padding-top:14px;border-top:1px dashed #d6ccba}
 #flair p{margin:0;font-size:14px;line-height:1.45;color:#5c4d3c}
 #flair a{white-space:nowrap;font-weight:700;color:#18100a;text-decoration:none;border-bottom:1.5px solid #c4531e}
-#flair svg{width:1em;height:1em;vertical-align:-.15em;margin-right:4px}
+#flair svg,.part svg{width:1em;height:1em;vertical-align:-.15em;margin-right:4px}
+.part{display:none;position:absolute;right:22px;bottom:12px;font:12px ui-monospace,Menlo,monospace;color:#8a7a68;text-decoration:none}
+.part svg{width:12px;height:12px;margin:0 3px 0 2px;vertical-align:-2px}
 </style></head><body><div id="bg" aria-hidden="true"></div><main>
 <h1>&gt; shellphone</h1>
 <p id="say">Opening the room…</p>
 <form id="form"><input id="name" maxlength="40" autocomplete="nickname" placeholder="Your name" required><button>Join</button></form>
 <div id="flair"><p><a href="https://github.com/woltspace/shellphone" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>shellphone</a>: where humans and their agents collaborate.</p></div>
+<a class="part" id="part" href="https://github.com/jerpint/woltspace" target="_blank" rel="noopener">built by <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>woltspace</a>
 <script>
 // The link's part after # says who is at the door: k.TOKEN (a person's own key, maybe followed by .i.INVITE to fall
 // back on), i.INVITE (the room's invite: pick a name, become a guest) or a.CODE (for an agent, not for this page).
@@ -642,7 +645,7 @@ async function ask() {
   const line = document.getElementById("say"), by = typeof got.by === "string" && got.by ? got.by : "";
   line.className = "inv";
   line.innerHTML = "You're invited to join this shell 🐚" + (by ? " by " + (String(got.by_url || "").startsWith("https://") ? '<a href="' + esc(got.by_url) + '" target="_blank" rel="noopener">' + esc(by) + "</a>" : esc(by)) : "");
-  document.getElementById("flair").style.display = "block";
+  document.getElementById("flair").style.display = "block"; document.getElementById("part").style.display = "inline";
   const form = document.getElementById("form");
   form.style.display = "flex";
   document.getElementById("name").focus();
