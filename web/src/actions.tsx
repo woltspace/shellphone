@@ -3,7 +3,7 @@
 // room (the host gets terminal links, a desk shows tiles). The emoji row sits above this list; the list sits under the
 // lifted message on a phone and under the emoji row on a computer.
 import type { ReactNode } from "react";
-import { Copy, ExternalLink, Link2, Reply, SquareTerminal } from "lucide-react";
+import { Copy, ExternalLink, Link2, SquareTerminal } from "lucide-react";
 import type { Ctx } from "./Message";
 import type { Msg } from "./room";
 
@@ -13,7 +13,6 @@ type Entry = (m: Msg, ctx: Ctx) => Action | null;
 const copyText = (s: string) => { navigator.clipboard?.writeText(s).catch(() => {}); };
 
 export const MESSAGE_ACTIONS: Entry[] = [
-  (m, ctx) => ctx.reply ? { id: "reply", label: "Reply in thread", icon: <Reply size={19} />, run: () => ctx.reply!(m) } : null,
   (m) => m.text ? { id: "copy", label: "Copy", icon: <Copy size={19} />, run: () => copyText(m.text!) } : null,
   // an agent's terminal: the desk's tile when the desk is open, else (host only: the room sends links to the host alone)
   // the agent's session on the host's own lodge

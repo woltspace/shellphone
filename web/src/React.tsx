@@ -49,7 +49,7 @@ export function Reactable({ m, ctx, mine, children }: { m: Msg; ctx: Ctx; mine: 
         held.current = { x: t.clientX, y: t.clientY, t: window.setTimeout(() => { held.current = null; fired.current = true; navigator.vibrate?.(10); setOpen({ at: lift(), link }); }, HOLD_MS) };
       }}
       onTouchMove={(e) => { const t = e.touches[0], h = held.current; if (h && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 10) stop(); }}
-      onTouchEnd={stop} onTouchCancel={stop}
+      onTouchEnd={() => { stop(); if (fired.current) setTimeout(() => { fired.current = false; }, 400); }} onTouchCancel={stop}
       onClickCapture={(e) => { if (fired.current) { fired.current = false; e.preventDefault(); e.stopPropagation(); } }}  // the lift of a hold is not a tap
       onContextMenu={(e) => {
         if ((e.target as HTMLElement).closest("a[href]")) { if (window.matchMedia?.("(hover: hover)").matches) return; e.preventDefault(); return; }  // a computer keeps its own link menu
@@ -72,9 +72,9 @@ export function Reactable({ m, ctx, mine, children }: { m: Msg; ctx: Ctx; mine: 
 }
 
 // the phone's view of a held message: everything else dimmed, the message where it was (moved only as far as needed to
-// leave room for the emojis above and the actions below), and a tap anywhere else closes it
+// leave room for the emojis above and the actions below), and the first touch anywhere else closes it at once
 function Lifted({ rect, mine, bar, head, actions, onClose, children }: { rect: DOMRect; mine: boolean; bar?: ReactNode; head?: ReactNode; actions: Action[]; onClose: () => void; children: ReactNode }) {
-  const opened = useRef(Date.now());  // the finger that held the message lifts onto the dimmed screen: that tap isn't a close
+  const [gone, setGone] = useState(false);  // vanished at once on the first touch, still catching the rest of that tap so nothing underneath gets it
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     addEventListener("keydown", esc); return () => removeEventListener("keydown", esc);
@@ -83,13 +83,13 @@ function Lifted({ rect, mine, bar, head, actions, onClose, children }: { rect: D
   const height = Math.min(rect.height, H * 0.45);  // a long message shows its start
   const top = Math.max(BAR + GAP + 12 + (Number(getComputedStyle(document.documentElement).getPropertyValue("--sat").replace("px", "")) || 0), Math.min(rect.top, H - height - GAP - MENU - 24));
   const side = mine ? { right: Math.max(8, innerWidth - rect.right) } : { left: Math.max(8, rect.left) };
-  return <div role="dialog" aria-label="Message options" className="fixed inset-0 z-[3100] select-none animate-[fadein_.15s_ease-out]"
-    onClick={() => { if (Date.now() - opened.current > 450) onClose(); }} onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+  return <div role="dialog" aria-label="Message options" className={`fixed inset-0 z-[3100] select-none animate-[fadein_.15s_ease-out] ${gone ? "opacity-0" : ""}`}
+    onPointerDown={() => { if (gone) return; setGone(true); setTimeout(onClose, 350); }} onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
     <div className="absolute inset-0 bg-[#18100a59] backdrop-blur-[6px]" />
-    {bar && <div role="menu" aria-label="React to this message" onClick={(e) => e.stopPropagation()} style={{ top: top - BAR - GAP, ...side }}
+    {bar && <div role="menu" aria-label="React to this message" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{ top: top - BAR - GAP, ...side }}
       className="absolute flex items-center gap-0.5 rounded-full bg-white shadow-[0_8px_30px_#18100a40] px-1.5 py-1.5 animate-[pop_.18s_ease-out]">{bar}</div>}
     <div aria-hidden style={{ top, width: rect.width, maxHeight: height, ...side }} className="absolute overflow-hidden pointer-events-none rounded-[18px] [&>*]:!m-0">{children}</div>
-    {actions.length > 0 && <div role="menu" aria-label="Message actions" onClick={(e) => e.stopPropagation()} style={{ top: top + height + GAP, ...side }}
+    {actions.length > 0 && <div role="menu" aria-label="Message actions" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{ top: top + height + GAP, ...side }}
       className="absolute min-w-[220px] rounded-2xl bg-white shadow-[0_8px_30px_#18100a40] py-2 animate-[fadein_.18s_ease-out]">
       {head}{actions.map((a) => <ActionRow key={a.id} a={a} done={onClose} />)}
     </div>}

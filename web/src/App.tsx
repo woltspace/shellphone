@@ -620,7 +620,6 @@ export function App() {
       .then((r) => { if (!r || !r.ok) { setMyReacts((o) => { const n = { ...o }; delete n[id]; return n; }); setError("Couldn't react: try again"); } });
   };
   const ctx: Ctx = { openWho: (w: string) => setWho(w), me: state.me, person, wolts: state.members.wolts, people: state.members.people, seen: state.seen || {}, all: msgs, view: (urls, at = 0, names) => setViewing({ urls, names, at }), retry: (cid) => retryRef.current(cid), openPage: setPaging, showTerminal: desk ? (wolt: string) => setFocus({ wolt, at: Date.now() }) : undefined, terminals: state.terminals,
-    reply: (m: Msg) => { if (!m.thread) open(m.id); setTimeout(() => { const c = document.querySelectorAll<HTMLTextAreaElement>("[data-composer] textarea"); c[c.length - 1]?.focus(); }, 280); },
     // who's working where ("" the main chat, else a thread); a room that doesn't say where: everywhere, as before
     busy: (place: string) => state.members.wolts.filter((w) => state.working_in ? (state.working_in[w.wolt] || []).includes(place) : !!state.working?.[w.wolt]),
     reactions, myReaction: (id: string) => reactions(id).find((r) => r.who === "p:" + state.me)?.emoji, react };
