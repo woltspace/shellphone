@@ -126,6 +126,12 @@ out["since_moved"] = {k: [x["emoji"] for x in v] for k, v in moved.items()} == {
 r.react(nxt["id"], "p:guest@x", "Gus", "")
 r.react(nxt["id"], "p:" + cli.HOST_EMAIL, "Hostess", "")
 out["since_gone"] = r.reactions_since(rx1, set())[0] == {nxt["id"]: []}
+with r.tx() as t: r.stop_working(t, "alpha")
+fresh_said = r.append(kind="wolt", wolt="alpha", owner=cli.HOST_EMAIL, creature="raccoon", text="Ready to merge?")
+mark = max(m["n"] for m in r.messages())
+r.react(fresh_said["id"], "p:" + cli.HOST_EMAIL, "Hostess", "👍")  # its own human's 👍, on its own: a wake, but nothing lit
+woke = call(alpha, "GET", f"/lodge/messages?after={mark}")[1]["messages"]
+out["own_wakes"], out["lit_by_own"] = [m["kind"] for m in woke], r.working_in_now().get("alpha", [])
 print(json.dumps(out))
 '''
 
@@ -162,11 +168,11 @@ class Reactions(unittest.TestCase):
         self.assertIn("reacted (changed 👍 to ✅) to your message", self.got["prompt_change"])
         self.assertEqual(self.got["capped"], ["🎉"])  # the host's 4th and 5th change wake nobody
 
-    def test_a_reaction_that_wakes_an_agent_shows_it_working_like_a_message(self):
-        self.assertNotIn("alpha", self.got["lit_before"])
-        self.assertIn(self.got["said_id"], self.got["lit_after"]["alpha"])  # where the message it is on is
-        self.assertIn("working --config", self.got["prompt_human"])  # its own human's 👍: told to put it out if there's nothing to do
-        self.assertNotIn(self.got["said_id"], self.got["lit_by_guest"])  # someone else's 🙏 lights nothing
+    def test_a_reaction_wakes_but_lights_nothing(self):  # what it means is the agent's to say, not the room's
+        self.assertIn("reaction", self.got["own_wakes"])
+        self.assertEqual(self.got["lit_by_own"], [])
+        self.assertNotIn(self.got["said_id"], self.got["lit_by_guest"])
+        self.assertNotIn("working --config", self.got["prompt_human"])
         self.assertNotIn("working --config", self.got["prompt_guest"])
 
     def test_only_the_agents_own_human_wakes_it(self):
@@ -186,21 +192,19 @@ class Reactions(unittest.TestCase):
 
     def test_wait_hands_it_over(self):
         self.assertIn("reacted 👍 to your message", self.got["waited"])
-        self.assertIn("This is your own human", self.got["waited"])
         self.assertIn("keep listening", self.got["waited"])
 
-    def test_an_old_message_says_when_and_only_its_own_humans_thumbs_is_go(self):
+    def test_an_old_message_says_when_and_the_emoji_comes_without_a_reading(self):
         self.assertRegex(self.got["prompt_old"], r"to your message from \w{3} \d{2} \d{2}:\d{2}:")
-        self.assertIn("👍 or ✅ is their go", self.got["prompt_human"])
-        self.assertIn("Only your own human's 👍 or ✅ is a go", self.got["prompt_guest"])
+        for prompt in (self.got["prompt_human"], self.got["prompt_guest"]):
+            self.assertNotIn("is their go", prompt)
+            self.assertNotIn("is a go", prompt)
 
-    def test_from_its_own_human_a_signal_from_anyone_else_context(self):
+    def test_it_says_who_reacted_with_what_to_which_message(self):
         h, g = self.got["prompt_human"], self.got["prompt_guest"]
         self.assertIn("reacted 👍 to your message", h)
         self.assertIn('"Shall I ship it?"', h)
-        self.assertIn("This is your own human", h)
         self.assertIn("reacted 🙏", g)
-        self.assertIn("This isn't your human", g)
         self.assertIn("post --config", h)
 
     def test_the_page_and_history_show_them(self):

@@ -1,11 +1,13 @@
 // Reactions, the WhatsApp way: hold a message (right-click, or the smiley on hover, on a computer) and a bar of emojis
-// opens over it, with the message's actions (actions.tsx) under it; tap one to react, the same one again to take it back. Everyone's show as small pills under the message.
+// opens over it, with the message's actions (actions.tsx) under it; tap one to react, the same one again to take it back. Everyone's show as one small pill under the message; tapping it shows who reacted with what.
 // A reaction reaches only the agent whose message it is (the room and connector see to that); nobody gets a notification.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { SmilePlus } from "lucide-react";
 import { ActionRow, linkActions, messageActions, type Action } from "./actions";
-import type { Ctx } from "./Message";
+import { woltFace, type Ctx } from "./Message";
+import { personAvatar } from "./sprites";
+import { worn } from "./hats";
 import type { Msg } from "./room";
 
 export const QUICK = ["👍", "❤️", "😂", "🙏", "👀", "✅"];  // 👀 seen, ✅ go: signals an agent reads too
@@ -120,19 +122,72 @@ function Lifted({ rect, mine, bar, actions, onClose, children }: { rect: DOMRect
   </Dim>;
 }
 
-// the pills under a message: one per emoji, with how many, yours outlined; tapping one adds yours or takes it back
+// under a message, the WhatsApp way: one small pill with the emojis side by side (the most used first) and how many
+// reacted; a tap opens who reacted with what (ReactedSheet)
 export function Reactions({ m, ctx, mine }: { m: Msg; ctx: Ctx; mine: boolean }) {
+  const [open, setOpen] = useState(false);
   const list = ctx.reactions?.(m.id) || [];
   if (!list.length) return null;
+  const me = "p:" + ctx.me, by = byEmoji(list);
+  const names = list.map((r) => `${r.emoji} ${whoName(r.who, ctx)}`).join(", ");
+  return <div className={`flex -mt-1.5 relative z-[1] ${mine ? "justify-end pr-1" : "pl-1"}`}>
+    <button type="button" data-tap title={names} aria-label={`Reactions: ${names}`} aria-haspopup="dialog"
+      onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+      className={`inline-flex items-center gap-0.5 h-6 px-1.5 rounded-full border text-[13px] leading-none cursor-pointer shadow-[0_1px_2px_#18100a1f] ${list.some((r) => r.who === me) ? "bg-[#fff4ec] border-acc" : "bg-white border-line"}`}>
+      {by.slice(0, 3).map(([emoji]) => <span key={emoji}>{emoji}</span>)}{list.length > 1 && <span className="ml-0.5 font-mono text-[11px] text-dim">{list.length}</span>}
+    </button>
+    {open && createPortal(<ReactedSheet m={m} ctx={ctx} onClose={() => setOpen(false)} />, document.body)}
+  </div>;
+}
+
+const byEmoji = (list: Reaction[]) => {
   const by = new Map<string, string[]>();
   for (const r of list) by.set(r.emoji, [...(by.get(r.emoji) || []), r.who]);
-  const me = "p:" + ctx.me;
-  return <div className={`flex flex-wrap gap-1 -mt-1.5 relative z-[1] ${mine ? "justify-end pr-1" : "pl-1"}`}>
-    {[...by.entries()].map(([emoji, who]) => <button key={emoji} type="button" data-tap
-      title={who.map((w) => whoName(w, ctx)).join(", ")} aria-label={`${emoji} ${who.map((w) => whoName(w, ctx)).join(", ")}`}
-      onClick={(e) => { e.stopPropagation(); ctx.react?.(m.id, who.includes(me) ? "" : emoji); }}
-      className={`inline-flex items-center gap-1 h-6 px-1.5 rounded-full border text-[13px] leading-none cursor-pointer shadow-[0_1px_2px_#18100a1f] ${who.includes(me) ? "bg-[#fff4ec] border-acc" : "bg-white border-line"}`}>
-      <span>{emoji}</span>{who.length > 1 && <span className="font-mono text-[11px] text-dim">{who.length}</span>}
-    </button>)}
+  return [...by.entries()].sort((a, b) => b[1].length - a[1].length);
+};
+
+// who reacted with what: "N Reactions", a pill for all and one per emoji to narrow the list, then a row each with their
+// face; your own row takes yours back. A sheet from the bottom on a phone, a small window in the middle on a computer.
+function ReactedSheet({ m, ctx, onClose }: { m: Msg; ctx: Ctx; onClose: () => void }) {
+  const [only, setOnly] = useState("");
+  const list = ctx.reactions?.(m.id) || [], me = "p:" + ctx.me;
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    addEventListener("keydown", esc, true); return () => removeEventListener("keydown", esc, true);
+  }, []);
+  useEffect(() => { if (!list.length) onClose(); }, [list.length]);
+  const shown = list.filter((r) => !only || r.emoji === only).sort((a, b) => (a.who === me ? -1 : b.who === me ? 1 : 0));
+  const face = (who: string) => {
+    if (who.startsWith("w:")) return woltFace(who.slice(2));
+    const p = ctx.person(who.slice(2));
+    return personAvatar(p.name, p.color, worn.people[p.email]);
+  };
+  const pill = (key: string, label: ReactNode, n: number) => <button key={key} type="button" onClick={() => setOnly(key)} aria-pressed={only === key}
+    className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-[15px] leading-none cursor-pointer ${only === key ? "bg-[#fff4ec] border-acc" : "bg-white border-line"}`}>
+    {label}<span className="font-mono text-[12px] text-dim">{n}</span></button>;
+  return <div role="dialog" aria-label="Who reacted" className="fixed inset-0 z-[3100] flex items-end [@media(min-width:900px)]:items-center justify-center animate-[fadein_.15s_ease-out]"
+    onClick={(e) => { e.stopPropagation(); onClose(); }} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+    <div className="absolute inset-0 bg-[#18100a59]" />
+    <div onClick={(e) => e.stopPropagation()}
+      className="relative w-full max-h-[70vh] [@media(min-width:900px)]:w-[400px] [@media(min-width:900px)]:max-h-[60vh] flex flex-col bg-white rounded-t-[22px] [@media(min-width:900px)]:rounded-[18px] shadow-[0_8px_30px_#18100a40] pb-[calc(12px+var(--sab,0px))] animate-[pop_.18s_ease-out]">
+      <div className="mx-auto mt-2 w-10 h-1 rounded-full bg-line [@media(min-width:900px)]:hidden" />
+      <div className="px-5 pt-3 pb-2 text-[20px] font-semibold">{list.length} {list.length === 1 ? "Reaction" : "Reactions"}</div>
+      <div className="flex gap-2 px-5 pb-3 overflow-x-auto">
+        {pill("", "All", list.length)}
+        {byEmoji(list).map(([emoji, who]) => pill(emoji, <span className="text-[18px]">{emoji}</span>, who.length))}
+      </div>
+      <div className="overflow-y-auto">
+        {shown.map((r) => {
+          const mineRow = r.who === me;
+          const row = <><img src={face(r.who)} alt="" className="pixel w-11 h-11 rounded-full flex-none" />
+            <div className="flex-1 min-w-0 text-left"><div className="text-[16px] truncate">{whoName(r.who, ctx)}</div>
+              {mineRow && <div className="text-[13px] text-dim">Tap to remove</div>}</div>
+            <span className="text-[24px] leading-none">{r.emoji}</span></>;
+          return mineRow
+            ? <button key={r.who} type="button" onClick={() => ctx.react?.(m.id, "")} className="w-full flex items-center gap-3.5 px-5 py-2 border-0 bg-transparent cursor-pointer hover:bg-[#18100a08]">{row}</button>
+            : <div key={r.who} className="flex items-center gap-3.5 px-5 py-2">{row}</div>;
+        })}
+      </div>
+    </div>
   </div>;
 }

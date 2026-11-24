@@ -1421,14 +1421,11 @@ def for_wolt(req, l):
                 of = message(r.get("of") or "") if r.get("wolt") == l["wolt"] else None
                 return bool(of) and heard(of, l["wolt"])
             new = [m if m["kind"] != "reaction" or felt(m) else {"n": m["n"], "id": m["id"], "at": m["at"], "kind": "unheard"} for m in new]
-            def go(m):  # its own human's 👍 or ✅: a go, so it shows working like a message picked up (a ❤️ or 👀 lights nothing)
-                r = m.get("reaction") or {}
-                return r.get("emoji") in ("👍", "✅") and canon(r.get("who", "")[2:]) == canon(l["owner"])
             fresh = [m for m in new if m.get("at", 0) > time.time() - 60 and m.get("text") and (
-                m["kind"] == "human" or (m["kind"] == "reaction" and go(m)) or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]
-            def lit(m):  # how long it shows working: its own human's go is like being asked
-                return ASKED_FOR if m["kind"] == "reaction" or asks(m, l["wolt"], l["owner"]) else HEARD_FOR
-            where = lambda m: m.get("thread") or ((m.get("reaction") or {}).get("of") if m["kind"] == "reaction" else m["id"])  # a reaction: where the message it's on is
+                m["kind"] == "human" or (m["kind"] == "wolt" and m.get("wolt") != l["wolt"] and asks(m, l["wolt"], l["owner"])))]  # a reaction lights nothing: what it means is the agent's to say
+            def lit(m):  # how long it shows working
+                return ASKED_FOR if asks(m, l["wolt"], l["owner"]) else HEARD_FOR
+            where = lambda m: m.get("thread") or m["id"]  # a main-chat message starts its own chat: working there
             read = [m["id"] for m in new if m["kind"] == "human"]
             with tx() as c:  # the wolt is reading these now: a read receipt each, and it's working on them
                 for m in fresh:
