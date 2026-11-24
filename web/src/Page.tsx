@@ -129,8 +129,6 @@ export type { PageRef };
 // either (the guide's kit does that). ⤢ opens it full screen.
 // Inside a held message's lifted copy: draw pages as a still frame, so holding never starts a second live copy
 export const Still = createContext(false);
-// a page that uses window.shellphone (its board: change, onChange, changes, me) needs the full-screen viewer's handshake
-const TALKS = /\bshellphone\s*\.\s*(change|onChange|changes|me)\b/;
 
 export function PageInline({ m, ctx }: { m: Msg; ctx: Ctx }) {
   // Live only near the screen: a long chat of pages runs just the few in view, the rest wait as a still frame.
@@ -140,7 +138,8 @@ export function PageInline({ m, ctx }: { m: Msg; ctx: Ctx }) {
   const [near, setNear] = useState(false);
   const [html, setHtml] = useState("");
   const [failed, setFailed] = useState(false);  // never "drawing…" forever: say so, and the full-screen view can still try
-  const [talks, setTalks] = useState(false);  // a page with a board it shares with the room plays full screen, where that works
+  const [talky, setTalky] = useState(false);
+  const frame = useRef<HTMLIFrameElement>(null);  // a page with a board it shares with the room plays full screen, where that works
   useEffect(() => {
     const el = box.current;
     if (still) return;
@@ -155,15 +154,21 @@ export function PageInline({ m, ctx }: { m: Msg; ctx: Ctx }) {
     let live = true;
     setFailed(false);
     look({ v: 0, changes: [] }, (after, v) => get(`/api/page?id=${encodeURIComponent(p.id)}&after=${after}&v=${v}`))
-      .then((r) => { if (!live) return; if (r.page) { got.current = key; const raw = r.page.html || ""; setTalks(TALKS.test(raw)); setHtml(sealed(raw)); } else setFailed(true); })
+      .then((r) => { if (!live) return; if (r.page) { got.current = key; setHtml(sealed(r.page.html || "", true)); } else setFailed(true); })
       .catch(() => { if (live) setFailed(true); });
     return () => { live = false; };
   }, [p.id, p.v, near]);
+  useEffect(() => {
+    if (still) return;
+    const hear = (e: MessageEvent) => { const d = e.data; if (frame.current && e.source === frame.current.contentWindow && d && d.shellphone === 1 && d.type === "board") setTalky(true); };
+    addEventListener("message", hear);
+    return () => removeEventListener("message", hear);
+  }, [still]);
   const open = (e: { stopPropagation: () => void }) => { e.stopPropagation(); ctx.openPage?.(p.id); };
-  if (talks) return <PageTile m={m} ctx={ctx} />;
+  if (talky) return <PageTile m={m} ctx={ctx} />;
   return <div ref={box} className="mt-1.5 mb-0.5 w-full">
     <div className="relative w-full overflow-hidden rounded-xl border border-line bg-white shadow-[0_2px_10px_#18100a1f] aspect-[4/5] sm:aspect-video">
-      {html && near && !still ? <iframe title={p.title} srcDoc={html} sandbox="allow-scripts" referrerPolicy="no-referrer" allow=""
+      {html && near && !still ? <iframe ref={frame} title={p.title} srcDoc={html} sandbox="allow-scripts" referrerPolicy="no-referrer" allow=""
         className="absolute inset-0 h-full w-full border-0" />
         : failed ? <div className="absolute inset-0 grid place-items-center font-mono text-xs text-dim">couldn't load this page here: ⤢ to open it</div>
         : <div className={`absolute inset-0 grid place-items-center font-mono text-xs text-dim ${near ? "animate-pulse" : ""}`}>{near ? "drawing…" : p.title}</div>}
