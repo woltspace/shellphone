@@ -640,11 +640,11 @@ async function ask() {
     const f = bg.querySelector("iframe"); if (f) f.srcdoc = SEAL + o.html;
     main.classList.add("over"); requestAnimationFrame(() => bg.classList.add("on"));
   }
-  // "You're invited to join this shell 🐚 by <host>", the host's name linked where the room was told where (by_url)
+  // "🐚 You're invited to join this shell by <host>", the host's name linked where the room was told where (by_url)
   document.querySelector("h1").style.display = "none";
   const line = document.getElementById("say"), by = typeof got.by === "string" && got.by ? got.by : "";
   line.className = "inv";
-  line.innerHTML = "You're invited to join this shell 🐚" + (by ? " by " + (String(got.by_url || "").startsWith("https://") ? '<a href="' + esc(got.by_url) + '" target="_blank" rel="noopener">' + esc(by) + "</a>" : esc(by)) : "");
+  line.innerHTML = "🐚 You're invited to join this shell" + (by ? " by " + (String(got.by_url || "").startsWith("https://") ? '<a href="' + esc(got.by_url) + '" target="_blank" rel="noopener">' + esc(by) + "</a>" : esc(by)) : "");
   document.getElementById("flair").style.display = "block"; document.getElementById("part").style.display = "inline";
   const form = document.getElementById("form");
   form.style.display = "flex";
