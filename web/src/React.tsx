@@ -127,6 +127,7 @@ function Lifted({ rect, mine, bar, actions, onClose, children }: { rect: DOMRect
 export function Reactions({ m, ctx, mine }: { m: Msg; ctx: Ctx; mine: boolean }) {
   const [open, setOpen] = useState(false);
   const list = ctx.reactions?.(m.id) || [];
+  useEffect(() => { if (!list.length) setOpen(false); }, [list.length]);  // the last one gone: the sheet stays shut when someone reacts again
   if (!list.length) return null;
   const me = "p:" + ctx.me, by = byEmoji(list);
   const names = list.map((r) => `${r.emoji} ${whoName(r.who, ctx)}`).join(", ");
@@ -149,13 +150,13 @@ const byEmoji = (list: Reaction[]) => {
 // who reacted with what: "N Reactions", a pill for all and one per emoji to narrow the list, then a row each with their
 // face; your own row takes yours back. A sheet from the bottom on a phone, a small window in the middle on a computer.
 function ReactedSheet({ m, ctx, onClose }: { m: Msg; ctx: Ctx; onClose: () => void }) {
-  const [only, setOnly] = useState("");
+  const [picked, setOnly] = useState("");
   const list = ctx.reactions?.(m.id) || [], me = "p:" + ctx.me;
+  const only = list.some((r) => r.emoji === picked) ? picked : "";  // that emoji is gone (yours taken back, or changed): back to all
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
     addEventListener("keydown", esc, true); return () => removeEventListener("keydown", esc, true);
   }, []);
-  useEffect(() => { if (!list.length) onClose(); }, [list.length]);
   const shown = list.filter((r) => !only || r.emoji === only).sort((a, b) => (a.who === me ? -1 : b.who === me ? 1 : 0));
   const face = (who: string) => {
     if (who.startsWith("w:")) return woltFace(who.slice(2));
