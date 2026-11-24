@@ -126,6 +126,15 @@ out["since_moved"] = {k: [x["emoji"] for x in v] for k, v in moved.items()} == {
 r.react(nxt["id"], "p:guest@x", "Gus", "")
 r.react(nxt["id"], "p:" + cli.HOST_EMAIL, "Hostess", "")
 out["since_gone"] = r.reactions_since(rx1, set())[0] == {nxt["id"]: []}
+# a message that came and was reacted to between a first poll's look at the messages and its look at the reactions:
+# that poll's rx is already past its reaction, and it still comes when the message is sent on the next poll
+seen = {m["id"] for m in r.messages()}
+late_m = r.append(kind="human", email="guest@x", text="slipped in")
+r.react(late_m["id"], "p:" + cli.HOST_EMAIL, "Hostess", "🎉")
+_, rx2 = r.reactions_since(0, seen)
+got_late, _ = r.reactions_since(rx2, {late_m["id"]})
+out["since_late"] = [x["emoji"] for x in got_late.get(late_m["id"], [])]
+out["since_new_without"] = r.reactions_since(rx2, {fresh["id"]} if (fresh := r.append(kind="human", email="guest@x", text="plain")) else set())[0]
 with r.tx() as t: r.stop_working(t, "alpha")
 fresh_said = r.append(kind="wolt", wolt="alpha", owner=cli.HOST_EMAIL, creature="raccoon", text="Ready to merge?")
 mark = max(m["n"] for m in r.messages())
@@ -185,6 +194,8 @@ class Reactions(unittest.TestCase):
         self.assertEqual(self.got["since_quiet"], {})
         self.assertTrue(self.got["since_moved"])
         self.assertTrue(self.got["since_gone"])
+        self.assertEqual(self.got["since_late"], ["🎉"])  # the message brings its reactions with it
+        self.assertEqual(self.got["since_new_without"], {})  # a new message with none adds nothing
 
     def test_a_paused_agent_is_not_woken(self):
         self.assertNotIn("reaction", self.got["paused_room"])

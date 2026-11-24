@@ -784,14 +784,15 @@ def reactions_now(ids=None):
 
 
 def reactions_since(rx, ids):
-    """What a page polling the room needs: the first time (rx 0), the reactions on the messages it's being sent; after
-    that, the whole list again for each message whose reactions changed since rx ([] once nobody's is left), so a poll
-    carries only what moved. Returns (reactions, the rx to ask with next time)."""
+    """What a page polling the room needs: the reactions on the messages it's being sent now (ids), and, after the first
+    poll, the whole list again for each message whose reactions changed since rx ([] once nobody's is left), so a poll
+    carries only what moved. The messages being sent always come with theirs: one that arrived, and was reacted to,
+    between this poll's look at the messages and its look at the reactions still gets its reactions when it is sent.
+    Returns (reactions, the rx to ask with next time)."""
     last = q("select coalesce(max(n), 0) as n from reaction_log")[0]["n"]
-    if rx:
-        ids = {r["msg"] for r in q("select distinct msg from reaction_log where n > ?", rx)}
-    now = reactions_now(ids)
-    return {i: now.get(i, []) for i in ids} if rx else now, last
+    moved = {r["msg"] for r in q("select distinct msg from reaction_log where n > ?", rx)} if rx else set()
+    now = reactions_now(set(ids) | moved)
+    return {**{i: now[i] for i in ids if i in now}, **{i: now.get(i, []) for i in moved}}, last
 
 
 def react(msg_id, who, name, emoji, owner=None):

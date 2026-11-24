@@ -150,21 +150,23 @@ const byEmoji = (list: Reaction[]) => {
 // who reacted with what: "N Reactions", a pill for all and one per emoji to narrow the list, then a row each with their
 // face; your own row takes yours back. A sheet from the bottom on a phone, a small window in the middle on a computer.
 function ReactedSheet({ m, ctx, onClose }: { m: Msg; ctx: Ctx; onClose: () => void }) {
-  const [picked, setOnly] = useState("");
+  const [only, setOnly] = useState("");
   const list = ctx.reactions?.(m.id) || [], me = "p:" + ctx.me;
-  const only = list.some((r) => r.emoji === picked) ? picked : "";  // that emoji is gone (yours taken back, or changed): back to all
+  const gone = !!only && !list.some((r) => r.emoji === only);
+  useEffect(() => { if (gone) setOnly(""); }, [gone]);  // that emoji is gone (yours taken back, or changed): back to all, for good
+  const sel = gone ? "" : only;
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
     addEventListener("keydown", esc, true); return () => removeEventListener("keydown", esc, true);
   }, []);
-  const shown = list.filter((r) => !only || r.emoji === only).sort((a, b) => (a.who === me ? -1 : b.who === me ? 1 : 0));
+  const shown = list.filter((r) => !sel || r.emoji === sel).sort((a, b) => (a.who === me ? -1 : b.who === me ? 1 : 0));
   const face = (who: string) => {
     if (who.startsWith("w:")) return woltFace(who.slice(2));
     const p = ctx.person(who.slice(2));
     return personAvatar(p.name, p.color, worn.people[p.email]);
   };
-  const pill = (key: string, label: ReactNode, n: number) => <button key={key} type="button" onClick={() => setOnly(key)} aria-pressed={only === key}
-    className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-[15px] leading-none cursor-pointer ${only === key ? "bg-[#fff4ec] border-acc" : "bg-white border-line"}`}>
+  const pill = (key: string, label: ReactNode, n: number) => <button key={key} type="button" onClick={() => setOnly(key)} aria-pressed={sel === key}
+    className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-[15px] leading-none cursor-pointer ${sel === key ? "bg-[#fff4ec] border-acc" : "bg-white border-line"}`}>
     {label}<span className="font-mono text-[12px] text-dim">{n}</span></button>;
   return <div role="dialog" aria-label="Who reacted" className="fixed inset-0 z-[3100] flex items-end [@media(min-width:900px)]:items-center justify-center animate-[fadein_.15s_ease-out]"
     onClick={(e) => { e.stopPropagation(); onClose(); }} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
