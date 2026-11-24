@@ -43,10 +43,10 @@ export function Reactable({ m, ctx, mine, children }: { m: Msg; ctx: Ctx; mine: 
   return (
     <div ref={box} className="relative group/react min-w-0 [@media(hover:none)]:select-none [-webkit-touch-callout:none]" data-react-own
       onTouchStart={(e) => {
-        const t = e.touches[0], link = (e.target as HTMLElement).closest?.("a[href]")?.getAttribute("href") || undefined;
+        const t = e.touches[0], a = (e.target as HTMLElement).closest?.("a[href]"), link = a?.getAttribute("href") || undefined;
         if (!link && (e.target as HTMLElement).closest?.("button, audio, video, input, [data-tap]")) return;
         stop(); fired.current = false;
-        held.current = { x: t.clientX, y: t.clientY, t: window.setTimeout(() => { held.current = null; fired.current = true; navigator.vibrate?.(10); setOpen({ at: lift(), link }); }, HOLD_MS) };
+        held.current = { x: t.clientX, y: t.clientY, t: window.setTimeout(() => { held.current = null; fired.current = true; navigator.vibrate?.(10); setOpen({ at: a ? a.getBoundingClientRect() : lift(), link }); }, HOLD_MS) };
       }}
       onTouchMove={(e) => { const t = e.touches[0], h = held.current; if (h && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 10) stop(); }}
       onTouchEnd={() => { stop(); if (fired.current) setTimeout(() => { fired.current = false; }, 400); }} onTouchCancel={stop}
@@ -65,7 +65,7 @@ export function Reactable({ m, ctx, mine, children }: { m: Msg; ctx: Ctx; mine: 
           {acts.map((a) => <ActionRow key={a.id} a={a} done={close} small />)}</div>}
       </div>}
       {open && open.at !== "pop" && createPortal(open.link
-        ? <Lifted rect={open.at} mine={mine} onClose={close} head={<span className="block max-w-[300px] truncate font-mono text-[13px] text-dim px-5 pt-1 pb-2">{open.link}</span>} actions={linkActions(open.link)}>{children}</Lifted>
+        ? <LinkLifted rect={open.at} url={open.link} onClose={close} />
         : <Lifted rect={open.at} mine={mine} onClose={close} bar={emojis(true)} actions={acts}>{children}</Lifted>, document.body)}
     </div>
   );
@@ -73,27 +73,51 @@ export function Reactable({ m, ctx, mine, children }: { m: Msg; ctx: Ctx; mine: 
 
 // the phone's view of a held message: everything else dimmed, the message where it was (moved only as far as needed to
 // leave room for the emojis above and the actions below), and the first touch anywhere else closes it at once
-function Lifted({ rect, mine, bar, head, actions, onClose, children }: { rect: DOMRect; mine: boolean; bar?: ReactNode; head?: ReactNode; actions: Action[]; onClose: () => void; children: ReactNode }) {
-  const [gone, setGone] = useState(false);  // vanished at once on the first touch, still catching the rest of that tap so nothing underneath gets it
+// dims the screen; the first touch outside what's shown closes it at once, still catching the rest of that tap so
+// nothing underneath gets it
+function Dim({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
+  const [gone, setGone] = useState(false);
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     addEventListener("keydown", esc); return () => removeEventListener("keydown", esc);
   }, []);
-  const BAR = bar ? 60 : 0, MENU = actions.length ? 16 + actions.length * 52 + (head ? 30 : 0) : 0, GAP = 10, H = innerHeight;
+  return <div role="dialog" aria-label={label} className={`fixed inset-0 z-[3100] select-none animate-[fadein_.15s_ease-out] ${gone ? "opacity-0" : ""}`}
+    onPointerDown={() => { if (gone) return; setGone(true); setTimeout(onClose, 350); }} onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+    <div className="absolute inset-0 bg-[#18100a59] backdrop-blur-[6px]" />
+    {children}
+  </div>;
+}
+
+// a held link, the iPhone way: just the link, lifted out as a pill where it was, the full address, and under it Open
+// and Copy link; the message stays behind the blur
+function LinkLifted({ rect, url, onClose }: { rect: DOMRect; url: string; onClose: () => void }) {
+  const MENU = 16 + 2 * 52, PILL = 24 + 22 * Math.ceil(url.length / 36), GAP = 10, H = innerHeight;
+  const top = Math.max(16 + (Number(getComputedStyle(document.documentElement).getPropertyValue("--sat").replace("px", "")) || 0), Math.min(rect.top - 10, H - PILL - GAP - MENU - 24));
+  return <Dim label="Link options" onClose={onClose}>
+    <div style={{ top }} className="absolute inset-x-3 flex flex-col items-center gap-2.5 animate-[pop_.18s_ease-out]">
+      <div aria-hidden className="max-w-full rounded-2xl bg-white px-4 py-2.5 text-[16px] leading-[22px] text-acc break-all shadow-[0_8px_30px_#18100a40]">{url}</div>
+      <div role="menu" aria-label="Link actions" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
+        className="min-w-[240px] rounded-2xl bg-white shadow-[0_8px_30px_#18100a40] py-2">
+        {linkActions(url).map((a) => <ActionRow key={a.id} a={a} done={onClose} />)}
+      </div>
+    </div>
+  </Dim>;
+}
+
+function Lifted({ rect, mine, bar, actions, onClose, children }: { rect: DOMRect; mine: boolean; bar?: ReactNode; actions: Action[]; onClose: () => void; children: ReactNode }) {
+  const BAR = bar ? 60 : 0, MENU = actions.length ? 16 + actions.length * 52 : 0, GAP = 10, H = innerHeight;
   const height = Math.min(rect.height, H * 0.45);  // a long message shows its start
   const top = Math.max(BAR + GAP + 12 + (Number(getComputedStyle(document.documentElement).getPropertyValue("--sat").replace("px", "")) || 0), Math.min(rect.top, H - height - GAP - MENU - 24));
   const side = mine ? { right: Math.max(8, innerWidth - rect.right) } : { left: Math.max(8, rect.left) };
-  return <div role="dialog" aria-label="Message options" className={`fixed inset-0 z-[3100] select-none animate-[fadein_.15s_ease-out] ${gone ? "opacity-0" : ""}`}
-    onPointerDown={() => { if (gone) return; setGone(true); setTimeout(onClose, 350); }} onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
-    <div className="absolute inset-0 bg-[#18100a59] backdrop-blur-[6px]" />
+  return <Dim label="Message options" onClose={onClose}>
     {bar && <div role="menu" aria-label="React to this message" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{ top: top - BAR - GAP, ...side }}
       className="absolute flex items-center gap-0.5 rounded-full bg-white shadow-[0_8px_30px_#18100a40] px-1.5 py-1.5 animate-[pop_.18s_ease-out]">{bar}</div>}
     <div aria-hidden style={{ top, width: rect.width, maxHeight: height, ...side }} className="absolute overflow-hidden pointer-events-none rounded-[18px] [&>*]:!m-0">{children}</div>
     {actions.length > 0 && <div role="menu" aria-label="Message actions" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{ top: top + height + GAP, ...side }}
       className="absolute min-w-[220px] rounded-2xl bg-white shadow-[0_8px_30px_#18100a40] py-2 animate-[fadein_.18s_ease-out]">
-      {head}{actions.map((a) => <ActionRow key={a.id} a={a} done={onClose} />)}
+      {actions.map((a) => <ActionRow key={a.id} a={a} done={onClose} />)}
     </div>}
-  </div>;
+  </Dim>;
 }
 
 // the pills under a message: one per emoji, with how many, yours outlined; tapping one adds yours or takes it back
