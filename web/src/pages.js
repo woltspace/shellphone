@@ -28,10 +28,16 @@ window.shellphone = (() => {
 })();
 </script>`;
 
-export function sealed(html) {
+// In a chat bubble the frame can't run the board handshake yet: the first time the page reaches for window.shellphone
+// (however it gets there: a name of its own for it, pulling out change, or shellphone["change"]), it says so once and the
+// chat shows it as a tile that opens full screen, where its board works.
+const TOLD = `<script>(()=>{const api=window.shellphone;let told=false;Object.defineProperty(window,"shellphone",{configurable:false,`
+  + `get(){if(!told){told=true;parent.postMessage({shellphone:1,type:"board"},"*");}return api;}});})();</script>`;
+
+export function sealed(html, inline = false) {
   const body = String(html || "").replace(/^﻿?\s*<!doctype[^>]*>/i, "");  // ours goes first, or the page is drawn in quirks mode
   return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${POLICY}">`
-    + `${LOCK}<meta name="viewport" content="width=device-width,initial-scale=1">${HELPER}${body}`;
+    + `${LOCK}<meta name="viewport" content="width=device-width,initial-scale=1">${HELPER}${inline ? TOLD : ""}${body}`;
 }
 
 export function after(have, got) {

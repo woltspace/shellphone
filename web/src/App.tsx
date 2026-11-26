@@ -281,6 +281,17 @@ function Feed({ list, ctx, working, away, replies, seen, open, divider, stick, p
   };
   if (flip) flip.current = () => hold();
   useLayoutEffect(() => follow(true), [fold]);
+  // opening a chat whose newest message is taller than the screen (a slide, a long answer): start at its top, not its bottom
+  const topped = useRef("");  // once per chat opened, as soon as its messages are in
+  useEffect(() => {
+    const s = scroller.current; if (!s || !place || !list.length || topped.current === place) return;
+    topped.current = place;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const els = s.querySelectorAll("[data-mid]"), el = els[els.length - 1]; if (!el || s.scrollTop < -24) return;
+      const r = el.getBoundingClientRect(), box = s.getBoundingClientRect();
+      if (r.height > box.height - 16) s.scrollTop += r.top - box.top - 8;
+    }));
+  }, [place, list.length]);
   const toggleRun = (key: string, at?: Element | null) => {
     const s = scroller.current, rule = s?.querySelector(`[data-run="${key}"] [data-rule]`) || null;
     // tapped on the rule: it stays where it is. Tapped lower down (a bubble, the end line) with the rule off screen: bring the rule to the top
@@ -937,7 +948,7 @@ export function App() {
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} /></>}>
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={docked ? { ...ctx, rows: true, tint: threadColor(thread) } : ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} humans={humansOn} flip={flipFeed} />
         {/* a chat just started: who will pick it up, and how to bring someone else in */}
-        {chatsHome && root && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
+        {chatsHome && root && root.kind !== "wolt" && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
           New chat started{state.main && state.who?.[thread]?.[state.main] !== "paused" ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
         {composer}
       </ThreadSheet>
