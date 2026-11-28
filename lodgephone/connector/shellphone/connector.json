@@ -1,0 +1,17 @@
+{
+  "name": "shellphone",
+  "title": "shellphone",
+  "protocol": 1,
+  "command": ["{python}", "shellphone_connector.py"],
+  "capabilities": ["text", "voice_in", "voice_out"],
+  "command_input": ["text"],
+  "command_prefix": "/",
+  "events": ["message", "command", "selection"],
+  "route": [["chat_id", "[A-Za-z0-9][A-Za-z0-9_-]{0,63}"]],
+  "secrets": [["SHELLPHONE_ROOM_URL", "room_url"]],
+  "help": [
+    "• Each wolt is its own chat",
+    "• /sessions, /new, /wolt NAME, /kill: as on Telegram",
+    "• Answer a list with its number"
+  ]
+}

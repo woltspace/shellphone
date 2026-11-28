@@ -18,6 +18,7 @@ export const MESSAGE_ACTIONS: Entry[] = [
   // the agent's session on the host's own lodge
   (m, ctx) => {
     if (m.kind !== "wolt" || !m.wolt) return null;
+    if (m.terminal) return { id: "terminal", label: "Open terminal", icon: <SquareTerminal size={19} />, href: m.terminal };  // the very session that wrote it
     const icon = <SquareTerminal size={19} />, label = `${m.wolt}'s terminal`;
     if (ctx.showTerminal) return { id: "terminal", label, icon, run: () => ctx.showTerminal!(m.wolt!) };
     const href = ctx.terminals?.[m.wolt];

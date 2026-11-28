@@ -12,6 +12,7 @@ export type Msg = {
   n: number; id: string; cid?: string; title?: string; at: number; kind: "human" | "wolt" | "patch" | "activity";  // activity: "maya made 3 changes to …", said by the room
   email?: string; wolt?: string; owner?: string; creature?: string;
   text?: string; audio?: string; seconds?: number; files?: FileInfo[]; file?: FileInfo; card?: CardNode; of?: string; page?: PageRef; activity?: Activity;
+  terminal?: string; meta?: Record<string, string>;  // from a lodge connector: its session's terminal ("Open terminal") and what it knows of it ("Info")
   localUrl?: string; pending?: boolean; failed?: boolean; thread?: string; progress?: string;  // progress: a note on its way ("sending 40%")
 };
 export type Tab = { slug: string; title: string; v: number };

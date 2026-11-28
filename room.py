@@ -647,6 +647,22 @@ def app_manifest(key=None):
 CARD_BLOCKS = {"Card", "Text", "List", "Buttons", "Link", "Table", "Stats"}
 
 
+def check_extra(data):
+    """What a message carries besides its words, shown in its long-press menu: `terminal` (a link to the agent's session,
+    "Open terminal") and `meta` (a few short strings, "Info"). Both optional; nothing else gets through."""
+    extra, terminal, meta = {}, data.get("terminal"), data.get("meta")
+    if terminal is not None:
+        if not isinstance(terminal, str) or len(terminal) > 500 or not re.fullmatch(r"https://[^\s<>\"']+", terminal):
+            return {}, "terminal is an https link"
+        extra["terminal"] = terminal
+    if meta is not None:
+        if not isinstance(meta, dict) or len(meta) > 12 or not all(
+                isinstance(k, str) and isinstance(v, str) and 0 < len(k) <= 32 and len(v) <= 300 for k, v in meta.items()):
+            return {}, "meta is up to 12 short strings"
+        extra["meta"] = meta
+    return extra, None
+
+
 def check_card(card):
     """(card, None) if it's a valid card or there's none; (None, why) otherwise."""
     if card is None:
@@ -1546,8 +1562,11 @@ def for_wolt(req, l):
         where = thread_of(data.get("thread"))
         if shut(l, where):
             return reply(403, {"error": shut(l, where)})
+        extra, problem = check_extra(data)
+        if problem:
+            return reply(400, {"error": problem})
         m = append(kind="wolt", wolt=l["wolt"], owner=l["owner"], creature=l.get("creature", "raccoon"), text=text,
-                   **({"card": card} if card else {}), **where)
+                   **({"card": card} if card else {}), **extra, **where)
         with tx() as c:
             stop_working(c, l["wolt"], where.get("thread") or "")  # done here; still lit wherever else it is working
         if data.get("voice") is True:  # the wolt says per message whether it's a voice note
@@ -1932,6 +1951,11 @@ def main():
             sys.exit(f"room.py can't find the room's rules (shellphone/core.py): {exc}. Run it from a complete checkout of shellphone "
                      "(room.py with the shellphone folder next to it), or use the installed package (uvx shellphone).")
         print(f"shellphone room on http://127.0.0.1:{a.port}" + (" (dev: pick who you are with ?as=EMAIL)" if DEV else ""), flush=True)
+        if os.environ.get("SHELLPHONE_LODGE") and DEV:
+            sys.exit("SHELLPHONE_LODGE is set: --dev (pick who you are with ?as=) is off for a lodge phone.")
+        if os.environ.get("SHELLPHONE_LODGE") and not (ACCESS_TEAM and ACCESS_AUD):  # a lodge phone holds your wolts: no login check, no room
+            sys.exit("SHELLPHONE_LODGE is set, so this room opens only behind Cloudflare Access: set SHELLPHONE_ACCESS_TEAM and "
+                     "SHELLPHONE_ACCESS_AUD (the team domain and the Access app's AUD tag).")
         if not DEV and not (ACCESS_TEAM and ACCESS_AUD):
             print("WARNING: SHELLPHONE_ACCESS_TEAM and SHELLPHONE_ACCESS_AUD aren't set, so the room believes the email in a plain "
                   "request header: anything that can reach this port can speak as anyone. Set them (see the shellphone-host skill).", flush=True)

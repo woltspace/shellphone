@@ -3,7 +3,7 @@
 // A reaction reaches only the agent whose message it is (the room and connector see to that); nobody gets a notification.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { SmilePlus } from "lucide-react";
+import { Info, SmilePlus, SquareTerminal } from "lucide-react";
 import { ActionRow, linkActions, messageActions, type Action } from "./actions";
 import { woltFace, type Ctx } from "./Message";
 import { Still } from "./Page";
@@ -26,6 +26,7 @@ export function Reactable({ m, ctx, mine, children }: { m: Msg; ctx: Ctx; mine: 
   // message is lifted out where it was, the emojis sit above it and what you can do with it below. Held on a link: the
   // link itself with Open and Copy link, like Telegram.
   const [open, setOpen] = useState<Open>(false);
+  const [info, setInfo] = useState(false);  // every hook before the `if (!can) return` below: a message changes can as it's sent
   const held = useRef<{ t: number; x: number; y: number } | null>(null), box = useRef<HTMLDivElement>(null), fired = useRef(false);
   const can = !!ctx.react && !m.pending && !m.failed && m.id !== m.cid && (m.kind === "human" || m.kind === "wolt");
   useEffect(() => {
@@ -42,7 +43,7 @@ export function Reactable({ m, ctx, mine, children }: { m: Msg; ctx: Ctx; mine: 
   const lift = () => (box.current?.querySelector("[data-bubble]") || box.current)!.getBoundingClientRect();
   const emojis = (big: boolean) => QUICK.map((e) => <button key={e} type="button" role="menuitem" aria-label={`React ${e}`} onClick={(ev) => { ev.stopPropagation(); pick(e); }}
     className={`${big ? "w-10 h-10 text-[24px]" : "w-9 h-9 text-[21px]"} grid place-items-center rounded-full border-0 cursor-pointer leading-none transition-transform active:scale-90 hover:scale-110 ${ctx.myReaction?.(m.id) === e ? "bg-[#18100a14]" : "bg-transparent"}`}>{e}</button>);
-  const acts = messageActions(m, ctx);
+  const acts = [...messageActions(m, ctx), { id: "info", label: "Info", icon: <Info size={19} />, run: () => setInfo(true) }];
   return (
     <div ref={box} className="relative group/react min-w-0 [@media(hover:none)]:select-none [-webkit-touch-callout:none]" data-react-own
       onTouchStart={(e) => {
@@ -70,6 +71,7 @@ export function Reactable({ m, ctx, mine, children }: { m: Msg; ctx: Ctx; mine: 
       {open && open.at !== "pop" && createPortal(open.link
         ? <LinkLifted rect={open.at} url={open.link} onClose={close} />
         : <Lifted rect={open.at} mine={mine} onClose={close} bar={emojis(true)} actions={acts}>{children}</Lifted>, document.body)}
+      {info && createPortal(<InfoSheet m={m} onClose={() => setInfo(false)} />, document.body)}
     </div>
   );
 }
@@ -192,6 +194,34 @@ function ReactedSheet({ m, ctx, onClose }: { m: Msg; ctx: Ctx; onClose: () => vo
             : <div key={r.who} className="flex items-center gap-3.5 px-5 py-2">{row}</div>;
         })}
       </div>
+    </div>
+  </div>;
+}
+
+// what the room knows of a message, for debugging: who, when, where, and what its connector said about it (meta)
+function InfoSheet({ m, onClose }: { m: Msg; onClose: () => void }) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    addEventListener("keydown", esc, true); return () => removeEventListener("keydown", esc, true);
+  }, []);
+  const rows: [string, string][] = [
+    ["from", m.kind === "wolt" ? m.wolt || "" : m.email || ""], ["at", new Date(m.at * 1000).toLocaleString()],
+    ["session", m.meta?.session || ""],
+  ];
+  return <div role="dialog" aria-label="Message info" className="fixed inset-0 z-[3100] flex items-end [@media(min-width:900px)]:items-center justify-center animate-[fadein_.15s_ease-out]"
+    onClick={(e) => { e.stopPropagation(); onClose(); }} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+    <div className="absolute inset-0 bg-[#18100a59]" />
+    <div onClick={(e) => e.stopPropagation()}
+      className="relative w-full max-h-[70vh] [@media(min-width:900px)]:w-[440px] flex flex-col bg-white rounded-t-[22px] [@media(min-width:900px)]:rounded-[18px] shadow-[0_8px_30px_#18100a40] pb-[calc(12px+var(--sab,0px))] animate-[pop_.18s_ease-out]">
+      <div className="mx-auto mt-2 w-10 h-1 rounded-full bg-line [@media(min-width:900px)]:hidden" />
+      <div className="px-5 pt-3 pb-2 text-[20px] font-semibold">Info</div>
+      {m.terminal && <a href={m.terminal} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+        className="mx-5 mb-2 h-12 flex items-center justify-center gap-2 rounded-xl bg-acc text-white text-[17px] font-medium no-underline active:opacity-80">
+        <SquareTerminal size={19} />Open terminal</a>}
+      <dl className="overflow-y-auto px-5 pb-2 m-0">
+        {rows.filter(([, v]) => v).map(([k, v]) => <div key={k} className="py-1.5 border-b border-line last:border-0">
+          <dt className="text-[12px] text-dim font-mono">{k}</dt><dd className="m-0 text-[15px] break-all select-text">{v}</dd></div>)}
+      </dl>
     </div>
   </div>;
 }
