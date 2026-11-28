@@ -21,7 +21,7 @@ export type Who = string;
 
 // inline: the top of the chats list itself, so scrolling the chats carries it away under your finger, nothing animating
 // against you; otherwise it's pulled down over a view (the lobby) and springs open or shut.
-export function WoltStrip({ state, person, open, onClose, onPick, el, inline }: { state: State; person: Person; open: boolean; onClose: () => void; onPick?: (who: Who) => void; el?: React.RefObject<HTMLDivElement | null>; inline?: boolean }) {
+export function WoltStrip({ state, person, open, onClose, onPick, el, inline, left }: { state: State; person: Person; open: boolean; onClose: () => void; onPick?: (who: Who) => void; el?: React.RefObject<HTMLDivElement | null>; inline?: boolean; left?: boolean }) {  // left: opens at its start (the main and busy wolts) instead of its middle
   const wolts = [...state.members.wolts].sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)
     || Number(mood(b, state).busy) - Number(mood(a, state).busy));
   const people = state.members.people;
@@ -32,7 +32,7 @@ export function WoltStrip({ state, person, open, onClose, onPick, el, inline }: 
   useEffect(() => { if (!open || !anyBusy) return; const t = setInterval(() => setTick((x) => x + 1), 2400); return () => clearInterval(t); }, [open, anyBusy]);
   // when everyone doesn't fit, the row opens scrolled to its middle, so it still sits centered on the screen
   const row = useRef<HTMLDivElement>(null);
-  useEffect(() => { const r = row.current; if (open && r) r.scrollLeft = (r.scrollWidth - r.clientWidth) / 2; }, [open, people.length, wolts.length]);
+  useEffect(() => { const r = row.current; if (open && r) r.scrollLeft = left ? 0 : (r.scrollWidth - r.clientWidth) / 2; }, [open, people.length, wolts.length]);
   const chew = (name: string, creature?: string) => { const v = verbs(creature); return v[(tick + name.length) % v.length]; };
   // everyone in their own circle: people first, then the wolts, each one alive in its own way; tap one to see what it's up to
   const tile = (key: string, face: string, name: string, color: string, m: { awake: boolean; busy: boolean; word: string }, star: boolean, i: number, lore?: string, extra?: React.ReactNode) =>

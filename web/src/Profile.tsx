@@ -1,7 +1,7 @@
 // Someone's card, opened from the strip: who they are, what they're up to right now, and the chats they're in.
 // For a wolt: who keeps it and where it's gnawing. For a person: their wolts. Tap a chat to go there.
 import { useEffect, useRef, useState } from "react";
-import { Crown, Pause, Play, Shirt, X } from "lucide-react";
+import { Crown, Pause, Play, Shirt, SquareTerminal, X } from "lucide-react";
 import { crown, setWolt } from "./Agents";
 import { HatGrid, putFace, putLook } from "./HatShop";
 import { mix, woltColor, woltFace } from "./Message";
@@ -13,8 +13,9 @@ import { ago, threadTitle, ThreadHat } from "./Threads";
 
 type Person = (email: string) => { name: string; color: string };
 
-export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
+export function Profile({ who, state, person, msgs, onOpen, onPick, onClose, onSession }: {
   who: Who; state: State; person: Person; msgs: Msg[]; onOpen: (thread: string) => void; onPick: (who: Who) => void; onClose: () => void;
+  onSession?: (wolt: string, session: string) => void;  // a lodge phone: the wolt's sessions are listed, and one tap talks to one
 }) {
   const isWolt = who.startsWith("w:"), key = who.slice(2);
   const w = isWolt ? state.members.wolts.find((x) => x.wolt === key) : undefined;
@@ -123,6 +124,7 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
               <button type="button" onClick={() => setAsking(false)} className={`${chip} border-line bg-white text-dim`}>Keep</button></>
             : <button type="button" onClick={() => setAsking(true)} aria-label={`Remove ${w!.wolt}`} className={`${chip} border-line bg-white text-dim`}><X size={15} />Remove</button>)}
         </div>}
+        {w && onSession && <Sessions wolt={w.wolt} pick={(s) => onSession(w.wolt, s)} />}
         {w?.paused && <p className="mt-2 text-[12.5px] text-dim">Paused: it hears nothing in this room, a tag included, and can't post.</p>}
         {hats && <div className="-mx-4 mt-2"><HatGrid hat={hatNow} put={(h) => (w ? putLook(w.wolt, state.looks?.[w.wolt], h) : putFace(h))} /></div>}
         {note && <p className="mt-1 text-xs text-acc">{note}</p>}
@@ -164,5 +166,31 @@ export function Profile({ who, state, person, msgs, onOpen, onPick, onClose }: {
         </button>)}
       </div>
     </div>
+  </div>;
+}
+
+// a lodge phone: the wolt's live sessions on your lodge, newest first. Tap one to talk to it; ▸_ opens its terminal.
+type Session = { name: string; title: string; summary: string; at: number; terminal: string };
+function Sessions({ wolt, pick }: { wolt: string; pick: (name: string) => void }) {
+  const [list, setList] = useState<Session[] | null>(null), [err, setErr] = useState(false);
+  useEffect(() => {
+    let on = true;
+    fetch(`/api/sessions?wolt=${encodeURIComponent(wolt)}`).then((r) => r.ok ? r.json() : Promise.reject()).then((d) => { if (on) setList(d.sessions || []); }).catch(() => { if (on) setErr(true); });
+    return () => { on = false; };
+  }, [wolt]);
+  const since = (t: number) => { const s = Date.now() / 1000 - t; return s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`; };
+  return <div className="mt-3">
+    <div className="mb-1 font-mono font-semibold text-[10.5px] tracking-[.08em] uppercase text-dim">Sessions{list ? ` · ${list.length}` : ""}</div>
+    {err ? <p className="text-[13px] text-dim">The lodge isn't answering.</p>
+      : !list ? <p className="text-[13px] text-dim">…</p>
+      : !list.length ? <p className="text-[13px] text-dim">No live session. Say something in its chat to start one.</p>
+      : list.map((s) => <div key={s.name} className="flex items-center gap-2 py-2 border-t border-line">
+        <button type="button" onClick={() => pick(s.name)} className="flex-1 min-w-0 p-0 border-0 bg-transparent text-left cursor-pointer active:opacity-60">
+          <span className="flex items-baseline gap-2"><b className="truncate text-[14.5px]">{s.title || s.name}</b><small className="ml-auto flex-none text-dim text-[12px]">{since(s.at)}</small></span>
+          <span className="block truncate text-[12.5px] text-dim">{s.summary || s.name}</span>
+        </button>
+        {s.terminal && <a href={s.terminal} target="_blank" rel="noopener noreferrer" aria-label={`${s.name}: terminal`}
+          className="flex-none w-9 h-9 grid place-items-center rounded-lg border border-line bg-white text-acc no-underline"><SquareTerminal size={17} /></a>}
+      </div>)}
   </div>;
 }

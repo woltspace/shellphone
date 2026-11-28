@@ -1,13 +1,13 @@
 // A lodge phone's home: your wolts, not a room. It's drawn from a layout (blocks, in order) that the room keeps and any
 // of your wolts can rearrange (room.py layout set FILE). A block is data: its type picks one of the drawings below, and
 // nothing a wolt writes is ever drawn as HTML. Tap a wolt: its DM (its own chat with you), or a new one.
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Search, X } from "lucide-react";
 import { woltColor, woltFace, type Ctx } from "./Message";
 import type { Msg, State } from "./room";
 import { rootFresh } from "./Threads";
 
-export type Block = { type: "search" | "waiting" | "working" | "grid" | "chats"; title?: string; wolts?: string[]; limit?: number };
+export type Block = { type: "strip" | "search" | "waiting" | "working" | "grid" | "chats"; title?: string; wolts?: string[]; limit?: number };
 type Chat = { id: string; root: Msg; last: Msg; wolt: string; fresh: boolean };
 
 const ago = (t: number) => {
@@ -34,8 +34,8 @@ export function chatsByWolt(roots: Msg[], replies: Map<string, Msg[]>, state: St
   return out.sort((a, b) => b.last.at - a.last.at);
 }
 
-export function Home({ layout, state, ctx, chats, onWolt, onOpen }: {
-  layout: Block[]; state: State; ctx: Ctx; chats: Chat[];
+export function Home({ layout, state, ctx, chats, strip, onWolt, onOpen }: {
+  layout: Block[]; state: State; ctx: Ctx; chats: Chat[]; strip?: ReactNode;  // strip: everyone, animated (WoltStrip); a tap opens a wolt's card
   onWolt: (wolt: string) => void; onOpen: (id: string) => void;
 }) {
   const [query, setQuery] = useState(""), [all, setAll] = useState(false);
@@ -68,6 +68,7 @@ export function Home({ layout, state, ctx, chats, onWolt, onOpen }: {
     <span className="max-w-full truncate font-mono text-[11.5px]">{w}</span></button>;
 
   const draw = (b: Block, i: number) => {
+    if (b.type === "strip") return query ? null : <div key={i}>{strip}</div>;
     if (b.type === "search") return <div key={i} className="px-3 pt-3 pb-1">
       <label className="flex items-center gap-2 h-11 px-3 rounded-xl bg-white border border-line">
         <Search size={17} className="text-dim flex-none" />

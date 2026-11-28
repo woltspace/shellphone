@@ -8,6 +8,7 @@ import type { Msg, State } from "./room";
 import { personAvatar, verbs, woltAvatar } from "./sprites";
 import { worn } from "./hats";
 import { mood, type Who } from "./WoltStrip";
+import { UPPER } from "./Sky";
 import { handle } from "./mentions.js";
 import { Busy, ThreadHat, ago, rootFresh, threadColor, threadTitle } from "./Threads";
 
@@ -89,7 +90,8 @@ export function Sidebar({ full, home, onInvite, state, ctx, roots, replies, seen
       {onDesk && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={onDesk}
         className={`w-9 h-9 grid place-items-center border-0 cursor-pointer rounded-lg ${desk ? "bg-acc text-white" : "bg-transparent text-acc hover:bg-[#ffffff80]"}`}><Monitor size={18} /></button>}
     </div>
-    {home ? <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">{home}</div> : <>
+    {home ? <div ref={(el) => { if (el && !el.dataset.tucked) { el.scrollTop = UPPER; el.dataset.tucked = "1"; } }}
+      className="flex-1 min-h-0 overflow-y-auto overscroll-contain"><div style={{ minHeight: `calc(100% + ${UPPER}px)` }}>{home}</div></div> : <>{/* the sky above the faces stays tucked until you pull down for it */}
     <label className="flex-none mx-3 mb-2.5 flex items-center gap-2 px-2.5 py-1.5 rounded-[9px] bg-white border border-line text-dim focus-within:border-acc">
       <Search size={14} />
       <input ref={box} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setQ(""); e.currentTarget.blur(); } if (e.key === "Enter" && found[0]) { onOpen(found[0].id); setQ(""); e.currentTarget.blur(); } }}

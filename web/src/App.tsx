@@ -689,6 +689,7 @@ export function App() {
   const lobbyList = chatsHome ? main.filter((m) => !roots.includes(m)) : main;
   const [only, setOnly] = useState("");  // a lodge phone: the new chat is a DM with this wolt
   const homeView = state.layout ? <Home layout={state.layout} state={state} ctx={ctx} chats={chatsByWolt(roots, replies, state, seen)} onOpen={open}
+    strip={<WoltStrip inline left state={state} person={person} open onClose={() => {}} onPick={setWho} />}
     onWolt={(w) => { const dm = chatsByWolt(roots, replies, state, seen).find((c) => c.wolt === w); if (dm) open(dm.id); else { setOnly(w); setStarting(true); } }} /> : null;
   // a chat you just started opens under the name your phone gave it, then follows it to the room's own id
   useEffect(() => { if (!thread || msgs.some((m) => m.id === thread)) return; const real = msgs.find((m) => m.cid === thread); if (real) setThread(real.id); }, [msgs, thread]);
@@ -894,6 +895,15 @@ export function App() {
     settle(o.cid, await send("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: o.text, cid: o.cid, ...(o.thread ? { thread: o.thread } : {}), ...(o.title ? { title: o.title } : {}), ...(o.who ? { who: o.who } : {}) }) }));
   }
 
+  // a lodge phone: a session picked on a wolt's card. Its chat with you is pinned to that session (/talk, which the
+  // lodge connector keeps), in the wolt's DM, or a new DM when there's none
+  function talkTo(wolt: string, name: string) {
+    const dm = chatsByWolt(roots, replies, state, seen).find((c) => c.wolt === wolt), text = `/talk ${name}`;
+    if (!dm) { startChat(text, { [wolt]: true }, {}, ""); return; }
+    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, thread: dm.id };
+    setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text, pending: true, thread: dm.id }]);
+    setWho(""); setThread(dm.id); sendTyped(o);
+  }
   // a chat started from the new-chat sheet: the first message carries who's in, so the agents picked hear it too
   async function startChat(t: string, agents: Record<string, boolean>, _people: Record<string, boolean>, title = "") {  // people: not kept by the room yet
     setStarting(false); setOnly("");
@@ -1028,6 +1038,7 @@ export function App() {
       {/* An app on the home screen can lose the mic and never ask again until it starts over. A tap asks again;
           if the phone still says no, reloading starts the page over, which brings its question back without quitting the app. */}
       {who && <Profile who={who} state={state} person={person} msgs={msgs} onPick={setWho} onClose={() => setWho("")}
+        onSession={state.layout ? (wolt, name) => { setWho(""); talkTo(wolt, name); } : undefined}
         onOpen={(t) => { setWho(""); setStrip(false); setLobby(false); setThread(t); }} />}
       {micBlocked && <div role="alert" className="absolute inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[1600] max-w-[480px] mx-auto rounded-xl border-2 border-acc bg-panel p-3 shadow-[0_4px_14px_#18100a33]">
         <div className="font-mono text-[13px] font-semibold text-acc">The mic isn't allowed right now</div>

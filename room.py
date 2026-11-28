@@ -333,9 +333,9 @@ def hears_main(m, wolt):
 
 # A lodge phone's home screen: blocks, in order. Wolts rearrange it (room.py layout set FILE); it's data, never code: only
 # these blocks, these fields. The page draws it (web/src/Home.tsx).
-BLOCKS = {"search", "waiting", "working", "grid", "chats"}
-DEFAULT_LAYOUT = [{"type": "search"}, {"type": "waiting", "title": "Waiting on you"}, {"type": "working", "title": "Working now"},
-                  {"type": "grid", "title": "Your wolts", "limit": 8}, {"type": "chats", "title": "Recent", "limit": 30}]
+BLOCKS = {"strip", "search", "waiting", "working", "grid", "chats"}
+DEFAULT_LAYOUT = [{"type": "strip"}, {"type": "search"}, {"type": "waiting", "title": "Waiting on you"},
+                  {"type": "chats", "title": "Recent", "limit": 30}]
 
 
 def check_layout(layout):
@@ -978,6 +978,26 @@ def rules():
 LODGE_URL = os.environ.get("SHELLPHONE_LODGE_URL", "").rstrip("/")
 LODGE_API = os.environ.get("SHELLPHONE_LODGE_API", "http://127.0.0.1:7777")
 _terminals = {"at": 0.0, "links": {}}
+
+
+def wolt_sessions(wolt):
+    """A lodge phone: the wolt's live sessions on the host's own lodge (name, title, what it's on, when, its terminal)."""
+    try:
+        with urllib.request.urlopen(LODGE_API + "/sessions?view=lodge", timeout=3) as r:
+            d = json.load(r)
+        base = LODGE_URL
+        if not base:
+            with urllib.request.urlopen(LODGE_API + "/tunnel", timeout=3) as r:
+                base = str(json.load(r).get("url") or "").rstrip("/")
+    except Exception:
+        return None
+    out = []
+    for x in (d if isinstance(d, list) else d.get("sessions", [])):
+        if x.get("wolt") == wolt and x.get("status") == "running" and x.get("alive") is not False:
+            out.append({"name": x["name"], "title": str(x.get("title") or "")[:120], "summary": str(x.get("summary") or "")[:240],
+                        "at": x.get("last_activity") or 0,
+                        "terminal": f"{base}/tui?session={urllib.parse.quote(x['name'])}" if base.startswith("https://") else ""})
+    return sorted(out, key=lambda s: -s["at"])
 
 
 def terminals():
@@ -1636,6 +1656,11 @@ def for_person(req, email):
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
             return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": got, "rx": rx, **desk_for(email), "terminals": terminals() if email and email == host() else {}, **({"layout": layout_now()} if os.environ.get("SHELLPHONE_LODGE") or DEV else {}), "messages": sent})
+        if path == "/api/sessions":  # a lodge phone: one wolt's sessions, for its card (the host's own lodge: the host only)
+            if not (os.environ.get("SHELLPHONE_LODGE") or DEV) or email != host():
+                return reply(404, {"error": "not found"})
+            got = wolt_sessions(q.get("wolt", [""])[0])
+            return reply(200, {"sessions": got}) if got is not None else reply(502, {"error": "the lodge isn't answering"})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
