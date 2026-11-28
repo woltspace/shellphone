@@ -689,7 +689,7 @@ export function App() {
   const lobbyList = chatsHome ? main.filter((m) => !roots.includes(m)) : main;
   const [only, setOnly] = useState("");  // a lodge phone: the new chat is a DM with this wolt
   const homeView = state.layout ? <Home layout={state.layout} state={state} ctx={ctx} chats={chatsByWolt(roots, replies, state, seen)} onOpen={open}
-    strip={<WoltStrip inline left state={state} person={person} open onClose={() => {}} onPick={setWho} />}
+    strip={<WoltStrip inline left only={state.active} state={state} person={person} open onClose={() => {}} onPick={setWho} />}
     onWolt={(w) => { const dm = chatsByWolt(roots, replies, state, seen).find((c) => c.wolt === w); if (dm) open(dm.id); else { setOnly(w); setStarting(true); } }} /> : null;
   // a chat you just started opens under the name your phone gave it, then follows it to the room's own id
   useEffect(() => { if (!thread || msgs.some((m) => m.id === thread)) return; const real = msgs.find((m) => m.cid === thread); if (real) setThread(real.id); }, [msgs, thread]);

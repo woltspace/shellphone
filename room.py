@@ -980,6 +980,23 @@ LODGE_API = os.environ.get("SHELLPHONE_LODGE_API", "http://127.0.0.1:7777")
 _terminals = {"at": 0.0, "links": {}}
 
 
+_active = {"at": 0.0, "wolts": []}
+
+
+def active_wolts():
+    """A lodge phone: the wolts with a live session on the lodge now (its top bar shows only them). Asked every 15 s at most."""
+    if time.time() - _active["at"] > 15:
+        _active["at"] = time.time()
+        try:
+            with urllib.request.urlopen(LODGE_API + "/sessions?view=lodge", timeout=2) as r:
+                d = json.load(r)
+            _active["wolts"] = sorted({x["wolt"] for x in (d if isinstance(d, list) else d.get("sessions", []))
+                                       if x.get("wolt") and x.get("status") == "running" and x.get("alive") is not False})
+        except Exception:
+            pass  # the lodge isn't answering: keep the last list
+    return _active["wolts"]
+
+
 def wolt_sessions(wolt):
     """A lodge phone: the wolt's live sessions on the host's own lodge (name, title, what it's on, when, its terminal)."""
     try:
@@ -1655,7 +1672,7 @@ def for_person(req, email):
             got, rx = reactions_since(int(rx) if rx.isdigit() else 0, {m["id"] for m in sent})
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": got, "rx": rx, **desk_for(email), "terminals": terminals() if email and email == host() else {}, **({"layout": layout_now()} if os.environ.get("SHELLPHONE_LODGE") or DEV else {}), "messages": sent})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": got, "rx": rx, **desk_for(email), "terminals": terminals() if email and email == host() else {}, **({"layout": layout_now(), **({"active": active_wolts()} if email == host() else {})} if os.environ.get("SHELLPHONE_LODGE") or DEV else {}), "messages": sent})
         if path == "/api/sessions":  # a lodge phone: one wolt's sessions, for its card (the host's own lodge: the host only)
             if not (os.environ.get("SHELLPHONE_LODGE") or DEV) or email != host():
                 return reply(404, {"error": "not found"})

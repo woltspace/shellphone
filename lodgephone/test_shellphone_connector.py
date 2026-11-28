@@ -244,6 +244,16 @@ class ConnectorTest(unittest.TestCase):
         self.assertEqual(self.run_(self.sc.on_send({"id": "s4", "route": {"chat_id": "ghost"}, "method": "message", "text": "no footer"}))["status"], "refused")
         self.assertEqual(self.room.posts, [])
 
+    def test_a_link_to_its_own_site_page_shows_the_page(self):
+        self.assertEqual(self.sc.site_pages("softie", "see https://lodge.example/wolt/softie/site/plans/a.html. and "
+                                                       "https://lodge.example/wolt/astre/site/b.html and https://x/wolt/softie/site/../c.html"),
+                         ["/wolt/softie/site/plans/a.html"])
+        self.sc.fetch_site = lambda path: b"<title>A</title>page" if path == "/wolt/softie/site/plans/a.html" else None
+        self.run_(self.sc.on_send({"id": "p1", "route": {"chat_id": "softie"}, "method": "message",
+                                   "text": "mocks: https://lodge.example/wolt/softie/site/plans/a.html"}))
+        self.assertEqual(self.room.posts[-2][1]["text"], "mocks: https://lodge.example/wolt/softie/site/plans/a.html")
+        self.assertEqual(self.room.posts[-1][1]["page"]["title"], "A")
+
     def test_files_become_pages_or_files(self):
         d = Path(self.tmp.name)
         (d / "mock.html").write_text("<html><head><title>Stories  bar</title></head><body>hi</body></html>")

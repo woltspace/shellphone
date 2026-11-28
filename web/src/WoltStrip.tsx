@@ -21,10 +21,10 @@ export type Who = string;
 
 // inline: the top of the chats list itself, so scrolling the chats carries it away under your finger, nothing animating
 // against you; otherwise it's pulled down over a view (the lobby) and springs open or shut.
-export function WoltStrip({ state, person, open, onClose, onPick, el, inline, left }: { state: State; person: Person; open: boolean; onClose: () => void; onPick?: (who: Who) => void; el?: React.RefObject<HTMLDivElement | null>; inline?: boolean; left?: boolean }) {  // left: opens at its start (the main and busy wolts) instead of its middle
-  const wolts = [...state.members.wolts].sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)
+export function WoltStrip({ state, person, open, onClose, onPick, el, inline, left, only }: { state: State; person: Person; open: boolean; onClose: () => void; onPick?: (who: Who) => void; el?: React.RefObject<HTMLDivElement | null>; inline?: boolean; left?: boolean; only?: string[] }) {  // only: just these wolts, and no people (a lodge phone: the wolts with a live session)  // left: opens at its start (the main and busy wolts) instead of its middle
+  const wolts = [...state.members.wolts].filter((w) => !only || only.includes(w.wolt)).sort((a, b) => Number(b.wolt === state.main) - Number(a.wolt === state.main)
     || Number(mood(b, state).busy) - Number(mood(a, state).busy));
-  const people = state.members.people;
+  const people = only ? [] : state.members.people;
   const [sky, flip] = useSky();
   // a busy wolt chews through its lines of lore, a new one every few seconds, like it does in the chats
   const [tick, setTick] = useState(0);
@@ -64,7 +64,7 @@ export function WoltStrip({ state, person, open, onClose, onPick, el, inline, le
       {people.length > 0 && wolts.length > 0 && <i className="flex-none w-2" />}
       {wolts.map((w, i) => tile("w:" + w.wolt, woltAvatar(w.creature, woltColor(w.wolt, state.members.wolts), worn.wolts[w.wolt], mix(woltColor(w.wolt, state.members.wolts), "#ffffff", 0.78)), w.wolt, woltColor(w.wolt, state.members.wolts), mood(w, state), state.main === w.wolt, i + people.length, w.creature,
         i === Math.floor((wolts.length - 1) / 2) ? <span className="absolute -left-5 bottom-0 z-10"><Mushroom size={30} /></span> : undefined))}
-      {wolts.length === 0 && people.length === 0 && <div className="py-6 w-full text-center text-sm text-dim">Nobody here yet</div>}
+      {wolts.length === 0 && people.length === 0 && <div className="py-6 w-full text-center text-sm text-dim">{only ? "No wolt has a live session" : "Nobody here yet"}</div>}
       </div>
     </div>
   </div></>;

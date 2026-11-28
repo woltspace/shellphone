@@ -299,17 +299,41 @@ PAGE_MAX = 300_000  # the room's limit for a page's HTML
 TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 
 
+def site_pages(wolt: str, text: str) -> list[str]:
+    """The pages of this wolt's own site linked in its words (/wolt/WOLT/site/....html, on the lodge): the phone shows them
+    as pages. Only its own site: what the owner could already open, and nothing anyone else's words can point it at."""
+    found = re.findall(rf"https?://[^\s/]+(/wolt/{re.escape(wolt)}/site/[A-Za-z0-9._~/-]+\.html?)(?=[\s)\]>.,;!?]|$)", text)
+    return [p for p in dict.fromkeys(found) if ".." not in p][:3]
+
+
+def fetch_site(path: str) -> bytes | None:
+    try:
+        with urllib.request.urlopen(LODGE_API + path, timeout=10) as r:
+            return r.read(5_000_001) if r.status == 200 else None
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+async def deliver_page(wolt: str, name: str, data: bytes, text: str) -> dict:
+    """HTML as a page (a card that opens full screen in the phone, sandboxed), or as a file when it's too big for one."""
+    where = {"thread": STATE.get(wolt, {}).get("thread")} if STATE.get(wolt, {}).get("thread") else {}
+    if len(data) <= PAGE_MAX:
+        html = data.decode("utf-8", "replace")
+        found = TITLE.search(html)
+        title = re.sub(r"\s+", " ", found.group(1)).strip()[:80] if found else name.rsplit(".", 1)[0]
+        return await call(wolt, "POST", "/lodge/page", {"html": html, "title": title or name, "text": text, **where})
+    query = urllib.parse.urlencode({"name": name, "text": text, **where})
+    return await call(wolt, "POST", f"/lodge/files?{query}", data)
+
+
 async def deliver_file(wolt: str, text: str, frame: dict) -> dict:
     """notify --file: an HTML file becomes a page (a card in the chat that opens full screen in the phone, sandboxed);
     anything else, or a page too big for one, goes up as a file the phone shows inline (pictures, PDFs) or to save."""
     data = await asyncio.to_thread(Path(frame["path"]).read_bytes)
     name = Path(str(frame.get("filename") or "file")).name[:120] or "file"
     where = {"thread": STATE.get(wolt, {}).get("thread")} if STATE.get(wolt, {}).get("thread") else {}
-    if name.lower().endswith((".html", ".htm")) and len(data) <= PAGE_MAX:
-        html = data.decode("utf-8", "replace")
-        found = TITLE.search(html)
-        title = re.sub(r"\s+", " ", found.group(1)).strip()[:80] if found else name.rsplit(".", 1)[0]
-        return await call(wolt, "POST", "/lodge/page", {"html": html, "title": title or name, "text": text, **where})
+    if name.lower().endswith((".html", ".htm")):
+        return await deliver_page(wolt, name, data, text)
     query = urllib.parse.urlencode({"name": name, "text": text, **where})
     return await call(wolt, "POST", f"/lodge/files?{query}", data)
 
@@ -334,6 +358,10 @@ async def on_send(frame: dict) -> dict:
         sent = await post(wolt, text, voice=frame["method"] == "voice",
                           meta={"via": f"notify ({frame['method']})", **({"session": session} if session else {})},
                           terminal=link if session and wolt_of(session) == wolt else "")
+        for path in site_pages(wolt, text):  # its own pages, linked: shown right in the phone
+            data = await asyncio.to_thread(fetch_site, path)
+            if data:
+                await deliver_page(wolt, path.rsplit("/", 1)[-1], data, "")
     except TimeoutError as exc:
         return {"status": "ambiguous", "error": str(exc) or "timed out"}
     except urllib.error.HTTPError as exc:
