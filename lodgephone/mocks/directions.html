@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lodge Phone mocks</title>
+<style>
+:root{--paper:#f5f0e8;--ink:#18100a;--dim:#8a7e70;--line:#e4dccf;--acc:#c8551f;--ok:#2f9e5b;--warn:#d99a1e;--card:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.4 -apple-system,system-ui,sans-serif;padding:16px}
+h1{font-size:22px;margin:4px 0 4px}h2{font-size:18px;margin:28px 0 6px}
+.lead{color:var(--dim);margin:0 0 8px}
+.pick{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:8px 0}
+.pick b{color:var(--acc)}
+.phone{width:100%;max-width:340px;margin:10px auto 4px;background:#fff;border:8px solid #1d1712;border-radius:34px;overflow:hidden;box-shadow:0 10px 30px #18100a33}
+.scr{height:600px;display:flex;flex-direction:column;background:var(--paper);position:relative}
+.top{padding:12px 14px 8px;display:flex;align-items:center;gap:8px}
+.top .t{flex:1;font-weight:700;font-size:18px}
+.ic{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:#fff;border:1px solid var(--line);font-size:15px}
+.ic.acc{background:var(--acc);color:#fff;border:0}
+.search{margin:0 14px 8px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 12px;color:var(--dim);font-size:14px}
+.body{flex:1;overflow:hidden}
+.row{display:flex;gap:10px;padding:9px 14px;align-items:center;border-bottom:1px solid var(--line)}
+.av{position:relative;width:44px;height:44px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:22px}
+.dot{position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--paper)}
+.dot.on{background:var(--ok)}.dot.wait{background:var(--warn)}
+.mid{flex:1;min-width:0}.nm{font-weight:600;display:flex;gap:6px;align-items:baseline}.nm small{margin-left:auto;color:var(--dim);font-weight:400;font-size:12px}
+.pv{color:var(--dim);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv.work{color:var(--ok)}.pv.ask{color:var(--warn)}
+.bdg{background:var(--acc);color:#fff;border-radius:10px;font-size:11px;padding:1px 6px;font-weight:600}
+.at{color:var(--acc);font-weight:700}
+.tabs{display:flex;border-top:1px solid var(--line);background:#fff;padding:6px 0 10px}
+.tabs div{flex:1;text-align:center;font-size:11px;color:var(--dim)}.tabs div b{display:block;font-size:19px}
+.tabs .on{color:var(--acc)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px 6px;padding:6px 12px}
+.cell{text-align:center;font-size:11px}.cell .av{margin:0 auto 4px;width:52px;height:52px;font-size:26px}
+.ring{box-shadow:0 0 0 3px var(--paper),0 0 0 5px var(--ok)}.ring.wait{box-shadow:0 0 0 3px var(--paper),0 0 0 5px var(--warn)}
+.sec{padding:10px 14px 4px;font-size:12px;font-weight:700;color:var(--dim);letter-spacing:.04em;text-transform:uppercase}
+.askc{margin:4px 12px 8px;background:#fff;border:1px solid var(--line);border-left:4px solid var(--warn);border-radius:12px;padding:9px 11px}
+.askc .q{font-size:14px;margin:4px 0 8px}
+.btns{display:flex;gap:6px}.btns span{flex:1;text-align:center;border-radius:9px;padding:6px 0;font-size:13px;background:var(--paper);border:1px solid var(--line)}.btns .y{background:var(--acc);color:#fff;border:0}
+.chips{display:flex;gap:6px;padding:4px 12px;overflow:hidden}.chip{background:#fff;border:1px solid var(--line);border-radius:16px;padding:4px 10px;font-size:12px;white-space:nowrap}
+.chip.on{border-color:var(--ok);color:var(--ok)}
+.dmh{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:#fff}
+.sess{font-size:11px;color:var(--ok);background:#eaf6ee;border-radius:10px;padding:2px 8px}
+.msgs{flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.b{max-width:80%;border-radius:16px;padding:8px 11px;font-size:14px}
+.b.w{background:#fff;border:1px solid var(--line);align-self:flex-start}.b.h{background:var(--acc);color:#fff;align-self:flex-end}
+.act{font-size:12px;color:var(--dim);align-self:flex-start;padding-left:4px}
+.comp{display:flex;gap:6px;padding:8px 10px 12px;background:#fff;border-top:1px solid var(--line)}
+.comp div{flex:1;border:1px solid var(--line);border-radius:18px;padding:7px 12px;color:var(--dim);font-size:14px}
+.cap{max-width:340px;margin:6px auto 0;color:var(--dim);font-size:14px}
+ul.pros{max-width:340px;margin:6px auto;padding-left:18px;font-size:14px}
+</style></head><body>
+<h1>Lodge Phone: three directions</h1>
+<p class="lead">Mocks only, nothing built. Your real wolts, made-up activity. Green = working now, amber = waiting on you.</p>
+<div class="pick">Reply with <b>A</b>, <b>B</b> or <b>C</b> (or a mix, e.g. "B home + C's asks"). The DM screen at the bottom is the same for all three.</div>
+
+<h2>A · Chat list (Telegram, made wolty)</h2>
+<div class="phone"><div class="scr">
+ <div class="top"><div class="ic">✎</div><div class="t">Wolts</div><div class="ic acc">＋</div></div>
+ <div class="search">🔍 Search wolts and messages</div>
+ <div class="body">
+  <div class="row"><div class="av" style="background:#ffe1cc">🦝<span class="dot on"></span></div><div class="mid"><div class="nm">softie<small>18:24</small></div><div class="pv work">● working: building the mocks page…</div></div></div>
+  <div class="row"><div class="av" style="background:#e3e7ff">🦝<span class="dot wait"></span></div><div class="mid"><div class="nm">astre<small>18:19</small></div><div class="pv ask">● waiting on you: merge #683?</div></div><span class="at">@</span></div>
+  <div class="row"><div class="av" style="background:#f3e3ff">🦫</div><div class="mid"><div class="nm">commie<small>Thu</small></div><div class="pv">Commit pushed to softie/bridge</div></div><span class="bdg">2</span></div>
+  <div class="row"><div class="av" style="background:#dff3ff">🦦</div><div class="mid"><div class="nm">UXwolt<small>Thu</small></div><div class="pv">Sketches for the onboarding flow</div></div></div>
+  <div class="row"><div class="av" style="background:#e8f7e0">🦫</div><div class="mid"><div class="nm">paperpal<small>Wed</small></div><div class="pv">They overlap quite a lot…</div></div></div>
+  <div class="row"><div class="av" style="background:#ffe9f0">🦫</div><div class="mid"><div class="nm">coach<small>Wed</small></div><div class="pv">Wednesday workout time</div></div><span class="bdg">1</span></div>
+  <div class="row"><div class="av" style="background:#e0f0ff">🦝</div><div class="mid"><div class="nm">consultie<small>Wed</small></div><div class="pv">From our call, in writing…</div></div></div>
+ </div>
+ <div class="tabs"><div class="on"><b>💬</b>Chats</div><div><b>📞</b>Calls</div><div><b>🐾</b>Wolts</div><div><b>🏠</b>Lodge</div></div>
+</div></div>
+<p class="cap">The screenshot you sent, made wolty: one row per wolt, last activity first, live status in the preview line.</p>
+<ul class="pros"><li>Familiar right away; small step from today's room</li><li>With 49 wolts, the ones you rarely use sink out of sight (search fixes that)</li></ul>
+
+<h2>B · Launcher (home screen of wolts)</h2>
+<div class="phone"><div class="scr">
+ <div class="top"><div class="t">jerpint's lodge</div><div class="ic acc">＋</div></div>
+ <div class="search">🔍 Who do you want to talk to?</div>
+ <div class="sec">Working now</div>
+ <div class="grid">
+  <div class="cell"><div class="av ring" style="background:#ffe1cc">🦝</div>softie</div>
+  <div class="cell"><div class="av ring wait" style="background:#e3e7ff">🦝</div>astre</div>
+  <div class="cell"><div class="av ring" style="background:#f3e3ff">🦫</div>commie</div>
+ </div>
+ <div class="sec">Favourites</div>
+ <div class="grid">
+  <div class="cell"><div class="av" style="background:#dff3ff">🦦</div>UXwolt</div>
+  <div class="cell"><div class="av" style="background:#e8f7e0">🦫</div>paperpal</div>
+  <div class="cell"><div class="av" style="background:#ffe9f0">🦫</div>coach</div>
+  <div class="cell"><div class="av" style="background:#e0f0ff">🦝</div>consultie</div>
+  <div class="cell"><div class="av" style="background:#fff3d6">🦫</div>onboardie</div>
+  <div class="cell"><div class="av" style="background:#eee">🐺</div>wolf</div>
+  <div class="cell"><div class="av" style="background:#fde">🦝</div>xinowolt</div>
+  <div class="cell"><div class="av" style="background:#e6e6e6;font-size:14px">+41</div>all</div>
+ </div>
+ <div class="body"></div>
+ <div class="tabs"><div class="on"><b>🐾</b>Wolts</div><div><b>💬</b>Chats</div><div><b>📞</b>Calls</div><div><b>🏠</b>Lodge</div></div>
+</div></div>
+<p class="cap">Faces first, like a phone's home screen. A ring = working (green) or waiting on you (amber). Tap a face for its DM, hold it for sessions / terminal / info.</p>
+<ul class="pros"><li>Best for "quickly reach any of my wolts"</li><li>Less room for what each one said: that's in the Chats tab</li></ul>
+
+<h2>C · "Needs you" inbox</h2>
+<div class="phone"><div class="scr">
+ <div class="top"><div class="t">Today</div><div class="ic">🔍</div><div class="ic acc">＋</div></div>
+ <div class="sec">Needs you · 2</div>
+ <div class="askc"><div class="nm">🦝 astre <small style="color:var(--dim);font-weight:400">2 min</small></div><div class="q">#682 and #683 are green. Merge both and cut 0.6?</div><div class="btns"><span class="y">Merge</span><span>Later</span><span>Open chat</span></div></div>
+ <div class="askc"><div class="nm">🦫 commie <small style="color:var(--dim);font-weight:400">1 h</small></div><div class="q">OK to push the setup parcel branch?</div><div class="btns"><span class="y">Yes</span><span>No</span><span>Open chat</span></div></div>
+ <div class="sec">Working now</div>
+ <div class="chips"><span class="chip on">🦝 softie · mocks</span><span class="chip on">🦫 commie · tests</span><span class="chip">+1</span></div>
+ <div class="sec">Recent</div>
+ <div class="row"><div class="av" style="background:#dff3ff">🦦</div><div class="mid"><div class="nm">UXwolt<small>Thu</small></div><div class="pv">Sketches for the onboarding flow</div></div></div>
+ <div class="row"><div class="av" style="background:#ffe9f0">🦫</div><div class="mid"><div class="nm">coach<small>Wed</small></div><div class="pv">Wednesday workout time</div></div><span class="bdg">1</span></div>
+ <div class="body"></div>
+ <div class="tabs"><div class="on"><b>📥</b>Today</div><div><b>🐾</b>Wolts</div><div><b>📞</b>Calls</div><div><b>🏠</b>Lodge</div></div>
+</div></div>
+<p class="cap">What wolts need from you sits on top, with answer buttons right there (the lodge's choices, as real buttons). Then who's working, then recent chats.</p>
+<ul class="pros"><li>Best for running many wolts at once: you decide, they work</li><li>Needs wolts to mark a message as a question (a small notify flag)</li></ul>
+
+<h2>The DM (same for A, B, C)</h2>
+<div class="phone"><div class="scr">
+ <div class="dmh"><span>‹</span><div class="av" style="background:#ffe1cc;width:34px;height:34px;font-size:18px">🦝<span class="dot on"></span></div><div class="mid"><div class="nm">softie</div><span class="sess">● softie-snug-hollow · working</span></div><div class="ic">▸_</div></div>
+ <div class="msgs">
+  <div class="b h">Status on redesign? Send mocks here</div>
+  <div class="b w">Starting the mocks now. Link in ~15 min.</div>
+  <div class="act">⚙ editing plans/lodge-phone-mocks.html…</div>
+  <div class="b w">Here they are: three directions, pick one.</div>
+ </div>
+ <div class="chips"><span class="chip">Sessions</span><span class="chip">New session</span><span class="chip">Terminal</span></div>
+ <div class="comp"><div>Message softie</div><div class="ic acc" style="flex:none">🎤</div></div>
+</div></div>
+<p class="cap">Header shows the live session (tap it to switch sessions, ▸_ opens the terminal). Quiet activity lines instead of "new session" spam. Session commands become chips, not slash commands.</p>
+</body></html>
