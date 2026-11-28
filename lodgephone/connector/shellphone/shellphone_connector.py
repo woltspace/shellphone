@@ -77,11 +77,13 @@ def save() -> None:
     tmp.replace(DATA_DIR / "state.json")
 
 
-def room(wolt: str, method: str, path: str, body: dict | None = None) -> dict:
-    """One call to the room as `wolt`. The key goes only to the room on this computer."""
+def room(wolt: str, method: str, path: str, body: dict | bytes | None = None) -> dict:
+    """One call to the room as `wolt`. The key goes only to the room on this computer. bytes: a file, as is."""
+    raw = isinstance(body, bytes)
     req = urllib.request.Request(ROOM + path, method=method,
-                                 data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": f"Bearer {KEYS[wolt]}", "Content-Type": "application/json"})
+                                 data=body if raw else json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": f"Bearer {KEYS[wolt]}",
+                                          "Content-Type": "application/octet-stream" if raw else "application/json"})
     with urllib.request.urlopen(req, timeout=20) as reply:
         return json.loads(reply.read() or b"{}")
 
@@ -293,6 +295,25 @@ def split_footer(text: str) -> tuple[str, str, str]:
     return body, found.group(1) if found else "", link
 
 
+PAGE_MAX = 300_000  # the room's limit for a page's HTML
+TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+
+
+async def deliver_file(wolt: str, text: str, frame: dict) -> dict:
+    """notify --file: an HTML file becomes a page (a card in the chat that opens full screen in the phone, sandboxed);
+    anything else, or a page too big for one, goes up as a file the phone shows inline (pictures, PDFs) or to save."""
+    data = await asyncio.to_thread(Path(frame["path"]).read_bytes)
+    name = Path(str(frame.get("filename") or "file")).name[:120] or "file"
+    where = {"thread": STATE.get(wolt, {}).get("thread")} if STATE.get(wolt, {}).get("thread") else {}
+    if name.lower().endswith((".html", ".htm")) and len(data) <= PAGE_MAX:
+        html = data.decode("utf-8", "replace")
+        found = TITLE.search(html)
+        title = re.sub(r"\s+", " ", found.group(1)).strip()[:80] if found else name.rsplit(".", 1)[0]
+        return await call(wolt, "POST", "/lodge/page", {"html": html, "title": title or name, "text": text, **where})
+    query = urllib.parse.urlencode({"name": name, "text": text, **where})
+    return await call(wolt, "POST", f"/lodge/files?{query}", data)
+
+
 async def on_send(frame: dict) -> dict:
     """A notification from a wolt, posted by that wolt into its own chat."""
     body, session, link = split_footer(frame.get("text", ""))
@@ -302,12 +323,13 @@ async def on_send(frame: dict) -> dict:
     wolt = route if route in KEYS else (wolt_of(session) if session else "")
     if wolt not in KEYS:
         return {"status": "refused", "error": f"no chat for {wolt or 'this notification'} in the room"}
-    if frame["method"] not in ("message", "voice"):
-        return {"status": "refused", "error": "files are not carried yet"}
     text = re.sub(rf"^\S+ {re.escape(wolt)}: ", "", body.strip(), count=1)  # the lodge's "🦝 softie: ": the room shows who
     if session and wolt_of(session) == wolt:  # this session is the one talking in this chat now
         STATE.setdefault(wolt, {}).update(session=session, terminal=link if link.startswith("https://") else "")
     try:
+        if frame["method"] == "document":
+            sent = await deliver_file(wolt, text, frame)
+            return {"status": "delivered", "message_id": str(sent.get("id") or "")}
         # A voice note: the room reads the words aloud itself, in the wolt's own room voice.
         sent = await post(wolt, text, voice=frame["method"] == "voice",
                           meta={"via": f"notify ({frame['method']})", **({"session": session} if session else {})},

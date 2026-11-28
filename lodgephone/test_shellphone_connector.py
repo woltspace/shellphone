@@ -47,7 +47,10 @@ class FakeRoom:
                 wolt = self.who()
                 if not wolt:
                     return self.answer(401, {"error": "key"})
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                raw = self.rfile.read(int(self.headers["Content-Length"]))
+                body = {"path": self.path, "bytes": raw} if self.path.startswith("/lodge/files") else json.loads(raw)
+                if self.path.startswith("/lodge/page"):
+                    body = {"page": body}
                 room.posts.append((wolt, body))
                 return self.answer(200, {"id": f"m{len(room.posts)}"})
 
@@ -239,10 +242,24 @@ class ConnectorTest(unittest.TestCase):
         unknown = "x\n\n---" + self.sc.FOOTER + "\nsession=ghost-a-b-abc123"
         self.assertEqual(self.run_(self.sc.on_send({"id": "s3", "route": {}, "method": "message", "text": unknown}))["status"], "refused")
         self.assertEqual(self.run_(self.sc.on_send({"id": "s4", "route": {"chat_id": "ghost"}, "method": "message", "text": "no footer"}))["status"], "refused")
-        doc = "f\n\n---" + self.sc.FOOTER + "\nsession=softie-a-b-abc123"
-        self.assertEqual(self.run_(self.sc.on_send({"id": "s5", "route": {}, "method": "document", "text": doc,
-                                                    "path": "/tmp/a", "filename": "a", "content_type": "x/y"}))["status"], "refused")
         self.assertEqual(self.room.posts, [])
+
+    def test_files_become_pages_or_files(self):
+        d = Path(self.tmp.name)
+        (d / "mock.html").write_text("<html><head><title>Stories  bar</title></head><body>hi</body></html>")
+        (d / "pic.png").write_bytes(b"\x89PNG fake")
+        (d / "big.html").write_text("<html>" + "x" * 300_001 + "</html>")
+        send = lambda name: self.run_(self.sc.on_send({"id": "f-" + name, "route": {"chat_id": "softie"}, "method": "document", "text": "look",
+                                                       "path": str(d / name), "filename": name, "content_type": "x/y"}))
+        self.assertEqual(send("mock.html")["status"], "delivered")
+        page = self.room.posts[-1][1]["page"]
+        self.assertEqual((page["title"], page["text"]), ("Stories bar", "look"))
+        self.assertIn("<body>hi</body>", page["html"])
+        self.assertEqual(send("pic.png")["status"], "delivered")
+        self.assertIn("name=pic.png", self.room.posts[-1][1]["path"])
+        self.assertEqual(self.room.posts[-1][1]["bytes"], b"\x89PNG fake")
+        self.assertEqual(send("big.html")["status"], "delivered")  # too big for a page: a file, still opened in the phone
+        self.assertIn("name=big.html", self.room.posts[-1][1]["path"])
 
     def test_a_wolt_added_later_is_picked_up_without_a_restart(self):
         keys = Path(os.environ["WOLTSPACE_CONNECTOR_DATA"]) / "keys.json"
