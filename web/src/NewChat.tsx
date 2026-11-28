@@ -15,13 +15,13 @@ function Switch({ on, locked, label, flip }: { on: boolean; locked?: boolean; la
   </button>;
 }
 
-export function NewChatSheet({ ctx, people, wolts, main, fallback, host, onStart, onClose }: {
-  ctx: Ctx; people: Person[]; wolts: Wolt[]; main?: string | null;
+export function NewChatSheet({ ctx, people, wolts, main, fallback, host, only, onStart, onClose }: {
+  ctx: Ctx; people: Person[]; wolts: Wolt[]; main?: string | null; only?: string;  // only: a DM, that wolt alone
   fallback?: "in" | "out"; host?: string;  // the room's default for a new chat, and its host (who may flip any agent)
   onStart: (text: string, agents: Record<string, boolean>, people: Record<string, boolean>, title: string) => void; onClose: () => void;
 }) {
   const [text, setText] = useState(""), [title, setTitle] = useState("");
-  const [agents, setAgents] = useState<Record<string, boolean>>(() => Object.fromEntries(wolts.map((w) => [w.wolt, w.wolt === main || fallback === "in"])));  // where each agent stands in a new chat
+  const [agents, setAgents] = useState<Record<string, boolean>>(() => Object.fromEntries(wolts.map((w) => [w.wolt, only ? w.wolt === only : w.wolt === main || fallback === "in"])));  // where each agent stands in a new chat
   // the same rights as a thread's switches: the host on every agent, otherwise your own (the room decides; this hides what it would refuse)
   const guest = !!ctx.people.find((p) => p.email === ctx.me)?.guest;
   const may = (w: Wolt) => (!guest && ctx.me === host) || w.owner === ctx.me;
@@ -45,14 +45,15 @@ export function NewChatSheet({ ctx, people, wolts, main, fallback, host, onStart
       <div className="flex-none px-4 pt-2">
         <div className="w-10 h-[5px] rounded-full bg-line mx-auto mb-2" />
         <div className="flex items-center">
-          <b className="flex-1 font-mono text-[13px] text-dim tracking-wide">NEW CHAT</b>
+          {only ? <b className="flex-1 flex items-center gap-2 font-mono text-[15px]"><img src={woltFace(only)} alt="" className="pixel w-8 h-8" /><span style={{ color: woltColor(only, ctx.wolts) }}>{only}</span></b>
+            : <b className="flex-1 font-mono text-[13px] text-dim tracking-wide">NEW CHAT</b>}
           <button type="button" aria-label="Cancel" onClick={onClose} className="w-9 h-9 grid place-items-center border-0 bg-transparent text-dim cursor-pointer"><X size={18} /></button>
         </div>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} placeholder="Name it (optional)"
-          className="w-full mt-1 rounded-lg border border-line bg-white px-3 py-1.5 font-mono font-semibold text-[13px] outline-none focus:border-acc" />
+        {!only && <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} placeholder="Name it (optional)"
+          className="w-full mt-1 rounded-lg border border-line bg-white px-3 py-1.5 font-mono font-semibold text-[13px] outline-none focus:border-acc" />}
         {/* the first message, looking like one: a bubble in your colour, and the send arrow the chat box has */}
         <div className="flex items-end gap-2 mt-3">
-          <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="Message…"
+          <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={only ? `Message ${only}…` : "Message…"}
             className="flex-1 min-w-0 rounded-2xl rounded-br-sm border-2 px-3 py-2.5 text-[15px] leading-snug resize-none outline-none"
             style={{ background: mix(ctx.person(ctx.me).color, "#ffffff", 0.82), borderColor: mix(ctx.person(ctx.me).color, "#ffffff", 0.5) }} />
           <button type="button" aria-label="Send: starts the chat" onClick={start} disabled={!text.trim()}
@@ -60,7 +61,7 @@ export function NewChatSheet({ ctx, people, wolts, main, fallback, host, onStart
             className="flex-none w-[46px] h-[46px] rounded-full bg-acc grid place-items-center border-0 cursor-pointer disabled:opacity-40 disabled:cursor-default"><SendHorizontal size={22} className="text-white" /></button>
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4">
+      {!only && <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4">
         <div className={sec}>Humans</div>
         {people.map((p) => { const me = p.email === ctx.me, yes = me || folks[p.email];
           return row(p.email, personAvatar(p.name, ctx.person(p.email).color, worn.people[p.email]), p.name + (me ? " (you)" : ""), ctx.person(p.email).color, yes,
@@ -71,7 +72,7 @@ export function NewChatSheet({ ctx, people, wolts, main, fallback, host, onStart
           return row(w.wolt, woltFace(w.wolt, w.creature), w.wolt, woltColor(w.wolt, ctx.wolts), yes,
             w.paused ? "paused in the room" : byTag ? "tagged in your message" : yes ? (w.wolt === main ? "default · in this chat" : "in this chat") : "not in this chat",
             <Switch on={yes} locked={!!w.paused || byTag || !may(w)} label={`${yes ? "Leave out" : "Bring in"} ${w.wolt}`} flip={() => setAgents((s) => ({ ...s, [w.wolt]: !s[w.wolt] }))} />); })}
-      </div>
+      </div>}
       <div className="flex-none pb-[max(14px,env(safe-area-inset-bottom))]" />
     </div>
   </div>;

@@ -1,7 +1,7 @@
 // The chats on a computer screen: one column on the left, like Slack or Messages. Your wolts on top (gnawing as they do
 // everywhere), then the chats sorted by what they need from you: the ones waiting on you, the ones a wolt is working in,
 // then the rest. The phone keeps its own home; this only shows at 900px and wider.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";  // home: a lodge phone's home (Home.tsx), in place of the room's lists
 import { Menu as MenuIcon, Monitor, Plus, Search } from "lucide-react";
 import { mix, woltColor, woltFace, type Ctx } from "./Message";
 import type { Msg, State } from "./room";
@@ -16,8 +16,8 @@ type Item = { id: string; r: Msg; list: Msg[]; last: Msg; n: number; why: string
 const preview = (m: Msg) => ((m.text && m.text.replace(/\*\*|`/g, "")) || (m.files?.length ? "📎 " + m.files.map((f) => f.name).join(", ") : m.audio ? "🎤 voice note" : "")).replace(/\s+/g, " ");
 const short = (s: string) => s.replace(/ ago$/, "").replace("just now", "now");
 
-export function Sidebar({ full, onInvite, state, ctx, roots, replies, seen, current, title, menu, desk, onMenu, onDesk, onOpen, onNew, onPick, onAgent }: {
-  full?: boolean; onInvite: () => void; state: State; ctx: Ctx; roots: Msg[]; replies: Map<string, Msg[]>; seen: Record<string, number>; current: string; title: string;
+export function Sidebar({ full, home, onInvite, state, ctx, roots, replies, seen, current, title, menu, desk, onMenu, onDesk, onOpen, onNew, onPick, onAgent }: {
+  full?: boolean; home?: ReactNode; onInvite: () => void; state: State; ctx: Ctx; roots: Msg[]; replies: Map<string, Msg[]>; seen: Record<string, number>; current: string; title: string;
   menu: boolean; desk?: boolean; onMenu: () => void; onDesk?: () => void; onOpen: (id: string) => void; onNew: () => void; onPick: (who: Who) => void; onAgent: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -89,6 +89,7 @@ export function Sidebar({ full, onInvite, state, ctx, roots, replies, seen, curr
       {onDesk && <button type="button" aria-label={desk ? "Hide the terminals" : "Show the terminals"} title="desk: your wolts' terminals" onClick={onDesk}
         className={`w-9 h-9 grid place-items-center border-0 cursor-pointer rounded-lg ${desk ? "bg-acc text-white" : "bg-transparent text-acc hover:bg-[#ffffff80]"}`}><Monitor size={18} /></button>}
     </div>
+    {home ? <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">{home}</div> : <>
     <label className="flex-none mx-3 mb-2.5 flex items-center gap-2 px-2.5 py-1.5 rounded-[9px] bg-white border border-line text-dim focus-within:border-acc">
       <Search size={14} />
       <input ref={box} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setQ(""); e.currentTarget.blur(); } if (e.key === "Enter" && found[0]) { onOpen(found[0].id); setQ(""); e.currentTarget.blur(); } }}
@@ -143,6 +144,6 @@ export function Sidebar({ full, onInvite, state, ctx, roots, replies, seen, curr
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pt-2 pb-[calc(64px+env(safe-area-inset-bottom))]">
       {list.map(row)}
       {!found.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">{q ? "No chat by that name" : "No chats yet. Start one with +."}</p>}
-    </div>
+    </div></>}
   </aside>;
 }

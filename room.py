@@ -331,6 +331,46 @@ def hears_main(m, wolt):
     return not main or wolt == main or tagged(m, wolt)
 
 
+# A lodge phone's home screen: blocks, in order. Wolts rearrange it (room.py layout set FILE); it's data, never code: only
+# these blocks, these fields. The page draws it (web/src/Home.tsx).
+BLOCKS = {"search", "waiting", "working", "grid", "chats"}
+DEFAULT_LAYOUT = [{"type": "search"}, {"type": "waiting", "title": "Waiting on you"}, {"type": "working", "title": "Working now"},
+                  {"type": "grid", "title": "Your wolts", "limit": 8}, {"type": "chats", "title": "Recent", "limit": 30}]
+
+
+def check_layout(layout):
+    """The layout as stored, or a problem. Unknown blocks or fields are refused, not dropped: a wolt hears what it got wrong."""
+    if not isinstance(layout, list) or not 1 <= len(layout) <= 12:
+        return None, "a layout is a list of 1 to 12 blocks"
+    out = []
+    for b in layout:
+        if not isinstance(b, dict) or b.get("type") not in BLOCKS:
+            return None, f"each block is an object whose type is one of {sorted(BLOCKS)}"
+        extra = set(b) - {"type", "title", "wolts", "limit"}
+        if extra:
+            return None, f"unknown fields in a {b['type']} block: {sorted(extra)}"
+        if "title" in b and not (isinstance(b["title"], str) and len(b["title"]) <= 40):
+            return None, "a title is text, up to 40 characters"
+        if "wolts" in b and not (isinstance(b["wolts"], list) and len(b["wolts"]) <= 50 and all(isinstance(w, str) and len(w) <= 64 for w in b["wolts"])):
+            return None, "wolts is a list of up to 50 wolt names"
+        if "limit" in b and not (isinstance(b["limit"], int) and not isinstance(b["limit"], bool) and 1 <= b["limit"] <= 100):
+            return None, "limit is a number from 1 to 100"
+        out.append(b)
+    return out, None
+
+
+def layout_now():
+    row = q("select value from meta where key = 'layout'")
+    return json.loads(row[0]["value"]) if row else DEFAULT_LAYOUT
+
+
+def set_layout(layout):
+    with tx() as c:
+        c.execute("delete from meta where key = 'layout'")
+        if layout is not None:
+            c.execute("insert into meta values ('layout', ?)", (json.dumps(layout),))
+
+
 def set_main(wolt):
     with tx() as c:
         c.execute("delete from meta where key = 'main'")
@@ -1595,7 +1635,7 @@ def for_person(req, email):
             got, rx = reactions_since(int(rx) if rx.isdigit() else 0, {m["id"] for m in sent})
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": got, "rx": rx, **desk_for(email), "terminals": terminals() if email and email == host() else {}, "messages": sent})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": got, "rx": rx, **desk_for(email), "terminals": terminals() if email and email == host() else {}, **({"layout": layout_now()} if os.environ.get("SHELLPHONE_LODGE") or DEV else {}), "messages": sent})
         if path == "/api/page":  # a page someone opens: its HTML and its changes (see /lodge/page)
             view = page_view(q.get("id", [""])[0], after, int(q.get("v", ["0"])[0] or 0))
             return reply(200, view) if view else reply(404, {"error": "there's no such page"})
@@ -1938,6 +1978,8 @@ def main():
     s = sub.add_parser("invite"); s.add_argument("email"); s.add_argument("name"); s.add_argument("--url", required=True, help="the room's address, as their wolt will reach it")
     s.add_argument("--out", help="default: NAME-invite.txt")
     s = sub.add_parser("remove"); s.add_argument("who", help="an email or a wolt name")
+    s = sub.add_parser("layout", help="a lodge phone's home screen: show it, set it from a JSON file, or reset it")
+    s.add_argument("action", choices=["show", "set", "reset"]); s.add_argument("file", nargs="?", help="set: a JSON list of blocks")
     a = ap.parse_args()
 
     if a.cmd == "serve":
@@ -1965,6 +2007,20 @@ def main():
             print(f"WARNING: {CODE_URL}connector.py isn't reachable ({exc}). Agents can't join until this commit is on GitHub "
                   "(push it, or set SHELLPHONE_REF to a pushed commit or tag).", flush=True)
         http.server.ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()
+    elif a.cmd == "layout":
+        if a.action == "set":
+            if not a.file:
+                sys.exit("layout set FILE: a JSON list of blocks (room.py layout show prints the current one)")
+            try:
+                layout, problem = check_layout(json.loads(Path(a.file).read_text()))
+            except (OSError, ValueError) as exc:
+                sys.exit(f"couldn't read {a.file}: {exc}")
+            if problem:
+                sys.exit(f"layout refused: {problem}")
+            set_layout(layout)
+        elif a.action == "reset":
+            set_layout(None)
+        print(json.dumps(layout_now(), indent=2))
     elif a.cmd == "add-person":
         add_person(a.email, a.name)
     elif a.cmd == "add-lodge":

@@ -17,6 +17,7 @@ import { UPPER } from "./Sky";
 import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
+import { Home, chatsByWolt } from "./Home";
 import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWallpaper, ThreadHat, nameChats, named, useChatsHome, unread, rootFresh, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
@@ -686,6 +687,9 @@ export function App() {
   });
   const roots = main.filter((m) => replies.has(m.id) || (chatsHome && (m.kind === "human" || m.kind === "wolt")));
   const lobbyList = chatsHome ? main.filter((m) => !roots.includes(m)) : main;
+  const [only, setOnly] = useState("");  // a lodge phone: the new chat is a DM with this wolt
+  const homeView = state.layout ? <Home layout={state.layout} state={state} ctx={ctx} chats={chatsByWolt(roots, replies, state, seen)} onOpen={open}
+    onWolt={(w) => { const dm = chatsByWolt(roots, replies, state, seen).find((c) => c.wolt === w); if (dm) open(dm.id); else { setOnly(w); setStarting(true); } }} /> : null;
   // a chat you just started opens under the name your phone gave it, then follows it to the room's own id
   useEffect(() => { if (!thread || msgs.some((m) => m.id === thread)) return; const real = msgs.find((m) => m.cid === thread); if (real) setThread(real.id); }, [msgs, thread]);
   // a room with no threads yet opens on its chat, not on an empty list (a brand-new room, someone's first)
@@ -892,7 +896,7 @@ export function App() {
 
   // a chat started from the new-chat sheet: the first message carries who's in, so the agents picked hear it too
   async function startChat(t: string, agents: Record<string, boolean>, _people: Record<string, boolean>, title = "") {  // people: not kept by the room yet
-    setStarting(false);
+    setStarting(false); setOnly("");
     // every agent's place in it, as chosen, so the chat starts with exactly that audience (the room asks permission
     // only for a real change from where an agent already stands)
     const who: Record<string, "in" | "paused"> = {};
@@ -978,7 +982,7 @@ export function App() {
       {/* on a phone the chat list stays underneath an open chat, so swiping the chat away shows where you're going */}
       {oneUI && !roomy ? <>
         <div className="flex-1 min-w-0 flex" aria-hidden={thread ? true : undefined} inert={!!thread}>
-          <Sidebar full onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu}
+          <Sidebar full home={homeView} onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu}
             onMenu={() => setMenu(!menu)} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} /></div>
         {thread && <div ref={swipe.el} {...swipe.handlers} className="absolute inset-0 z-[20] min-w-0 flex bg-paper"><div className="flex-1 min-w-0 relative">{chatSheet(true)}
         {phoneSide && <div ref={sideSwipe.el} {...sideSwipe.handlers} onTouchStart={(e) => { e.stopPropagation(); sideSwipe.handlers.onTouchStart(e); }} className="absolute inset-0 z-[1590] flex flex-col bg-paper animate-[fadein_.15s_ease-out]">
@@ -987,14 +991,14 @@ export function App() {
             <b className="text-[15px]">About this chat</b></div>
           <div className="flex-1 min-h-0 flex [&>aside]:w-full [&>aside]:border-l-0"><ChatSide key={thread} thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} /></div>
         </div>}</div></div>}</>
-      : twoPane ? <Sidebar onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu} desk={desk}
+      : twoPane ? <Sidebar home={homeView} onInvite={() => setInviting(true)} state={state} ctx={ctx} roots={roots} replies={replies} seen={seen} current={thread} title={state.title || "shell"} menu={menu} desk={desk}
         onMenu={() => setMenu(!menu)} onDesk={wide && DESK_BUTTON ? () => setDesk(!desk) : undefined} onOpen={open} onNew={() => setStarting(true)} onPick={setWho} onAgent={() => setAdding(true)} />
       : <div ref={chatList} onTouchStart={() => { touching.current = true; cancelAnimationFrame(springing.current); springing.current = 0; if (chatList.current) chatList.current.style.overflowY = ""; }} onTouchEnd={() => { touching.current = false; tuckSky(); }} onScroll={tuckSky}
         className={`flex-1 min-h-0 overflow-y-auto overscroll-contain pb-24`}>
-        <WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
+        {homeView || <><WoltStrip inline state={state} person={person} open onClose={() => {}} onPick={setWho} />
         {chatRows({ main: [], all: [], roots: roots, replies: replies, ctx: ctx, seen: seen, current: thread,
           onMain: () => {}, onOpen: open }).rows}
-        {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}
+        {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}</>}
       </div>}
       {twoPane && <div className="flex-1 min-w-0 relative flex">{thread ? <><div className="flex-1 min-w-0 relative">{chatSheet(true)}</div>
         {sideOn && <ChatSide key={thread} thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}</> : <div className="flex-1 h-full grid place-items-center text-center px-8">
@@ -1009,7 +1013,7 @@ export function App() {
           className={"absolute right-4 bottom-[calc(18px+env(safe-area-inset-bottom))] z-[1400] flex items-center gap-1.5 h-14 pl-4 pr-5 rounded-full border-0 bg-acc text-white font-mono font-bold text-[15px] shadow-[0_4px_14px_#18100a40] cursor-pointer active:scale-95 transition-transform"}>
           <span className="text-2xl leading-none">＋</span>New chat</button>
         : composer)}
-      {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} fallback={state.who_default} host={state.host} onStart={startChat} onClose={() => setStarting(false)} />}
+      {starting && <NewChatSheet ctx={ctx} people={state.members.people} wolts={state.members.wolts} main={state.main} fallback={state.who_default} host={state.host} only={only || undefined} onStart={startChat} onClose={() => { setStarting(false); setOnly(""); }} />}
       {listOpen && <InboxSheet top={hdrH} main={mainFresh} all={main.filter((m) => m.kind === "human" || m.kind === "wolt")} roots={roots} replies={replies} ctx={ctx} seen={seen} current={thread}
         onMain={() => { setListOpen(false); setThread(""); stickMain.current(); }} onOpen={(id) => { setListOpen(false); open(id); }} onClose={() => setListOpen(false)} />}
       {thread && !oneUI && chatSheet(false)}

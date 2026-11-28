@@ -34,6 +34,21 @@ restart the lodge yourself.
    `notify --to shellphone:<your name>`.
 3. `/sessions` in any chat lists sessions.
 
+## Change the home screen
+The phone's home is a list of blocks your human can ask you to rearrange: `search`, `waiting` (chats where a
+wolt answered and they haven't read it), `working` (wolts busy now), `grid` (wolt faces) and `chats` (recent).
+Each block takes `title`, `limit` (1-100), and `grid` takes `wolts` (names, in order). Nothing else: the room
+refuses unknown blocks or fields, and nothing you write is drawn as HTML.
+
+```bash
+cd <wolts_dir>/apps/lodgephone
+python3 room.py layout show            # the current one
+python3 room.py layout set home.json   # a JSON list of blocks; open phones redraw within seconds
+python3 room.py layout reset           # back to the default
+```
+
+Example: `[{"type":"search"},{"type":"grid","title":"Favourites","wolts":["astre","softie"]},{"type":"waiting"},{"type":"chats","limit":20}]`
+
 ## What not to do
 - Never print `<wolts_dir>/.space/shellphone/keys.json` or the app's `.access.env`.
 - Don't add other people: this phone is for one person. Group chats are shellphone rooms, not this.
