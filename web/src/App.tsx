@@ -956,13 +956,14 @@ export function App() {
     onClick={(e) => { e.stopPropagation(); flipFeed.current(); const on = !humansOn; setHumansOn(on); try { localStorage.setItem("humans", on ? "1" : "0"); } catch { /* private mode */ } }}
     className={`flex-none flex items-center gap-1.5 rounded-full border bg-paper pl-2.5 pr-1 py-[3px] font-mono text-[11.5px] font-semibold cursor-pointer transition-colors ${humansOn ? "border-go text-ink" : "border-line text-dim"}`}>
     Humans<i className={`relative block w-[30px] h-[18px] rounded-full transition-colors ${humansOn ? "bg-go" : "bg-line"}`}><i className={`absolute top-[2px] block w-[14px] h-[14px] rounded-full bg-white shadow-[0_1px_2px_#18100a40] transition-[left] ${humansOn ? "left-[14px]" : "left-[2px]"}`} /></i></button>;
+  const solo = !!state.layout;  // a lodge phone: every chat is you and one wolt, so no members, switches or side panel
   const chatSheet = (docked: boolean) => (
-<ThreadSheet key={thread} docked={docked} side={docked ? (roomy ? { on: sideOn, flip: () => setSide(!sideOn) } : { on: phoneSide, flip: () => setPhoneSide(!phoneSide) }) : undefined} back={docked && !roomy} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={docked ? undefined : threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
-        extra={humansSwitch} who={<><ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
+<ThreadSheet key={thread} docked={docked} side={docked && !solo ? (roomy ? { on: sideOn, flip: () => setSide(!sideOn) } : { on: phoneSide, flip: () => setPhoneSide(!phoneSide) }) : undefined} back={docked && !roomy} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={docked ? undefined : threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
+        extra={solo ? undefined : humansSwitch} who={solo ? undefined : <><ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} /></>}>
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={docked ? { ...ctx, rows: true, tint: threadColor(thread) } : ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} humans={humansOn} flip={flipFeed} />
         {/* a chat just started: who will pick it up, and how to bring someone else in */}
-        {chatsHome && root && root.kind !== "wolt" && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
+        {chatsHome && !solo && root && root.kind !== "wolt" && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
           New chat started{state.main && state.who?.[thread]?.[state.main] !== "paused" ? <>. <b className="text-ink">{state.main}</b> sees it and will pick it up</> : ""}. Tag <b className="text-ink">@a wolt</b> to bring it in.</p>}
         {composer}
       </ThreadSheet>
@@ -1011,7 +1012,7 @@ export function App() {
         {!roots.length && <p className="text-center text-dim font-mono text-xs mt-6 px-6">No chats yet. Start one below.</p>}</>}
       </div>}
       {twoPane && <div className="flex-1 min-w-0 relative flex">{thread ? <><div className="flex-1 min-w-0 relative">{chatSheet(true)}</div>
-        {sideOn && <ChatSide key={thread} thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}</> : <div className="flex-1 h-full grid place-items-center text-center px-8">
+        {sideOn && !solo && <ChatSide key={thread} thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx} room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} />}</> : <div className="flex-1 h-full grid place-items-center text-center px-8">
         <div><div className="font-mono text-acc font-semibold">Pick a chat</div><div className="text-dim text-[13px] mt-1">or start a new one.</div></div></div>}</div>}
       </div> : <>
         {chatsHome && <button type="button" onClick={() => setLobby(false)} className="flex-none flex items-center gap-1 px-3 py-2 border-0 border-b border-line bg-panel font-mono text-[12px] text-acc text-left cursor-pointer">
