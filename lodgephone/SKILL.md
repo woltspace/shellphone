@@ -49,6 +49,19 @@ python3 room.py layout reset           # back to the default
 
 Example: `[{"type":"search"},{"type":"grid","title":"Favourites","wolts":["astre","softie"]},{"type":"waiting"},{"type":"chats","limit":20}]`
 
+## Your status, pinned on your chat
+Keep `wolt/site/status.json` current: the phone pins it on top of your chat with your human (one line; tap for more).
+Update it when what you're on changes, when you need a decision, and when you're done.
+
+```json
+{"now": "Fixing the login bug",
+ "waiting": [{"ask": "Ship the fix tonight?", "choices": ["Ship it", "Tomorrow"]}],
+ "next": ["Write the test", "Open the PR"]}
+```
+
+Words only (now ≤140 chars, up to 3 questions with up to 4 answers, up to 6 next). A tapped answer reaches you as
+their message. No file, or an empty one: nothing pinned.
+
 ## What not to do
 - Never print `<wolts_dir>/.space/shellphone/keys.json` or the app's `.access.env`.
 - Don't add other people: this phone is for one person. Group chats are shellphone rooms, not this.

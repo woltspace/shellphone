@@ -997,6 +997,39 @@ def active_wolts():
     return _active["wolts"]
 
 
+_status = {"at": 0.0, "all": {}}
+
+
+def check_status(d):
+    """A wolt's status as the phone shows it, or None. Words only (the page draws them as text): now, what it waits on
+    you for (a question and up to 4 answers to tap), next (up to 6)."""
+    if not isinstance(d, dict):
+        return None
+    words = lambda x, n: x.strip()[:n] if isinstance(x, str) and x.strip() else ""
+    out = {"now": words(d.get("now"), 140)}
+    out["waiting"] = [{"ask": words(w.get("ask"), 200), "choices": [words(c, 40) for c in (w.get("choices") or [])[:4] if words(c, 40)]}
+                      for w in (d.get("waiting") or [])[:3] if isinstance(w, dict) and words(w.get("ask"), 200)]
+    out["next"] = [words(n, 120) for n in (d.get("next") or [])[:6] if words(n, 120)]
+    return out if out["now"] or out["waiting"] or out["next"] else None
+
+
+def wolt_statuses():
+    """A lodge phone: each wolt's own status (wolt/site/status.json on its site, which it keeps), every 20 s at most."""
+    if time.time() - _status["at"] > 20:
+        _status["at"] = time.time()
+        found = {}
+        for l in wolts():
+            try:
+                with urllib.request.urlopen(LODGE_API + f"/wolt/{urllib.parse.quote(l['wolt'])}/site/status.json", timeout=2) as r:
+                    got = check_status(json.loads(r.read(20_000)))
+                if got:
+                    found[l["wolt"]] = got
+            except Exception:
+                pass  # no status, or not readable: nothing pinned
+        _status["all"] = found
+    return _status["all"]
+
+
 def wolt_sessions(wolt):
     """A lodge phone: the wolt's live sessions on the host's own lodge (name, title, what it's on, when, its terminal)."""
     try:
@@ -1672,7 +1705,7 @@ def for_person(req, email):
             got, rx = reactions_since(int(rx) if rx.isdigit() else 0, {m["id"] for m in sent})
             if q.get("here") == ["1"]:  # the page is on screen: it sees new messages itself
                 ACTIVE[email] = time.time()
-            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": got, "rx": rx, **desk_for(email), "terminals": terminals() if email and email == host() else {}, **({"layout": layout_now(), **({"active": active_wolts()} if email == host() else {})} if os.environ.get("SHELLPHONE_LODGE") or DEV else {}), "messages": sent})
+            return reply(200, {"version": page_version(), "title": title(), "me": email, "host": host(), "members": members(), "working": working_now(), "working_in": working_in_now(), "unreachable": unreachable_now(), "seen": receipts(), "pages": pages_now(), "who": who_now(), "who_default": WHO_DEFAULT, "main": main_wolt(), "looks": looks_now(), "faces": faces_now(), "names": chat_names(), "reactions": got, "rx": rx, **desk_for(email), "terminals": terminals() if email and email == host() else {}, **({"layout": layout_now(), **({"active": active_wolts(), "status": wolt_statuses()} if email == host() else {})} if os.environ.get("SHELLPHONE_LODGE") or DEV else {}), "messages": sent})
         if path == "/api/sessions":  # a lodge phone: one wolt's sessions, for its card (the host's own lodge: the host only)
             if not (os.environ.get("SHELLPHONE_LODGE") or DEV) or email != host():
                 return reply(404, {"error": "not found"})

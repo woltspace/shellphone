@@ -18,6 +18,7 @@ import { AddAgentSheet } from "./AddAgent";
 import { ThreadWho } from "./ThreadWho";
 import { NewChatSheet } from "./NewChat";
 import { Home, chatsByWolt } from "./Home";
+import { StatusPin } from "./Status";
 import { InboxSheet, ThreadFooter, chatRows, threadColor, threadTitle, threadWallpaper, ThreadHat, nameChats, named, useChatsHome, unread, rootFresh, useSeen } from "./Threads";
 import { Menu } from "./Menu";
 import { PageViewer } from "./Page";
@@ -900,9 +901,13 @@ export function App() {
   function talkTo(wolt: string, name: string) {
     const dm = chatsByWolt(roots, replies, state, seen).find((c) => c.wolt === wolt), text = `/talk ${name}`;
     if (!dm) { startChat(text, { [wolt]: true }, {}, ""); return; }
-    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, thread: dm.id };
-    setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text, pending: true, thread: dm.id }]);
-    setWho(""); setThread(dm.id); sendTyped(o);
+    setWho(""); setThread(dm.id); sayIn(dm.id, text);
+  }
+  // your words, sent in a chat (a tapped answer, a /talk)
+  function sayIn(t: string, text: string) {
+    const o: Typed = { cid: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, thread: t };
+    setMsgs((m) => [...m, { id: o.cid, cid: o.cid, n: after.current + 0.9, at: Date.now() / 1000, kind: "human", email: state.me, text, pending: true, thread: t }]);
+    sendTyped(o);
   }
   // a chat started from the new-chat sheet: the first message carries who's in, so the agents picked hear it too
   async function startChat(t: string, agents: Record<string, boolean>, _people: Record<string, boolean>, title = "") {  // people: not kept by the room yet
@@ -961,6 +966,8 @@ export function App() {
 <ThreadSheet key={thread} docked={docked} side={docked && !solo ? (roomy ? { on: sideOn, flip: () => setSide(!sideOn) } : { on: phoneSide, flip: () => setPhoneSide(!phoneSide) }) : undefined} back={docked && !roomy} startFull={chatsHome} chat={chatsHome} name={threadTitle(root)} onRename={guestMe ? undefined : (n) => renameChat(thread, n)} color={threadColor(thread)} wallpaper={docked ? undefined : threadWallpaper(thread)} title={<><ThreadHat id={thread} className="w-5 h-5 mr-1.5" />{threadTitle(root)}</>} count={(replies.get(thread) || []).length} close={() => { const was = thread; setThread((t) => (t === was ? "" : t)); }}
         extra={solo ? undefined : humansSwitch} who={solo ? undefined : <><ThreadWho thread={thread} list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={ctx}
           room={state.who ? state.who[thread] || {} : undefined} fallback={state.who_default} host={state.host} main={state.main} /></>}>
+        {solo && (() => { const w = chatsByWolt(root ? [root] : [], replies, state, seen)[0]?.wolt, st = w ? state.status?.[w] : undefined;
+          return st ? <StatusPin key={w} status={st} answer={(text) => sayIn(thread, text)} /> : null; })()}
         <Feed list={root ? [root, ...(replies.get(thread) || [])] : []} ctx={docked ? { ...ctx, rows: true, tint: threadColor(thread) } : ctx} working={state.working || {}} away={state.unreachable} divider={chatsHome ? undefined : (replies.get(thread) || []).length} stick={stickThread} place={thread} humans={humansOn} flip={flipFeed} />
         {/* a chat just started: who will pick it up, and how to bring someone else in */}
         {chatsHome && !solo && root && root.kind !== "wolt" && !(replies.get(thread) || []).length && <p className="flex-none mx-4 mb-2 px-3 py-2 rounded-xl bg-panel border border-line text-center text-[13px] text-dim">
